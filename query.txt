@@ -1,0 +1,26 @@
+SELECT 
+    fromUnixTimestamp(Timestamp) AS t,          
+    Path AS metric,   
+    Value as value                
+FROM 
+    default.graphite_data 
+WHERE 
+    Path LIKE 'prod.%' 
+
+ORDER BY 
+    Timestamp ASC; 
+
+
+---
+SELECT
+  toStartOfInterval(toDateTime(Timestamp), INTERVAL 1 minute) AS time,
+  sum(Value) AS total_connections
+FROM
+  default.graphite_data
+WHERE
+  Path LIKE 'prod.%.network.%'
+  AND toDateTime(Timestamp) >= now() - INTERVAL 1 hour
+GROUP BY
+  time
+ORDER BY
+  time

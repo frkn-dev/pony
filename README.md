@@ -1,4 +1,5 @@
 ## Pony - monitoring agent for Xray/Wiregard
+(pony means ponytoring)
 
 Collects metrics on lowlevel and sends to Carbon 
 

@@ -5,6 +5,8 @@ on:
     branches: [ "main" ]
   pull_request:
     branches: [ "main" ]
+  release:
+    types: [ created ]
 
 env:
   CARGO_TERM_COLOR: always
@@ -27,6 +29,18 @@ jobs:
       - name: Build
         run: cargo build --all --release && strip target/release/pony && mv target/release/pony target/release/pony_amd64
 
+      - name: Extract version from Cargo.toml
+        id: extract_version
+        run: |
+          version=$(grep '^version =' Cargo.toml | sed 's/version = //; s/"//g')
+          echo "version=${version}" >> $GITHUB_ENV
+
+      - name: Create Release
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          git tag ${{ env.version }}
+          git push origin ${{ env.version }}
+
       - name: Release
         uses: softprops/action-gh-release@v1
         if: startsWith(github.ref, 'refs/tags/')
@@ -35,4 +49,3 @@ jobs:
             target/release/pony_amd64
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-

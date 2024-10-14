@@ -2,7 +2,7 @@ use log::info;
 use std::{fmt, thread, time};
 use sysinfo::Networks;
 
-use crate::config2::AppConfig;
+use crate::config2::Settings;
 use crate::metrics::{AsMetric, Metric};
 use crate::utils::{current_timestamp, send_to_carbon};
 
@@ -38,10 +38,10 @@ impl fmt::Display for Bandwidth {
 impl AsMetric for Bandwidth {
     type Output = u64;
 
-    fn as_metric(&self, interface: &str, settings: AppConfig) -> Vec<Metric<u64>> {
+    fn as_metric(&self, interface: &str, settings: Settings) -> Vec<Metric<u64>> {
         let timestamp = current_timestamp();
-        let h = &settings.hostname;
-        let env = &settings.env;
+        let h = &settings.app.hostname;
+        let env = &settings.app.env;
 
         vec![
             Metric {
@@ -68,7 +68,7 @@ impl AsMetric for Bandwidth {
     }
 }
 
-pub async fn bandwidth_metrics(server: String, settings: AppConfig) {
+pub async fn bandwidth_metrics(server: String, settings: Settings) {
     info!("Starting bandwidth metric loop");
     let mut networks = Networks::new_with_refreshed_list();
 
@@ -76,7 +76,7 @@ pub async fn bandwidth_metrics(server: String, settings: AppConfig) {
         let _ = networks.refresh();
         let res = networks
             .iter()
-            .find(|&(interface, _)| interface == &settings.iface);
+            .find(|&(interface, _)| interface == &settings.app.iface);
 
         match res {
             Some((interface, data)) => {
@@ -92,8 +92,8 @@ pub async fn bandwidth_metrics(server: String, settings: AppConfig) {
                     let _ = send_to_carbon(&metric, &server).await;
                 }
             }
-            None => println!("Interface '{}' not found.", &settings.iface),
+            None => println!("Interface '{}' not found.", &settings.app.iface),
         }
-        thread::sleep(time::Duration::from_secs(settings.metrics_delay));
+        thread::sleep(time::Duration::from_secs(settings.app.metrics_delay));
     }
 }

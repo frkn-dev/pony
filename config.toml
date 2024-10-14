@@ -1,16 +1,23 @@
 [carbon]
-address = "10.0.0.1:2003"
+#address = "10.0.0.1:2003"
 
 [app]
-env = "dev"
-hostname = "localhost"
+#env = "dev"
+#hostname = "localhost"
 iface = "en0"
-xray_vmess_port = 8081
-xray_vless_port = 2053
-xray_ss_port = 1080
-metrics_delay = 1
+#metrics_delay = 1
+
+[xray]
+enabled = true
+vmess_port = 8081
+vless_port = 2053
+ss_port = 1080
+
+[wg]
+enabled = true
+#port = 51820
 
 [logging]
-level = "info"  
-file = "pony.log"
+#level = "info"  
+#file = "pony.log"
 

@@ -1,5 +1,5 @@
-use serde_json::Value;
 use reqwest::Client;
+use serde_json::Value;
 use std::error::Error;
 
 pub struct Locator {

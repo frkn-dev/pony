@@ -2,7 +2,7 @@ use log::info;
 use std::{thread, time};
 use sysinfo::{LoadAvg, System};
 
-use crate::config2::AppConfig;
+use crate::config2::Settings;
 use crate::metrics::{AsMetric, Metric};
 use crate::utils::{current_timestamp, send_to_carbon};
 
@@ -13,10 +13,10 @@ struct LoadAvgWrapper {
 impl AsMetric for LoadAvgWrapper {
     type Output = f64;
 
-    fn as_metric(&self, name: &str, settings: AppConfig) -> Vec<Metric<f64>> {
+    fn as_metric(&self, name: &str, settings: Settings) -> Vec<Metric<f64>> {
         let timestamp = current_timestamp();
-        let h = &settings.hostname;
-        let env = &settings.env;
+        let h = &settings.app.hostname;
+        let env = &settings.app.env;
 
         vec![
             Metric {
@@ -38,7 +38,7 @@ impl AsMetric for LoadAvgWrapper {
     }
 }
 
-pub async fn loadavg_metrics(server: String, settings: AppConfig) {
+pub async fn loadavg_metrics(server: String, settings: Settings) {
     info!("Starting loadavg metric loop");
 
     loop {
@@ -47,6 +47,6 @@ pub async fn loadavg_metrics(server: String, settings: AppConfig) {
         for metric in wrapper.as_metric("loadavg", settings.clone()) {
             let _ = send_to_carbon(&metric, &server).await;
         }
-        thread::sleep(time::Duration::from_secs(settings.metrics_delay));
+        thread::sleep(time::Duration::from_secs(settings.app.metrics_delay));
     }
 }

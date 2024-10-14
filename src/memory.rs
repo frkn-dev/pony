@@ -2,7 +2,7 @@ use log::info;
 use std::{thread, time};
 use sysinfo::{MemoryRefreshKind, System};
 
-use crate::config2::AppConfig;
+use crate::config2::Settings;
 use crate::metrics::{AsMetric, Metric};
 use crate::utils::{current_timestamp, send_to_carbon};
 
@@ -13,10 +13,10 @@ struct MemUsage {
 
 impl AsMetric for MemUsage {
     type Output = u64;
-    fn as_metric(&self, name: &str, settings: AppConfig) -> Vec<Metric<u64>> {
+    fn as_metric(&self, name: &str, settings: Settings) -> Vec<Metric<u64>> {
         let timestamp = current_timestamp();
-        let h = &settings.hostname;
-        let env = &settings.env;
+        let h = &settings.app.hostname;
+        let env = &settings.app.env;
 
         vec![
             Metric {
@@ -33,7 +33,7 @@ impl AsMetric for MemUsage {
     }
 }
 
-pub async fn mem_metrics(server: String, settings: AppConfig) {
+pub async fn mem_metrics(server: String, settings: Settings) {
     info!("Starting memory metric loop");
 
     loop {
@@ -49,6 +49,6 @@ pub async fn mem_metrics(server: String, settings: AppConfig) {
             let _ = send_to_carbon(&metric, &server).await;
         }
 
-        thread::sleep(time::Duration::from_secs(settings.metrics_delay));
+        thread::sleep(time::Duration::from_secs(settings.app.metrics_delay));
     }
 }

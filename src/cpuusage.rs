@@ -2,7 +2,7 @@ use log::info;
 use std::{fmt, time};
 use sysinfo::{CpuRefreshKind, RefreshKind, System};
 
-use crate::config2::AppConfig;
+use crate::config2::Settings;
 use crate::metrics::{AsMetric, Metric};
 use crate::utils::{current_timestamp, round_to_two_decimal_places, send_to_carbon};
 
@@ -33,10 +33,10 @@ impl fmt::Display for CpuUsage<'_> {
 impl AsMetric for CpuUsage<'_> {
     type Output = f32;
 
-    fn as_metric(&self, name: &str, settings: AppConfig) -> Vec<Metric<f32>> {
+    fn as_metric(&self, name: &str, settings: Settings) -> Vec<Metric<f32>> {
         let timestamp = current_timestamp();
-        let h = &settings.hostname;
-        let env = &settings.env;
+        let h = &settings.app.hostname;
+        let env = &settings.app.env;
 
         vec![Metric {
             path: format!("{env}.{h}.cpu_usage.{name}.percentage"),
@@ -46,14 +46,14 @@ impl AsMetric for CpuUsage<'_> {
     }
 }
 
-pub async fn cpu_metrics(server: String, settings: AppConfig) {
+pub async fn cpu_metrics(server: String, settings: Settings) {
     info!("Starting cpu metric loop");
 
     loop {
         let mut s =
             System::new_with_specifics(RefreshKind::new().with_cpu(CpuRefreshKind::everything()));
 
-        std::thread::sleep(time::Duration::from_secs(settings.metrics_delay));
+        std::thread::sleep(time::Duration::from_secs(settings.app.metrics_delay));
         let _ = s.refresh_cpu_all();
 
         for cpu in s.cpus() {

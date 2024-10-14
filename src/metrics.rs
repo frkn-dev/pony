@@ -1,12 +1,12 @@
 use crate::fmt;
 use serde::{Deserialize, Serialize};
 
-use crate::config2::AppConfig;
+use crate::config2::Settings;
 
 pub trait AsMetric {
     type Output;
 
-    fn as_metric(&self, name: &str, settings: AppConfig) -> Vec<Metric<Self::Output>>;
+    fn as_metric(&self, name: &str, settings: Settings) -> Vec<Metric<Self::Output>>;
 }
 
 #[derive(Serialize, Deserialize)]

@@ -1,7 +1,6 @@
-
-use std::io;
 use log::{error, info, warn, LevelFilter};
 use std::error::Error;
+use std::io;
 use std::net::SocketAddr;
 
 use chrono::{TimeZone, Utc};
@@ -80,11 +79,10 @@ fn trim_quotes(s: &str) -> String {
 }
 
 fn parse_ip(ip: &str) -> Result<String, Box<dyn Error + 'static>> {
-    
     if let Ok(ip_addr) = ip.parse::<IpAddr>() {
         return Ok(ip_addr.to_string());
     }
-    
+
     match ip.parse::<SocketAddr>() {
         Ok(socket_addr) => {
             let ip: IpAddr = socket_addr.ip();
@@ -96,12 +94,12 @@ fn parse_ip(ip: &str) -> Result<String, Box<dyn Error + 'static>> {
 
 pub async fn country(ip: String) -> Result<String, Box<dyn Error>> {
     let parsed_ip = parse_ip(&ip)?;
-    
+
     let country_info = geoip::find(&remove_prefix(&parsed_ip))
-        .await.map_err(|_| "Failed to find country by IP")?;
+        .await
+        .map_err(|_| "Failed to find country by IP")?;
 
     let country = trim_quotes(&country_info.country);
-    
+
     Ok(country)
 }
-

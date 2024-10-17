@@ -1,6 +1,8 @@
 use log::info;
-use std::{fmt, time};
+use std::fmt;
+use std::time::Duration;
 use sysinfo::{CpuRefreshKind, RefreshKind, System};
+use tokio::time::sleep;
 
 use crate::config2::Settings;
 use crate::metrics::{AsMetric, Metric};
@@ -53,9 +55,9 @@ pub async fn cpu_metrics(server: String, settings: Settings) {
         let mut s =
             System::new_with_specifics(RefreshKind::new().with_cpu(CpuRefreshKind::everything()));
 
-        std::thread::sleep(time::Duration::from_secs(settings.app.metrics_delay));
-        let _ = s.refresh_cpu_all();
+        sleep(Duration::from_secs(settings.app.metrics_delay)).await;
 
+        let _ = s.refresh_cpu_all();
         for cpu in s.cpus() {
             let metric = CpuUsage {
                 name: cpu.name(),

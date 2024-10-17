@@ -41,6 +41,10 @@ fn default_carbon_server() -> String {
     "localhost:2003".to_string()
 }
 
+fn default_ch_server() -> String {
+    "http://localhost:8123".to_string()
+}
+
 fn default_loglevel() -> String {
     "debug".to_string()
 }
@@ -62,6 +66,12 @@ pub struct CarbonConfig {
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]
+pub struct ChConfig {
+    #[serde(default = "default_ch_server")]
+    pub address: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Default)]
 pub struct LoggingConfig {
     #[serde(default = "default_loglevel")]
     pub level: String,
@@ -79,6 +89,10 @@ pub struct AppConfig {
     pub iface: String,
     #[serde(default = "default_metrics_delay")]
     pub metrics_delay: u64,
+    #[serde(default = "default_enabled")]
+    pub api_mode: bool,
+    #[serde(default = "default_enabled")]
+    pub metrics_mode: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]
@@ -94,7 +108,7 @@ pub struct XrayConfig {
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]
-pub struct WireguardgConfig {
+pub struct WgConfig {
     #[serde(default = "default_enabled")]
     pub enabled: bool,
     #[serde(default = "default_wg_port")]
@@ -105,6 +119,7 @@ pub struct WireguardgConfig {
 pub struct Settings {
     #[serde(default)]
     pub carbon: CarbonConfig,
+    pub clickhouse: ChConfig,
     #[serde(default)]
     pub logging: LoggingConfig,
     #[serde(default)]
@@ -112,7 +127,7 @@ pub struct Settings {
     #[serde(default)]
     pub xray: XrayConfig,
     #[serde(default)]
-    pub wg: WireguardgConfig,
+    pub wg: WgConfig,
 }
 
 impl Settings {

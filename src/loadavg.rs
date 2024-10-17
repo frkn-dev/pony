@@ -1,6 +1,7 @@
 use log::info;
-use std::{thread, time};
+use std::time::Duration;
 use sysinfo::{LoadAvg, System};
+use tokio::time::sleep;
 
 use crate::config2::Settings;
 use crate::metrics::{AsMetric, Metric};
@@ -47,6 +48,6 @@ pub async fn loadavg_metrics(server: String, settings: Settings) {
         for metric in wrapper.as_metric("loadavg", settings.clone()) {
             let _ = send_to_carbon(&metric, &server).await;
         }
-        thread::sleep(time::Duration::from_secs(settings.app.metrics_delay));
+        sleep(Duration::from_secs(settings.app.metrics_delay)).await;
     }
 }

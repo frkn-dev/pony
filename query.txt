@@ -24,3 +24,29 @@ GROUP BY
   time
 ORDER BY
   time
+
+
+SELECT anyLast(Date) AS latest_t, Path
+FROM graphite_index
+GROUP BY Path;
+
+
+SELECT anyLast(Level) as level, anyLast(Date) AS latest_t, Path as metric　FROM graphite_index WHERE metric like 'dev%connections%' and Level = '4' GROUP BY metric;
+
+
+"SELECT toInt64(toUnixTimestamp(toDateTime(anyLast(Date)))) AS latest, 
+            Path as metric,
+            toFloat64(anyLast(Value)) as value 
+     FROM default.graphite_data 
+     WHERE metric 
+     LIKE 'dev.mk2%connections.%'
+     GROUP BY metric";
+
+
+     SELECT
+                          toInt64(toUnixTimestamp(toDateTime(anyLast(Date)))) AS latest,
+                          Path AS metric,
+                          toFloat64(anyLast(Value)) AS value
+                        FROM default.graphite_data
+                        WHERE metric LIKE 'dev.mk2%bps'
+                        GROUP BY metric

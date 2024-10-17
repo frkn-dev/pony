@@ -17,4 +17,9 @@ chrono = "0.4"
 reqwest = "0.12"
 toml = "0.7"
 futures = "0.3"
+actix-web = "4"
+dotenv = "0.15"
+clickhouse = "0.13.0"
+clap = { version = "4.0", features = ["derive"] }
+time = "0.3"
 

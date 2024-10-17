@@ -1,8 +1,8 @@
 use log::{debug, info};
-use tokio::task::JoinHandle;
 use netstat2::{get_sockets_info, AddressFamilyFlags, ProtocolFlags, ProtocolSocketInfo, TcpState};
 use std::time::Duration;
 use std::{collections::HashMap, collections::HashSet};
+use tokio::task::JoinHandle;
 use tokio::time::sleep;
 
 use crate::config2::Settings;
@@ -35,17 +35,17 @@ impl AsMetric for XrayConnections {
 
         vec![
             Metric {
-                path: format!("{env}.{h}.{name}.vmess.connections"),
+                path: format!("{env}.{h}.{name}.vmess"),
                 value: self.vmess,
                 timestamp,
             },
             Metric {
-                path: format!("{env}.{h}.{name}.vless.connections"),
+                path: format!("{env}.{h}.{name}.vless"),
                 value: self.vless,
                 timestamp,
             },
             Metric {
-                path: format!("{env}.{h}.{name}.ss.connections"),
+                path: format!("{env}.{h}.{name}.ss"),
                 value: self.ss,
                 timestamp,
             },
@@ -66,16 +66,13 @@ impl AsMetric for WgConnections {
         let h = &settings.app.hostname;
         let env = &settings.app.env;
 
-        vec![
-            Metric {
-                path: format!("{env}.{h}.{name}.connections"),
-                value: self.connections,
-                timestamp,
-            },
-        ]
+        vec![Metric {
+            path: format!("{env}.{h}.{name}.wg"),
+            value: self.connections,
+            timestamp,
+        }]
     }
 }
-
 
 fn filter_unique_by_remote_addr(connections: &HashSet<ConnectionInfo>) -> HashSet<ConnectionInfo> {
     let mut seen_remote_addrs = HashSet::new();
@@ -109,14 +106,14 @@ fn port_connections_data(target_port: u16) -> HashSet<ConnectionInfo> {
                     });
                 }
             }
-             ProtocolSocketInfo::Udp(udp_si) => { 
+            ProtocolSocketInfo::Udp(udp_si) => {
                 if udp_si.local_port == target_port {
                     connections.insert(ConnectionInfo {
                         local_addr: udp_si.local_addr.to_string(),
                         local_port: udp_si.local_port,
                         remote_addr: "null".to_string(),
                         remote_port: 0,
-                        state: "UDP".to_string(), 
+                        state: "UDP".to_string(),
                     });
                 }
             }
@@ -149,7 +146,7 @@ async fn send_to_carbon_country_metric(
 
     for (country, count) in country_data.await {
         let metric = Metric::new(
-            format!("{env}.{hostname}.{name}.geo.{country}.connections"),
+            format!("{env}.{hostname}.{name}.connections.geo.{country}"),
             count,
             current_timestamp(),
         );
@@ -166,32 +163,30 @@ pub async fn connections_metric(server: String, settings: Settings) {
     info!("Starting connections metric loop");
 
     loop {
-
         let mut tasks: Vec<JoinHandle<()>> = vec![];
 
         if settings.xray.enabled {
-
             let vmess_connections = port_connections_data(settings.xray.vmess_port);
             let unique_vmess_connections = filter_unique_by_remote_addr(&vmess_connections);
-    
+
             let vless_data_connections = port_connections_data(settings.xray.vless_port);
             let unique_vless_connections = filter_unique_by_remote_addr(&vless_data_connections);
-    
+
             let ss_data_connections = port_connections_data(settings.xray.ss_port);
             let unique_ss_connections = filter_unique_by_remote_addr(&ss_data_connections);
-    
+
             let xray_connections = XrayConnections {
                 vmess: unique_vmess_connections.len() as u64,
                 vless: unique_vless_connections.len() as u64,
                 ss: unique_ss_connections.len() as u64,
             };
-    
-            for metric in xray_connections.as_metric("xray", settings.clone()) {
+
+            for metric in xray_connections.as_metric("connections", settings.clone()) {
                 if let Err(e) = send_to_carbon(&metric, &server).await {
                     log::error!("Failed to send connection metric: {}", e);
                 }
             }
-    
+
             tasks.push(tokio::spawn(send_to_carbon_country_metric(
                 settings.clone(),
                 unique_vmess_connections.clone(),
@@ -210,24 +205,21 @@ pub async fn connections_metric(server: String, settings: Settings) {
                 "ss",
                 server.clone(),
             )));
-
         }
 
-        if settings.wg.enabled{
+        if settings.wg.enabled {
             let wg_connections_data = port_connections_data(settings.wg.port);
             let wg_connections = WgConnections {
                 connections: wg_connections_data.len() as u64,
             };
-            for metric in wg_connections.as_metric("wg", settings.clone()) {
+            for metric in wg_connections.as_metric("connections", settings.clone()) {
                 if let Err(e) = send_to_carbon(&metric, &server).await {
                     log::error!("Failed to send connection metric: {}", e);
                 }
             }
-            
         }
 
         let _ = futures::future::try_join_all(tasks).await;
-
 
         sleep(Duration::from_secs(settings.app.metrics_delay)).await;
     }

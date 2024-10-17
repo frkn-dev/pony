@@ -1,6 +1,7 @@
 use log::info;
-use std::{thread, time};
+use std::time::Duration;
 use sysinfo::{MemoryRefreshKind, System};
+use tokio::time::sleep;
 
 use crate::config2::Settings;
 use crate::metrics::{AsMetric, Metric};
@@ -49,6 +50,6 @@ pub async fn mem_metrics(server: String, settings: Settings) {
             let _ = send_to_carbon(&metric, &server).await;
         }
 
-        thread::sleep(time::Duration::from_secs(settings.app.metrics_delay));
+        sleep(Duration::from_secs(settings.app.metrics_delay)).await;
     }
 }

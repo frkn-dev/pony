@@ -1,9 +1,14 @@
 [carbon]
-#address = "10.0.0.1:2003"
+#address = "localhost:2003"
+
+[clickhouse]
+#address = "http://localhost:8123"
 
 [app]
 #env = "dev"
 #hostname = "localhost"
+#api_mode = true
+metrics_mode = true
 iface = "en0"
 #metrics_delay = 1
 

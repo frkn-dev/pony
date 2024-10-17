@@ -39,7 +39,7 @@ impl<T: fmt::Display> fmt::Display for Metric<T> {
 impl<T: ToString> Metric<T> {
     pub fn to_string(&self) -> String {
         format!(
-            "{} {} {}\nf",
+            "{} {} {}\n",
             self.path,
             self.value.to_string(),
             self.timestamp

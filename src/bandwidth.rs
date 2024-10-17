@@ -1,6 +1,8 @@
 use log::info;
-use std::{fmt, thread, time};
+use std::fmt;
+use std::time::Duration;
 use sysinfo::Networks;
+use tokio::time::sleep;
 
 use crate::config2::Settings;
 use crate::metrics::{AsMetric, Metric};
@@ -94,6 +96,6 @@ pub async fn bandwidth_metrics(server: String, settings: Settings) {
             }
             None => println!("Interface '{}' not found.", &settings.app.iface),
         }
-        thread::sleep(time::Duration::from_secs(settings.app.metrics_delay));
+        sleep(Duration::from_secs(settings.app.metrics_delay)).await;
     }
 }

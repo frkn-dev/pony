@@ -1,2 +1,8 @@
+.DS_Store
+config-metrics.toml
+config-metrics2.toml
+query.txt
 target
 pony.log
+config.toml
+config-api.toml

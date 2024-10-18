@@ -1,6 +1,5 @@
-use actix_web::web::Data;
-use actix_web::web::Path;
-use actix_web::{get, HttpRequest, HttpResponse, Responder};
+use actix_web::web::{Data, Path};
+use actix_web::{get, HttpResponse, Responder};
 use clickhouse::Client;
 use log::debug;
 use log::error;
@@ -11,23 +10,20 @@ use std::sync::Arc;
 use crate::clickhouse::fetch_metrics_value;
 
 #[derive(Deserialize)]
-struct Info {
+struct Params {
     env: String,
     cluster: String,
 }
 
 #[get("/")]
-pub async fn hello(req: HttpRequest) -> impl Responder {
-    println!("Req: {:?}", req);
+pub async fn hello() -> impl Responder {
     HttpResponse::Ok().body("Hello, Fuckin World!")
 }
 
 #[get("/status/{env}/{cluster}")]
-pub async fn status(q: Path<Info>, ch_client: Data<Arc<Client>>) -> impl Responder {
-    debug!("Req /status/{}/{}", q.env, q.cluster);
-
+pub async fn status(req: Path<Params>, ch_client: Data<Arc<Client>>) -> impl Responder {
     let metrics_connections =
-        fetch_metrics_value(&ch_client, &q.env, &q.cluster, "connections%").await;
+        fetch_metrics_value(&ch_client, &req.env, &req.cluster, "connections%").await;
     let metrics_value_connections = match metrics_connections {
         Ok(metrics) => metrics
             .into_iter()
@@ -55,7 +51,7 @@ pub async fn status(q: Path<Info>, ch_client: Data<Arc<Client>>) -> impl Respond
         }
     }
 
-    let metrics_bps = fetch_metrics_value(&ch_client, &q.env, &q.cluster, "%bps").await;
+    let metrics_bps = fetch_metrics_value(&ch_client, &req.env, &req.cluster, "%bps").await;
     let metrics_value_bps = match metrics_bps {
         Ok(metrics) => metrics
             .into_iter()
@@ -87,7 +83,7 @@ async fn status_ch(ch_client: Data<Arc<Client>>) -> impl Responder {
     let query = "SELECT toUInt32(1)";
     debug!("Req /status/clickhouse");
     match ch_client.query(query).fetch_all::<u32>().await {
-        Ok(_) => HttpResponse::Ok().json("Ok"),
+        Ok(_) => HttpResponse::Ok().body("Ok"),
         Err(e) => HttpResponse::InternalServerError().body(format!("Error: {:?}", e)),
     }
 }

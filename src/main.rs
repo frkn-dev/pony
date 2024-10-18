@@ -1,4 +1,5 @@
 use ::clickhouse::Client;
+use actix_web::middleware::Logger;
 use actix_web::web::Data;
 use actix_web::{App, HttpServer};
 use clap::Parser;
@@ -19,6 +20,7 @@ mod memory;
 mod metrics;
 mod utils;
 mod web;
+mod webhook;
 
 use crate::bandwidth::bandwidth_metrics;
 use crate::config2::{read_config, Settings};
@@ -109,14 +111,17 @@ async fn main() -> std::io::Result<()> {
 
     if settings.app.api_mode {
         let ch_client = Arc::new(Client::default().with_url(&settings.clickhouse.address));
+        let settings_arc = Arc::new(settings.clone());
 
         HttpServer::new(move || {
             App::new()
                 .app_data(Data::new(ch_client.clone()))
-                .app_data(Data::new(Arc::new(settings.clone())))
+                .app_data(Data::new(settings_arc.clone()))
+                .wrap(Logger::default())
                 .service(web::hello)
                 .service(web::status_ch)
                 .service(web::status)
+                .service(webhook::webhook_handler)
         })
         .bind(("0.0.0.0", 5005))?
         .run()

@@ -50,3 +50,41 @@ SELECT anyLast(Level) as level, anyLast(Date) AS latest_t, Path as metric　FROM
                         FROM default.graphite_data
                         WHERE metric LIKE 'dev.mk2%bps'
                         GROUP BY metric
+
+
+                        curl -X POST http://127.0.0.1:5005/webhook \
+     -H "Content-Type: application/json" \
+     -d '{
+        "product": {
+            "id": "d31384b8-e412-4be5-a2ec-297ae6666c8f",
+            "title": "Тестовый продукт для cs 1.3"
+        },
+        "buyer": {
+            "email": "emwbwj@lava.top"
+        },
+        "contractId": "7ea82675-4ded-4133-95a7-a6efbaf165cc",
+        "amount": 40254.19,
+        "currency": "RUB",
+        "timestamp": "2024-02-05T09:38:27.33277Z",
+        "status": "failed",
+        "errorMessage": "Payment window is opened but not completed"
+    }'
+
+    curl -X POST http://127.0.0.1:5005/webhook \
+     -H "Content-Type: application/json" \
+     -d '{
+        "product": {
+            "id": "72d53efb-3696-469f-b856-f0d815748dd6",
+        "title": "Subscription 3085107274"
+        },
+        "buyer": {
+            "email": "emwbwj@lava.top"
+        },
+        "contractId": "c5a0cacc-3453-44b0-9532-aa492f1ba191",
+        "amount": 2049.85,
+        "currency": "RUB",
+        "timestamp": "2024-02-05T08:44:32.42176Z",
+        "status": "subscription-active",
+        "errorMessage": ""
+    }'
+

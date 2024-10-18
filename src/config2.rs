@@ -93,6 +93,7 @@ pub struct AppConfig {
     pub api_mode: bool,
     #[serde(default = "default_enabled")]
     pub metrics_mode: bool,
+    pub api_token: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]

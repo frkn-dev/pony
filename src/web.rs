@@ -15,6 +15,10 @@ struct Params {
     cluster: String,
 }
 
+pub async fn not_found() -> HttpResponse {
+    HttpResponse::NotFound().body("404 - Not Found")
+}
+
 #[get("/")]
 pub async fn hello() -> impl Responder {
     HttpResponse::Ok().body("Hello, Fuckin World!")

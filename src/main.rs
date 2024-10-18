@@ -1,5 +1,6 @@
 use ::clickhouse::Client;
 use actix_web::middleware::Logger;
+use actix_web::web::to;
 use actix_web::web::Data;
 use actix_web::{App, HttpServer};
 use clap::Parser;
@@ -29,6 +30,7 @@ use crate::cpuusage::cpu_metrics;
 use crate::loadavg::loadavg_metrics;
 use crate::memory::mem_metrics;
 use crate::utils::{current_timestamp, human_readable_date, level_from_settings};
+use crate::web::not_found;
 
 #[derive(Parser)]
 #[command(version = "0.0.1", about = "Pony - montiroing tool for Xray/Wireguard")]
@@ -114,14 +116,19 @@ async fn main() -> std::io::Result<()> {
         let settings_arc = Arc::new(settings.clone());
 
         HttpServer::new(move || {
-            App::new()
+            let mut app = App::new()
                 .app_data(Data::new(ch_client.clone()))
                 .app_data(Data::new(settings_arc.clone()))
                 .wrap(Logger::default())
                 .service(web::hello)
                 .service(web::status_ch)
                 .service(web::status)
-                .service(webhook::webhook_handler)
+                .default_service(to(not_found));
+
+            if settings.app.api_webhook_enabled {
+                app = app.service(webhook::webhook_handler);
+            }
+            app
         })
         .bind(("0.0.0.0", 5005))?
         .run()

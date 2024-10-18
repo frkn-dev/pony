@@ -57,7 +57,11 @@ async fn webhook_handler(
     payload: web::Json<WebhookPayload>,
     settings: Data<Arc<Settings>>,
 ) -> impl Responder {
-    let verified = validate(auth.token(), &settings.app.api_token);
+    let verified = match settings.app.api_webhook_token.clone() {
+        Some(token) => validate(auth.token(), &token),
+        None => false,
+    };
+
     if verified {
         let settings_ref = Arc::as_ref(settings.get_ref()).clone();
         if payload.status.trim() == "failed" {

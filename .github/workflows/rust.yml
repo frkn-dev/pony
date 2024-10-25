@@ -10,6 +10,8 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  DOCKER_IMAGE: frknorg/pony 
+  DOCKER_TAG: latest  
 
 jobs:
   build:
@@ -27,13 +29,23 @@ jobs:
           override: true
 
       - name: Build
-        run: cargo build --all --release && strip target/release/pony && mv target/release/pony target/release/pony_amd64
+        run: cargo build --all --release
 
-      - name: Extract version from Cargo.toml
-        id: extract_version
+      - name: Build Docker Image
         run: |
-          version=$(grep '^version =' Cargo.toml | sed 's/version = //; s/"//g')
-          echo "version=${version}" >> $GITHUB_ENV
+          docker build -t ${{ env.DOCKER_IMAGE }}:{{ github.sha }} .
+          docker tag ${{ env.DOCKER_IMAGE }}:{{ github.sha }} ${{ env.DOCKER_IMAGE }}:latest
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v1
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }} 
+          password: ${{ secrets.DOCKER_PASSWORD }} 
+
+      - name: Push Docker Image
+        run: |
+          docker push ${{ env.DOCKER_IMAGE }}:{{ github.sha }}
+          docker push ${{ env.DOCKER_IMAGE }}:latest
 
       - name: Create Release
         if: startsWith(github.ref, 'refs/tags/')

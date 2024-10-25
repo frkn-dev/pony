@@ -130,10 +130,13 @@ async fn main() -> std::io::Result<()> {
             }
             app
         })
-        .bind(("0.0.0.0", 5005))?
+        .bind((
+            settings.app.api_bind_addr.as_str(),
+            settings.app.api_bind_port,
+        ))?
         .run()
         .await
-        .expect("REASON")
+        .expect("Run web server")
     }
 
     let _ = futures::future::try_join_all(tasks).await;

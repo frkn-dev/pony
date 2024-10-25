@@ -21,6 +21,14 @@ fn default_wg_port() -> u16 {
     51820
 }
 
+fn default_api_bind_addr() -> String {
+    "0.0.0.0".to_string()
+}
+
+fn default_api_bind_port() -> u16 {
+    5005
+}
+
 fn default_env() -> String {
     "dev".to_string()
 }
@@ -96,6 +104,10 @@ pub struct AppConfig {
     pub api_webhook_token: Option<String>,
     #[serde(default = "default_enabled")]
     pub api_webhook_enabled: bool,
+    #[serde(default = "default_api_bind_addr")]
+    pub api_bind_addr: String,
+    #[serde(default = "default_api_bind_port")]
+    pub api_bind_port: u16,
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]

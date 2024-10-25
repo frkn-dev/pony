@@ -10,8 +10,9 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  DOCKER_IMAGE: "frknorg/pony"
-  DOCKER_TAG: latest  
+  DOCKER_ORG: frknorg
+  DOCKER_IMAGE: pony
+  DOCKER_TAG: latest
 
 jobs:
   build:
@@ -39,7 +40,7 @@ jobs:
 
       - name: Build Docker Image
         run: |
-          docker buildx build --platform linux/amd64 -t ${{ env.DOCKER_IMAGE }}:{{ github.sha }} . --push
+          docker buildx build --platform linux/amd64 -t ${{ env.DOCKER_ORG }}/${{ env.DOCKER_IMAGE }}:{{ github.sha }} . --push
 
       - name: Create Release
         if: startsWith(github.ref, 'refs/tags/')

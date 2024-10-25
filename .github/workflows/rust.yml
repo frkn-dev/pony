@@ -10,7 +10,7 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  DOCKER_IMAGE: frknorg/pony 
+  DOCKER_IMAGE: "frknorg/pony"
   DOCKER_TAG: latest  
 
 jobs:

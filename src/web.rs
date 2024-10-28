@@ -44,9 +44,9 @@ pub async fn status(req: Path<Params>, ch_client: Data<Arc<Client>>) -> impl Res
 
     for (metric, value) in metrics_value_connections {
         if let Some(stripped_metric) = metric.strip_prefix(format!("{}.", req.env).as_str()) {
-            let parts: Vec<&str> = stripped_metric.split(".connections.").collect();
-            if parts.len() == 2 {
-                let key = format!("connections.{}.{}", parts[0], parts[1]);
+            let parts: Vec<&str> = stripped_metric.split(".").collect();
+            if parts.len() == 3 {
+                let key = format!("connections.{}.{}", parts[0], parts[2]);
                 metrics_map_result.insert(key, value);
 
                 let prefix = parts[0].to_string();
@@ -75,11 +75,14 @@ pub async fn status(req: Path<Params>, ch_client: Data<Arc<Client>>) -> impl Res
         }
     }
 
-    for (prefix, sum) in prefix_sums_connections {
+    for (prefix, sum) in prefix_sums_connections.clone() {
         metrics_map_result.insert(format!("connections.{}.total", prefix), sum);
     }
 
-    debug!("Metrics Result {:?}", metrics_map_result);
+    metrics_map_result.insert(
+        format!("connections.total"),
+        prefix_sums_connections.values().sum(),
+    );
 
     HttpResponse::Ok().json(metrics_map_result)
 }
@@ -87,7 +90,6 @@ pub async fn status(req: Path<Params>, ch_client: Data<Arc<Client>>) -> impl Res
 #[get("/status/clickhouse")]
 async fn status_ch(ch_client: Data<Arc<Client>>) -> impl Responder {
     let query = "SELECT toUInt32(1)";
-    debug!("Req /status/clickhouse");
     match ch_client.query(query).fetch_all::<u32>().await {
         Ok(_) => HttpResponse::Ok().body("Ok"),
         Err(e) => HttpResponse::InternalServerError().body(format!("Error: {:?}", e)),

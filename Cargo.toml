@@ -22,6 +22,3 @@ actix-web-httpauth = "0.7"
 clickhouse = "0.13.0"
 clap = { version = "4.0", features = ["derive"] }
 time = "0.3"
-
-
-

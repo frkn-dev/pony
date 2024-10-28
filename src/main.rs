@@ -74,6 +74,7 @@ async fn main() -> std::io::Result<()> {
         std::process::exit(1);
     } else {
         info!(">>> Settings: {:?}", settings);
+        info!(">>> Version: 0.0.15");
     }
 
     let carbon_server = settings.carbon.address.clone();

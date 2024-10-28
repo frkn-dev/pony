@@ -1,9 +1,9 @@
 use actix_web::web::{Data, Path};
 use actix_web::{get, HttpResponse, Responder};
 use clickhouse::Client;
-use log::debug;
 use log::error;
 use serde::Deserialize;
+use serde::Serialize;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -13,6 +13,32 @@ use crate::clickhouse::fetch_metrics_value;
 struct Params {
     env: String,
     cluster: String,
+}
+
+#[derive(Serialize)]
+struct Connection {
+    #[serde(flatten)]
+    connection: HashMap<String, f64>,
+}
+
+#[derive(Serialize)]
+struct ConnectionsByType {
+    vless: Vec<Connection>,
+    vmess: Vec<Connection>,
+    ss: Vec<Connection>,
+    wg: Vec<Connection>,
+}
+
+#[derive(Serialize)]
+struct Bps {
+    rx: HashMap<String, f64>,
+    tx: HashMap<String, f64>,
+}
+
+#[derive(Serialize)]
+struct StatusResponse {
+    connections: ConnectionsByType,
+    bps: Bps,
 }
 
 pub async fn not_found() -> HttpResponse {
@@ -26,31 +52,53 @@ pub async fn hello() -> impl Responder {
 
 #[get("/status/{env}/{cluster}")]
 pub async fn status(req: Path<Params>, ch_client: Data<Arc<Client>>) -> impl Responder {
-    let metrics_connections =
-        fetch_metrics_value(&ch_client, &req.env, &req.cluster, "connections%").await;
-    let metrics_value_connections = match metrics_connections {
-        Ok(metrics) => metrics
-            .into_iter()
-            .map(|m| (m.metric.clone(), m.value.clone()))
-            .collect(),
-        Err(err) => {
-            error!("Couldn't get metrics {}", err);
-            vec![]
-        }
+    let mut connections_by_type = ConnectionsByType {
+        vless: Vec::new(),
+        vmess: Vec::new(),
+        ss: Vec::new(),
+        wg: Vec::new(),
     };
 
-    let mut metrics_map_result: HashMap<String, f64> = HashMap::new();
-    let mut prefix_sums_connections: HashMap<String, f64> = HashMap::new();
+    let connection_types = ["vless", "vmess", "ss", "wg"];
 
-    for (metric, value) in metrics_value_connections {
-        if let Some(stripped_metric) = metric.strip_prefix(format!("{}.", req.env).as_str()) {
-            let parts: Vec<&str> = stripped_metric.split(".").collect();
-            if parts.len() == 3 {
-                let key = format!("connections.{}.{}", parts[0], parts[2]);
-                metrics_map_result.insert(key, value);
+    for connection_type in connection_types {
+        let request_postfix = format!("connections.{connection_type}");
+        let metrics_connections =
+            fetch_metrics_value(&ch_client, &req.env, &req.cluster, &request_postfix).await;
 
-                let prefix = parts[0].to_string();
-                *prefix_sums_connections.entry(prefix).or_insert(0.0) += value;
+        let metrics_value_connections = match metrics_connections {
+            Ok(metrics) => metrics
+                .into_iter()
+                .map(|m| (m.metric.clone(), m.value.clone()))
+                .collect::<HashMap<_, _>>(),
+            Err(err) => {
+                error!("Couldn't get metrics {}", err);
+                HashMap::new()
+            }
+        };
+
+        for (metric, value) in metrics_value_connections {
+            let parts: Vec<&str> = metric.split('.').collect();
+            if parts.len() == 4 {
+                let server = parts[1].to_string();
+                let mut connection_map = HashMap::new();
+                connection_map.insert(server, value);
+
+                match parts[3] {
+                    "vless" => connections_by_type.vless.push(Connection {
+                        connection: connection_map,
+                    }),
+                    "vmess" => connections_by_type.vmess.push(Connection {
+                        connection: connection_map,
+                    }),
+                    "ss" => connections_by_type.ss.push(Connection {
+                        connection: connection_map,
+                    }),
+                    "wg" => connections_by_type.wg.push(Connection {
+                        connection: connection_map,
+                    }),
+                    _ => {}
+                }
             }
         }
     }
@@ -60,31 +108,36 @@ pub async fn status(req: Path<Params>, ch_client: Data<Arc<Client>>) -> impl Res
         Ok(metrics) => metrics
             .into_iter()
             .map(|m| (m.metric.clone(), m.value.clone()))
-            .collect(),
+            .collect::<HashMap<_, _>>(),
         Err(err) => {
             error!("Couldn't get metrics {}", err);
-            vec![]
+            HashMap::new()
         }
     };
 
+    let mut rx: HashMap<String, f64> = HashMap::new();
+    let mut tx: HashMap<String, f64> = HashMap::new();
+
     for (metric, value) in metrics_value_bps {
         if let Some(stripped_metric) = metric.strip_prefix(format!("{}.", req.env).as_str()) {
-            let parts: Vec<&str> = stripped_metric.split(".").collect();
-            let key = format!("bps.{}.{}.{}", parts[0], parts[2], parts[3]);
-            metrics_map_result.insert(key, value);
+            let parts: Vec<&str> = stripped_metric.split('.').collect();
+            if parts.len() >= 4 {
+                let key = parts[0].to_string();
+                if parts[3].contains("rx") {
+                    rx.insert(key, value);
+                } else if parts[3].contains("tx") {
+                    tx.insert(key, value);
+                }
+            }
         }
     }
 
-    for (prefix, sum) in prefix_sums_connections.clone() {
-        metrics_map_result.insert(format!("connections.{}.total", prefix), sum);
-    }
+    let response = StatusResponse {
+        connections: connections_by_type,
+        bps: Bps { rx, tx },
+    };
 
-    metrics_map_result.insert(
-        format!("connections.total"),
-        prefix_sums_connections.values().sum(),
-    );
-
-    HttpResponse::Ok().json(metrics_map_result)
+    HttpResponse::Ok().json(response)
 }
 
 #[get("/status/clickhouse")]

@@ -9,9 +9,8 @@ NEW_VERSION="$1"
 CARGO_TOML_PATH="Cargo.toml"
 
 echo "Updating version in $CARGO_TOML_PATH to $NEW_VERSION..."
-sed -i 's|^version = \".*\"|version = \"$NEW_VERSION\"|' "$CARGO_TOML_PATH"
+CARGO_TOML_PATH="Cargo.toml" NEW_VERSION=0.0.10 sed "s|^version = \".*\"|version = \"$NEW_VERSION\"|" $CARGO_TOML_PATH
 
-sed 's|^version = \".*\"|version = \"$NEW_VERSION\"|' Cargo.toml
 
 if [ $? -ne 0 ]; then
     echo "Failed to update version in $CARGO_TOML_PATH"

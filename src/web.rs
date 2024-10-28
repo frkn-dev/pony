@@ -68,7 +68,7 @@ pub async fn status(req: Path<Params>, ch_client: Data<Arc<Client>>) -> impl Res
     };
 
     for (metric, value) in metrics_value_bps {
-        if let Some(stripped_metric) = metric.strip_prefix("dev.") {
+        if let Some(stripped_metric) = metric.strip_prefix(format!("{}.", req.cluster).as_str()) {
             let parts: Vec<&str> = stripped_metric.split(".").collect();
             let key = format!("bps.{}.{}.{}", parts[0], parts[2], parts[3]);
             metrics_map_result.insert(key, value);
@@ -78,6 +78,8 @@ pub async fn status(req: Path<Params>, ch_client: Data<Arc<Client>>) -> impl Res
     for (prefix, sum) in prefix_sums_connections {
         metrics_map_result.insert(format!("connections.{}.total", prefix), sum);
     }
+
+    debug!("Metrics Result {:?}", metrics_map_result);
 
     HttpResponse::Ok().json(metrics_map_result)
 }

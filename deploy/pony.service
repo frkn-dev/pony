@@ -1,0 +1,11 @@
+[Unit]
+Description=Pony - gathering metrics about system/XRay/Wireguard
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/opt/pony/pony --config /opt/pony/config.toml
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

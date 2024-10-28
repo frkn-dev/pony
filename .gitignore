@@ -6,3 +6,5 @@ target
 pony.log
 config.toml
 config-api.toml
+deploy/servers
+query.txt

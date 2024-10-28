@@ -43,7 +43,7 @@ pub async fn status(req: Path<Params>, ch_client: Data<Arc<Client>>) -> impl Res
     let mut prefix_sums_connections: HashMap<String, f64> = HashMap::new();
 
     for (metric, value) in metrics_value_connections {
-        if let Some(stripped_metric) = metric.strip_prefix("dev.") {
+        if let Some(stripped_metric) = metric.strip_prefix(format!("{}.", req.cluster).as_str()) {
             let parts: Vec<&str> = stripped_metric.split(".connections.").collect();
             if parts.len() == 2 {
                 let key = format!("connections.{}.{}", parts[0], parts[1]);

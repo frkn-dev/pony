@@ -74,16 +74,6 @@ impl AsMetric for WgConnections {
     }
 }
 
-fn filter_unique_by_remote_addr(connections: &HashSet<ConnectionInfo>) -> HashSet<ConnectionInfo> {
-    let mut seen_remote_addrs = HashSet::new();
-
-    connections
-        .iter()
-        .filter(|conn| seen_remote_addrs.insert(&conn.remote_addr))
-        .cloned()
-        .collect()
-}
-
 fn port_connections_data(target_port: u16) -> HashSet<ConnectionInfo> {
     let mut connections = HashSet::new();
 
@@ -167,18 +157,13 @@ pub async fn connections_metric(server: String, settings: Settings) {
 
         if settings.xray.enabled {
             let vmess_connections = port_connections_data(settings.xray.vmess_port);
-            let unique_vmess_connections = filter_unique_by_remote_addr(&vmess_connections);
-
-            let vless_data_connections = port_connections_data(settings.xray.vless_port);
-            let unique_vless_connections = filter_unique_by_remote_addr(&vless_data_connections);
-
-            let ss_data_connections = port_connections_data(settings.xray.ss_port);
-            let unique_ss_connections = filter_unique_by_remote_addr(&ss_data_connections);
+            let vless_connections = port_connections_data(settings.xray.vless_port);
+            let ss_connections = port_connections_data(settings.xray.ss_port);
 
             let xray_connections = XrayConnections {
-                vmess: unique_vmess_connections.len() as u64,
-                vless: unique_vless_connections.len() as u64,
-                ss: unique_ss_connections.len() as u64,
+                vmess: vmess_connections.len() as u64,
+                vless: vless_connections.len() as u64,
+                ss: ss_connections.len() as u64,
             };
 
             for metric in xray_connections.as_metric("connections", settings.clone()) {
@@ -189,19 +174,19 @@ pub async fn connections_metric(server: String, settings: Settings) {
 
             tasks.push(tokio::spawn(send_to_carbon_country_metric(
                 settings.clone(),
-                unique_vmess_connections.clone(),
+                vmess_connections.clone(),
                 "vmess",
                 server.clone(),
             )));
             tasks.push(tokio::spawn(send_to_carbon_country_metric(
                 settings.clone(),
-                unique_vless_connections.clone(),
+                vless_connections.clone(),
                 "vless",
                 server.clone(),
             )));
             tasks.push(tokio::spawn(send_to_carbon_country_metric(
                 settings.clone(),
-                unique_ss_connections.clone(),
+                ss_connections.clone(),
                 "ss",
                 server.clone(),
             )));

@@ -33,27 +33,26 @@ struct ConnectionsByType {
 #[derive(Serialize)]
 struct StatusResponse {
     connections: ConnectionsByServer,
-    bps: BpsByServer,
+    mbps: MbpsByServer,
 }
 
-type Bps = Vec<HashMap<String, f64>>;
-type BpsByServer = Vec<HashMap<String, HashMap<String, f64>>>;
+type Bps = HashMap<String, f64>;
+type MbpsByServer = Vec<HashMap<String, HashMap<String, f64>>>;
 
-fn convert_bps(rx: Bps, tx: Bps) -> BpsByServer {
-    let mut server_list: BpsByServer = Vec::new();
+fn convert_bps_to_mbps(rx: Bps, tx: Bps) -> MbpsByServer {
+    let mut server_list: MbpsByServer = Vec::new();
 
-    for (index, rx_map) in rx.iter().enumerate() {
-        if let Some(tx_map) = tx.get(index) {
-            for (server, &rx_value) in rx_map {
-                let tx_value = *tx_map.get(server).unwrap_or(&0.0);
-                let mut server_entry = HashMap::new();
-                server_entry.insert(
-                    server.clone(),
-                    HashMap::from([("rx".to_string(), rx_value), ("tx".to_string(), tx_value)]),
-                );
-                server_list.push(server_entry);
-            }
-        }
+    for (server, &rx_value) in &rx {
+        let tx_value = tx.get(server).copied().unwrap_or(0.0);
+        let mut server_entry = HashMap::new();
+        server_entry.insert(
+            server.clone(),
+            HashMap::from([
+                ("rx".to_string(), (rx_value * 1500.0 / 1024.0 / 1024.0)),
+                ("tx".to_string(), (tx_value * 1500.0 / 1024.0 / 1024.0)),
+            ]),
+        );
+        server_list.push(server_entry);
     }
 
     server_list
@@ -175,14 +174,14 @@ pub async fn status(req: Path<Params>, ch_client: Data<Arc<Client>>) -> impl Res
     }
 
     let connections_by_server = convert_connections(connections_by_type.clone());
-    let bps_by_server = convert_bps(vec![rx.clone()], vec![tx.clone()]);
+    let mbps_by_server = convert_bps_to_mbps(rx.clone(), tx.clone());
 
     debug!("Connections {:?}", connections_by_server);
-    debug!("Bps {:?} {:?}", rx, tx);
+    debug!("Mbps {:?}", mbps_by_server);
 
     let response = StatusResponse {
         connections: connections_by_server,
-        bps: bps_by_server,
+        mbps: mbps_by_server,
     };
 
     HttpResponse::Ok().json(response)

@@ -8,3 +8,4 @@ config.toml
 config-api.toml
 deploy/servers
 query.txt
+query2.txt

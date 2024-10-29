@@ -34,7 +34,7 @@ use crate::web::not_found;
 
 #[derive(Parser)]
 #[command(
-    version = "0.0.16",
+    version = "0.0.17",
     about = "Pony - montiroing tool for Xray/Wireguard"
 )]
 struct Cli {
@@ -77,7 +77,7 @@ async fn main() -> std::io::Result<()> {
         std::process::exit(1);
     } else {
         info!(">>> Settings: {:?}", settings);
-        info!(">>> Version: 0.0.16");
+        info!(">>> Version: 0.0.17");
     }
 
     let carbon_server = settings.carbon.address.clone();

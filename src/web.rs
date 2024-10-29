@@ -58,7 +58,7 @@ fn convert_bps_to_mbps(rx: Bps, tx: Bps) -> MbpsByServer {
     server_list
 }
 
-type ConnectionsByServer = HashMap<String, Vec<HashMap<String, f64>>>;
+type ConnectionsByServer = HashMap<String, Vec<Connection>>;
 
 fn convert_connections(connections: ConnectionsByType) -> ConnectionsByServer {
     let mut server_map: ConnectionsByServer = HashMap::new();
@@ -69,14 +69,30 @@ fn convert_connections(connections: ConnectionsByType) -> ConnectionsByServer {
         ("ss", connections.ss),
         ("wg", connections.wg),
     ] {
-        for conn in conn_list {
+        for conn in conn_list.clone() {
             for (server, &value) in &conn.connection {
                 server_map
                     .entry(server.clone())
                     .or_insert_with(Vec::new)
-                    .push(HashMap::from([(conn_type.to_string(), value)]));
+                    .push(Connection {
+                        connection: HashMap::from([(conn_type.to_string(), value)]),
+                    });
             }
         }
+    }
+
+    for (_, conn_list) in &mut server_map {
+        let mut total = 0.0;
+
+        for conn in conn_list.iter() {
+            for &value in conn.connection.values() {
+                total += value;
+            }
+        }
+
+        conn_list.push(Connection {
+            connection: HashMap::from([("total".to_string(), total)]),
+        });
     }
 
     server_map

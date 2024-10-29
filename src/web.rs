@@ -1,6 +1,7 @@
 use actix_web::web::{Data, Path};
 use actix_web::{get, HttpResponse, Responder};
 use clickhouse::Client;
+use log::debug;
 use log::error;
 use serde::Deserialize;
 use serde::Serialize;
@@ -15,13 +16,13 @@ struct Params {
     cluster: String,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug, Clone)]
 struct Connection {
     #[serde(flatten)]
     connection: HashMap<String, f64>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug, Clone)]
 struct ConnectionsByType {
     vless: Vec<Connection>,
     vmess: Vec<Connection>,
@@ -30,15 +31,56 @@ struct ConnectionsByType {
 }
 
 #[derive(Serialize)]
-struct Bps {
-    rx: HashMap<String, f64>,
-    tx: HashMap<String, f64>,
+struct StatusResponse {
+    connections: ConnectionsByServer,
+    bps: BpsByServer,
 }
 
-#[derive(Serialize)]
-struct StatusResponse {
-    connections: ConnectionsByType,
-    bps: Bps,
+type Bps = Vec<HashMap<String, f64>>;
+type BpsByServer = Vec<HashMap<String, HashMap<String, f64>>>;
+
+fn convert_bps(rx: Bps, tx: Bps) -> BpsByServer {
+    let mut server_list: BpsByServer = Vec::new();
+
+    for (index, rx_map) in rx.iter().enumerate() {
+        if let Some(tx_map) = tx.get(index) {
+            for (server, &rx_value) in rx_map {
+                let tx_value = *tx_map.get(server).unwrap_or(&0.0);
+                let mut server_entry = HashMap::new();
+                server_entry.insert(
+                    server.clone(),
+                    HashMap::from([("rx".to_string(), rx_value), ("tx".to_string(), tx_value)]),
+                );
+                server_list.push(server_entry);
+            }
+        }
+    }
+
+    server_list
+}
+
+type ConnectionsByServer = HashMap<String, Vec<HashMap<String, f64>>>;
+
+fn convert_connections(connections: ConnectionsByType) -> ConnectionsByServer {
+    let mut server_map: ConnectionsByServer = HashMap::new();
+
+    for (conn_type, conn_list) in [
+        ("vless", connections.vless),
+        ("vmess", connections.vmess),
+        ("ss", connections.ss),
+        ("wg", connections.wg),
+    ] {
+        for conn in conn_list {
+            for (server, &value) in &conn.connection {
+                server_map
+                    .entry(server.clone())
+                    .or_insert_with(Vec::new)
+                    .push(HashMap::from([(conn_type.to_string(), value)]));
+            }
+        }
+    }
+
+    server_map
 }
 
 pub async fn not_found() -> HttpResponse {
@@ -132,9 +174,15 @@ pub async fn status(req: Path<Params>, ch_client: Data<Arc<Client>>) -> impl Res
         }
     }
 
+    let connections_by_server = convert_connections(connections_by_type.clone());
+    let bps_by_server = convert_bps(vec![rx.clone()], vec![tx.clone()]);
+
+    debug!("Connections {:?}", connections_by_server);
+    debug!("Bps {:?} {:?}", rx, tx);
+
     let response = StatusResponse {
-        connections: connections_by_type,
-        bps: Bps { rx, tx },
+        connections: connections_by_server,
+        bps: bps_by_server,
     };
 
     HttpResponse::Ok().json(response)

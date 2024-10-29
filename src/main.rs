@@ -33,7 +33,10 @@ use crate::utils::{current_timestamp, human_readable_date, level_from_settings};
 use crate::web::not_found;
 
 #[derive(Parser)]
-#[command(version = "0.0.1", about = "Pony - montiroing tool for Xray/Wireguard")]
+#[command(
+    version = "0.0.16",
+    about = "Pony - montiroing tool for Xray/Wireguard"
+)]
 struct Cli {
     #[arg(short, long, default_value = "config.toml")]
     config: String,
@@ -74,7 +77,7 @@ async fn main() -> std::io::Result<()> {
         std::process::exit(1);
     } else {
         info!(">>> Settings: {:?}", settings);
-        info!(">>> Version: 0.0.15");
+        info!(">>> Version: 0.0.16");
     }
 
     let carbon_server = settings.carbon.address.clone();

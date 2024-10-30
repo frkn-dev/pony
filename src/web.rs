@@ -54,11 +54,11 @@ fn convert_bps_to_mbps(rx: Bps, tx: Bps) -> MbpsByServer {
             server.clone(),
             HashMap::from([
                 (
-                    "rx_mpbs".to_string(),
+                    "rx_mbps".to_string(),
                     (rx_value * 1500.0 / 1024.0 / 1024.0 * 8.0),
                 ),
                 (
-                    "tx_mpbs".to_string(),
+                    "tx_mbps".to_string(),
                     (tx_value * 1500.0 / 1024.0 / 1024.0 * 8.0),
                 ),
             ]),

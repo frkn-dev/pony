@@ -32,8 +32,13 @@ struct ConnectionsByType {
 
 #[derive(Serialize)]
 struct StatusResponse {
-    connections: ConnectionsByServer,
-    mbps: MbpsByServer,
+    data: HashMap<String, DataByServer>,
+}
+
+#[derive(Serialize)]
+struct DataByServer {
+    connections: Vec<Connection>,
+    bandwidth: HashMap<String, f64>,
 }
 
 type Bps = HashMap<String, f64>;
@@ -48,8 +53,14 @@ fn convert_bps_to_mbps(rx: Bps, tx: Bps) -> MbpsByServer {
         server_entry.insert(
             server.clone(),
             HashMap::from([
-                ("rx".to_string(), (rx_value * 1500.0 / 1024.0 / 1024.0)),
-                ("tx".to_string(), (tx_value * 1500.0 / 1024.0 / 1024.0)),
+                (
+                    "rx_mpbs".to_string(),
+                    (rx_value * 1500.0 / 1024.0 / 1024.0 * 8.0),
+                ),
+                (
+                    "tx_mpbs".to_string(),
+                    (tx_value * 1500.0 / 1024.0 / 1024.0 * 8.0),
+                ),
             ]),
         );
         server_list.push(server_entry);
@@ -96,6 +107,36 @@ fn convert_connections(connections: ConnectionsByType) -> ConnectionsByServer {
     }
 
     server_map
+}
+
+fn merge_connections(
+    connections: ConnectionsByServer,
+    mbps: MbpsByServer,
+) -> HashMap<String, DataByServer> {
+    let mut data_by_server = HashMap::new();
+
+    for mbps_data in mbps {
+        for (server, rates) in mbps_data {
+            let mut connection_list = vec![];
+
+            if let Some(conn_list) = connections.get(&server) {
+                connection_list.extend(conn_list.clone());
+            }
+
+            let mut bandwidth = HashMap::new();
+            for (key, &value) in rates.iter() {
+                bandwidth.insert(key.clone(), value);
+            }
+
+            let data = DataByServer {
+                connections: connection_list,
+                bandwidth,
+            };
+
+            data_by_server.insert(server, data);
+        }
+    }
+    data_by_server
 }
 
 pub async fn not_found() -> HttpResponse {
@@ -196,8 +237,7 @@ pub async fn status(req: Path<Params>, ch_client: Data<Arc<Client>>) -> impl Res
     debug!("Mbps {:?}", mbps_by_server);
 
     let response = StatusResponse {
-        connections: connections_by_server,
-        mbps: mbps_by_server,
+        data: merge_connections(connections_by_server, mbps_by_server),
     };
 
     HttpResponse::Ok().json(response)

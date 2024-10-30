@@ -19,11 +19,13 @@ ssh "$REMOTE_USER@$REMOTE_HOST" /bin/bash << EOF
 
     mkdir -p /opt/pony
     cd /opt/pony 
-    curl -L -o "pony" "https://github.com/frkn-dev/pony/releases/download/v${VERSION}/pony"  
-    mv /tmp/${REMOTE_HOST}.toml /opt/pony/config.toml
-    chmod +x /opt/pony/pony
+    curl -L -o "pony-${VERSION}" "https://github.com/frkn-dev/pony/releases/download/v${VERSION}/pony"
+    chmod +x "pony-${VERSION}"
+    ln -sf "/opt/pony/pony-${VERSION}" "/opt/pony/pony"
 
+    mv /tmp/${REMOTE_HOST}.toml /opt/pony/config.toml
     mv /tmp/pony.service /etc/systemd/system/pony.service
+    
     systemctl daemon-reload
     systemctl enable pony.service
     systemctl restart pony.service

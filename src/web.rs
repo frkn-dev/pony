@@ -9,6 +9,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::clickhouse::fetch_metrics_value;
+use crate::config2::Settings;
 
 #[derive(Deserialize)]
 struct Params {
@@ -149,7 +150,11 @@ pub async fn hello() -> impl Responder {
 }
 
 #[get("/status/{env}/{cluster}")]
-pub async fn status(req: Path<Params>, ch_client: Data<Arc<Client>>) -> impl Responder {
+pub async fn status(
+    req: Path<Params>,
+    ch_client: Data<Arc<Client>>,
+    settings: Data<Arc<Settings>>,
+) -> impl Responder {
     let mut connections_by_type = ConnectionsByType {
         vless: Vec::new(),
         vmess: Vec::new(),
@@ -161,8 +166,14 @@ pub async fn status(req: Path<Params>, ch_client: Data<Arc<Client>>) -> impl Res
 
     for connection_type in connection_types {
         let request_postfix = format!("connections.{connection_type}");
-        let metrics_connections =
-            fetch_metrics_value(&ch_client, &req.env, &req.cluster, &request_postfix).await;
+        let metrics_connections = fetch_metrics_value(
+            &ch_client,
+            &req.env,
+            &req.cluster,
+            &request_postfix,
+            settings.clickhouse.fetch_interval_minute,
+        )
+        .await;
 
         let metrics_value_connections = match metrics_connections {
             Ok(metrics) => metrics
@@ -201,7 +212,14 @@ pub async fn status(req: Path<Params>, ch_client: Data<Arc<Client>>) -> impl Res
         }
     }
 
-    let metrics_bps = fetch_metrics_value(&ch_client, &req.env, &req.cluster, "%bps").await;
+    let metrics_bps = fetch_metrics_value(
+        &ch_client,
+        &req.env,
+        &req.cluster,
+        "%bps",
+        settings.clickhouse.fetch_interval_minute,
+    )
+    .await;
     let metrics_value_bps = match metrics_bps {
         Ok(metrics) => metrics
             .into_iter()

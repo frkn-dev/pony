@@ -15,6 +15,7 @@ pub async fn fetch_metrics_value(
     env: &str,
     cluster: &str,
     metric_postfix: &str,
+    fetch_interval: u8,
 ) -> Result<Vec<MetricValue>, Box<dyn Error>> {
     let metric_value_req = format!(
         "SELECT
@@ -23,7 +24,7 @@ pub async fn fetch_metrics_value(
                           toFloat64(anyLast(Value)) AS value
                         FROM default.graphite_data
                         WHERE metric LIKE '{env}.{cluster}%.{metric_postfix}'
-                        AND Timestamp >= now() - INTERVAL 1 MINUTE
+                        AND Timestamp >= now() - INTERVAL {fetch_interval} MINUTE
                         GROUP BY metric"
     );
 

@@ -21,6 +21,10 @@ fn default_wg_port() -> u16 {
     51820
 }
 
+fn default_fetch_interval() -> u8 {
+    10
+}
+
 fn default_api_bind_addr() -> String {
     "0.0.0.0".to_string()
 }
@@ -77,6 +81,8 @@ pub struct CarbonConfig {
 pub struct ChConfig {
     #[serde(default = "default_ch_server")]
     pub address: String,
+    #[serde(default = "default_fetch_interval")]
+    pub fetch_interval_minute: u8,
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]
@@ -159,7 +165,6 @@ impl Settings {
         if self.wg.enabled && self.wg.port == 0 {
             return Err("Xray wg порт port coulnd't be 0".into());
         }
-        // Другие проверки
         Ok(())
     }
 }

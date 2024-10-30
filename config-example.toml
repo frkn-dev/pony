@@ -3,6 +3,7 @@
 
 [clickhouse]
 #address = "http://localhost:8123"
+fetch_interval_minute = 10
 
 [app]
 #env = "dev"

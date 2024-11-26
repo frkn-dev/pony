@@ -2,6 +2,7 @@
 name = "pony"
 version = "0.0.23"
 edition = "2021"
+build = "build.rs"
 
 [dependencies]
 sysinfo = "0.31.4"  
@@ -22,3 +23,11 @@ actix-web-httpauth = "0.7"
 clickhouse = "0.13.0"
 clap = { version = "4.0", features = ["derive"] }
 time = "0.3"
+tonic = "0.12"
+prost = "0.13"
+prost-derive = "0.13"
+
+[build-dependencies]
+tonic-build = "0.12"
+walkdir = "2.0"
+

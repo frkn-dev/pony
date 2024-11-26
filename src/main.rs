@@ -22,6 +22,7 @@ mod metrics;
 mod utils;
 mod web;
 mod webhook;
+mod xray_api;
 
 use crate::bandwidth::bandwidth_metrics;
 use crate::config2::{read_config, Settings};

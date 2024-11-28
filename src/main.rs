@@ -10,14 +10,9 @@ use std::fmt;
 use std::sync::Arc;
 use tokio::task::JoinHandle;
 
-mod bandwidth;
 mod clickhouse;
 mod config2;
-mod connections;
-mod cpuusage;
 mod geoip;
-mod loadavg;
-mod memory;
 mod metrics;
 mod utils;
 mod web;
@@ -25,13 +20,13 @@ mod webhook;
 mod xray_api;
 mod xray_op;
 
-use crate::bandwidth::bandwidth_metrics;
 use crate::config2::{read_config, Settings};
-use crate::connections::connections_metric;
-use crate::cpuusage::cpu_metrics;
+use crate::metrics::bandwidth::bandwidth_metrics;
+use crate::metrics::connections::connections_metric;
+use crate::metrics::cpuusage::cpu_metrics;
+use crate::metrics::loadavg::loadavg_metrics;
+use crate::metrics::memory::mem_metrics;
 
-use crate::loadavg::loadavg_metrics;
-use crate::memory::mem_metrics;
 use crate::utils::{current_timestamp, human_readable_date, level_from_settings};
 use crate::web::not_found;
 
@@ -82,12 +77,12 @@ async fn main() -> std::io::Result<()> {
 
     let carbon_server = settings.carbon.address.clone();
 
-    //if settings.app.metrics_mode && settings.app.api_mode
-    //    || !settings.app.metrics_mode && !settings.app.api_mode
-    //{
-    //    error!("Api and metrics mode enabled in the same time, choose mode");
-    //    std::process::exit(1);
-    //}
+    if settings.app.metrics_mode && settings.app.api_mode
+        || !settings.app.metrics_mode && !settings.app.api_mode
+    {
+        error!("Api and metrics mode enabled in the same time, choose mode");
+        std::process::exit(1);
+    }
 
     let mut tasks: Vec<JoinHandle<()>> = vec![];
 
@@ -141,11 +136,9 @@ async fn main() -> std::io::Result<()> {
     }
 
     if settings.app.xray_api_mode {
-        let _settings_clone = settings.clone();
-
         let xray_api_clients = match xray_op::client::create_clients(settings).await {
             Ok(clients) => clients,
-            Err(e) => panic!("Не удалось создать клиентов: {}", e),
+            Err(e) => panic!("Can't create clients: {}", e),
         };
 
         let user_info = xray_op::vmess::UserInfo {

@@ -2,7 +2,6 @@ use crate::xray_api::xray::app::proxyman::command::{
     AddUserOperation, AlterInboundRequest, RemoveUserOperation,
 };
 
-use std::sync::Arc;
 use tonic::Request;
 
 use crate::xray_api::xray::common::protocol::User;

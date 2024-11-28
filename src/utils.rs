@@ -1,16 +1,15 @@
+use chrono::{TimeZone, Utc};
 use log::{error, info, warn, LevelFilter};
 use std::error::Error;
 use std::io;
+use std::net::IpAddr;
 use std::net::SocketAddr;
-
-use chrono::{TimeZone, Utc};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream;
 
 use crate::geoip;
-use crate::metrics::Metric;
-use std::net::IpAddr;
+use crate::metrics::metrics::Metric;
 
 pub async fn send_to_carbon<T: ToString>(
     metric: &Metric<T>,

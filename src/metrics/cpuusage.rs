@@ -5,7 +5,7 @@ use sysinfo::{CpuRefreshKind, RefreshKind, System};
 use tokio::time::sleep;
 
 use crate::config2::Settings;
-use crate::metrics::{AsMetric, Metric};
+use crate::metrics::metrics::{AsMetric, Metric};
 use crate::utils::{current_timestamp, round_to_two_decimal_places, send_to_carbon};
 
 struct CpuUsage<'a> {

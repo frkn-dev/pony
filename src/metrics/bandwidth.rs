@@ -5,7 +5,7 @@ use sysinfo::Networks;
 use tokio::time::sleep;
 
 use crate::config2::Settings;
-use crate::metrics::{AsMetric, Metric};
+use crate::metrics::metrics::{AsMetric, Metric};
 use crate::utils::{current_timestamp, send_to_carbon};
 
 #[derive(Debug)]

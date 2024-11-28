@@ -1,12 +1,9 @@
 use crate::config2::Settings;
 use crate::xray_api::xray::app::proxyman::command::handler_service_client::HandlerServiceClient;
 use crate::xray_api::xray::app::stats::command::stats_service_client::StatsServiceClient;
-use crate::xray_api::xray::app::stats::command::GetStatsRequest;
-use crate::xray_api::xray::app::stats::command::GetStatsResponse;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tonic::transport::Channel;
-use tonic::Request;
 
 #[derive(Clone)]
 pub struct XrayClients {

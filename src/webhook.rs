@@ -9,7 +9,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use crate::config2::Settings;
-use crate::metrics::{AsMetric, Metric};
+use crate::metrics::metrics::{AsMetric, Metric};
 use crate::utils::send_to_carbon;
 
 #[derive(Deserialize)]

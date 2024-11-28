@@ -143,36 +143,37 @@ async fn main() -> std::io::Result<()> {
     if settings.app.xray_api_mode {
         let _settings_clone = settings.clone();
 
-        let xray_api_client = xray_op::client::create_client(settings).await;
+        let xray_api_clients = match xray_op::client::create_clients(settings).await {
+            Ok(clients) => clients,
+            Err(e) => panic!("Не удалось создать клиентов: {}", e),
+        };
 
         let user_info = xray_op::vmess::UserInfo {
             in_tag: "VMess TCP".to_string(),
             level: 0,
-            email: "550e8400-e29b-41d4-a716-446655440000".to_string(),
+            email: "550e8400-e29b-41d4-a716-446655440000@vmess".to_string(),
             uuid: "550e8400-e29b-41d4-a716-446655440000".to_string(),
         };
 
-        match xray_op::vmess::remove_user(xray_api_client.clone(), user_info.clone()).await {
+        match xray_op::vmess::remove_user(xray_api_clients.clone(), user_info.clone()).await {
             Ok(()) => info!("User remove successfully {:?}", user_info.uuid),
             Err(e) => error!("User remove failed: {:?}", e),
         }
 
-        match xray_op::vmess::add_user(xray_api_client, user_info.clone()).await {
+        match xray_op::vmess::add_user(xray_api_clients.clone(), user_info.clone()).await {
             Ok(()) => info!("User add completed successfully {:?}", user_info.uuid),
             Err(e) => error!("User add operations failed: {:?}", e),
         }
 
-        //let client_task = tokio::spawn(async move {
-        //    match client_operations(settings_clone).await {
-        //        Ok(_) => info!("Client operations completed successfully"),
-        //        Err(e) => error!("Client operations failed: {:?}", e),
-        //    }
-        //});
+        let xray_stat_task = tokio::spawn(xray_op::stats::get_stats_task(
+            xray_api_clients.stats_client,
+            "user>>>550e8400-e29b-41d4-a716-446655440000@vmess>>>traffic>>>uplink".to_string(),
+            false,
+        ));
 
-        //grpcurl -plaintext -d '{"uuid": "550e8400-e29b-41d4-a716-446655440000"}' localhost:23456 xray.app.proxyman.command.HandlerService/GetUser
-        //xray api statsquery --server=127.0.0.1:23456 -pattern "user_id:ebd8a62e-631f-49a8-979f-b1e0744891a3"
+        //xray api --server=127.0.0.1:23456 StatsService.GetStats 'name: "inbound>>>statin>>>traffic>>>downlink" reset: false'
 
-        //tasks.push(client_task);
+        tasks.push(xray_stat_task);
     }
 
     let _ = futures::future::try_join_all(tasks).await;

@@ -29,6 +29,14 @@ FILES_TO_COPY=(
   "common/log/log.proto"
   "app/stats/command/command.proto"
   "app/stats/config.proto"
+  "proxy/vmess/inbound/config.proto"
+  "proxy/vmess/account.proto"
+  "proxy/vless/account.proto"
+  "proxy/shadowsocks/config.proto"
+  "common/net/network.proto"
+  "common/protocol/server_spec.proto"
+  "common/protocol/headers.proto"
+
 )
 
 for file in "${FILES_TO_COPY[@]}"; do

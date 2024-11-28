@@ -57,6 +57,10 @@ fn default_ch_server() -> String {
     "http://localhost:8123".to_string()
 }
 
+fn default_xray_api_endpoint() -> String {
+    "localhost:23456".to_string()
+}
+
 fn default_loglevel() -> String {
     "debug".to_string()
 }
@@ -114,6 +118,8 @@ pub struct AppConfig {
     pub api_bind_addr: String,
     #[serde(default = "default_api_bind_port")]
     pub api_bind_port: u16,
+    #[serde(default = "default_enabled")]
+    pub xray_api_mode: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]
@@ -126,6 +132,8 @@ pub struct XrayConfig {
     pub vless_port: u16,
     #[serde(default = "default_ss_port")]
     pub ss_port: u16,
+    #[serde(default = "default_xray_api_endpoint")]
+    pub xray_api_endpoint: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]

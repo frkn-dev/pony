@@ -38,8 +38,25 @@ pub mod xray {
             }
         }
     }
-
     pub mod core {
         tonic::include_proto!("xray.core");
+    }
+    pub mod proxy {
+        pub mod vless {
+            tonic::include_proto!("xray.proxy.vless");
+            pub mod inbound {
+                tonic::include_proto!("xray.proxy.vless.inbound");
+            }
+        }
+        pub mod vmess {
+            tonic::include_proto!("xray.proxy.vmess");
+            pub mod inbound {
+                tonic::include_proto!("xray.proxy.vmess.inbound");
+            }
+        }
+        pub mod shadowsocks {
+
+            tonic::include_proto!("xray.proxy.shadowsocks");
+        }
     }
 }

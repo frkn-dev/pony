@@ -23,21 +23,20 @@ mod utils;
 mod web;
 mod webhook;
 mod xray_api;
+mod xray_op;
 
 use crate::bandwidth::bandwidth_metrics;
 use crate::config2::{read_config, Settings};
 use crate::connections::connections_metric;
 use crate::cpuusage::cpu_metrics;
+
 use crate::loadavg::loadavg_metrics;
 use crate::memory::mem_metrics;
 use crate::utils::{current_timestamp, human_readable_date, level_from_settings};
 use crate::web::not_found;
 
 #[derive(Parser)]
-#[command(
-    version = "0.0.23",
-    about = "Pony - montiroing tool for Xray/Wireguard"
-)]
+#[command(version = "0.0.23", about = "Pony - control tool for Xray/Wireguard")]
 struct Cli {
     #[arg(short, long, default_value = "config.toml")]
     config: String,
@@ -78,25 +77,22 @@ async fn main() -> std::io::Result<()> {
         std::process::exit(1);
     } else {
         info!(">>> Settings: {:?}", settings);
-        info!(">>> Version: 0.0.23");
+        info!(">>> Pony Version: 0.0.23");
     }
 
     let carbon_server = settings.carbon.address.clone();
 
-    if settings.app.metrics_mode && settings.app.api_mode
-        || !settings.app.metrics_mode && !settings.app.api_mode
-    {
-        error!("Api and metrics mode enabled in the same time, choose mode");
-        std::process::exit(1);
-    }
+    //if settings.app.metrics_mode && settings.app.api_mode
+    //    || !settings.app.metrics_mode && !settings.app.api_mode
+    //{
+    //    error!("Api and metrics mode enabled in the same time, choose mode");
+    //    std::process::exit(1);
+    //}
 
     let mut tasks: Vec<JoinHandle<()>> = vec![];
 
     if settings.app.metrics_mode {
-        info!(
-            ">>> Running metric collector pony sends to {:?}",
-            carbon_server
-        );
+        info!(">>> Running metric collector sends to {:?}", carbon_server);
         let mut metrics_tasks: Vec<JoinHandle<()>> = vec![
             tokio::spawn(bandwidth_metrics(carbon_server.clone(), settings.clone())),
             tokio::spawn(cpu_metrics(carbon_server.clone(), settings.clone())),
@@ -142,6 +138,41 @@ async fn main() -> std::io::Result<()> {
         .run()
         .await
         .expect("Run web server")
+    }
+
+    if settings.app.xray_api_mode {
+        let _settings_clone = settings.clone();
+
+        let xray_api_client = xray_op::client::create_client(settings).await;
+
+        let user_info = xray_op::vmess::UserInfo {
+            in_tag: "VMess TCP".to_string(),
+            level: 0,
+            email: "550e8400-e29b-41d4-a716-446655440000".to_string(),
+            uuid: "550e8400-e29b-41d4-a716-446655440000".to_string(),
+        };
+
+        match xray_op::vmess::remove_user(xray_api_client.clone(), user_info.clone()).await {
+            Ok(()) => info!("User remove successfully {:?}", user_info.uuid),
+            Err(e) => error!("User remove failed: {:?}", e),
+        }
+
+        match xray_op::vmess::add_user(xray_api_client, user_info.clone()).await {
+            Ok(()) => info!("User add completed successfully {:?}", user_info.uuid),
+            Err(e) => error!("User add operations failed: {:?}", e),
+        }
+
+        //let client_task = tokio::spawn(async move {
+        //    match client_operations(settings_clone).await {
+        //        Ok(_) => info!("Client operations completed successfully"),
+        //        Err(e) => error!("Client operations failed: {:?}", e),
+        //    }
+        //});
+
+        //grpcurl -plaintext -d '{"uuid": "550e8400-e29b-41d4-a716-446655440000"}' localhost:23456 xray.app.proxyman.command.HandlerService/GetUser
+        //xray api statsquery --server=127.0.0.1:23456 -pattern "user_id:ebd8a62e-631f-49a8-979f-b1e0744891a3"
+
+        //tasks.push(client_task);
     }
 
     let _ = futures::future::try_join_all(tasks).await;

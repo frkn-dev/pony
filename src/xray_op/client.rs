@@ -1,4 +1,4 @@
-use crate::config2::Settings;
+use crate::appconfig::Settings;
 use crate::xray_api::xray::app::proxyman::command::handler_service_client::HandlerServiceClient;
 use crate::xray_api::xray::app::stats::command::stats_service_client::StatsServiceClient;
 use std::sync::Arc;

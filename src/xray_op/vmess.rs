@@ -8,14 +8,7 @@ use crate::xray_api::xray::common::protocol::User;
 use crate::xray_api::xray::common::serial::TypedMessage;
 use crate::xray_api::xray::proxy::vmess::Account;
 use crate::xray_op::client::XrayClients;
-
-#[derive(Clone)]
-pub struct UserInfo {
-    pub in_tag: String,
-    pub level: u32,
-    pub email: String,
-    pub uuid: String,
-}
+use crate::xray_op::users::UserInfo;
 
 pub async fn add_user(clients: XrayClients, user_info: UserInfo) -> Result<(), tonic::Status> {
     let vmess_account = Account {

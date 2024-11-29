@@ -1,0 +1,2 @@
+declare const addon: any;
+export default addon;

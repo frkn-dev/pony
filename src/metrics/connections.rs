@@ -5,7 +5,7 @@ use std::{collections::HashMap, collections::HashSet};
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
 
-use crate::config2::Settings;
+use crate::appconfig::Settings;
 use crate::metrics::metrics::{AsMetric, Metric};
 use crate::utils::{country, current_timestamp, send_to_carbon};
 

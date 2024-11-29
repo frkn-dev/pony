@@ -3,7 +3,7 @@ use std::time::Duration;
 use sysinfo::{LoadAvg, System};
 use tokio::time::sleep;
 
-use crate::config2::Settings;
+use crate::appconfig::Settings;
 use crate::metrics::metrics::{AsMetric, Metric};
 use crate::utils::{current_timestamp, send_to_carbon};
 

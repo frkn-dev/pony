@@ -5,7 +5,9 @@ use log::info;
 use std::error::Error;
 use std::fmt;
 use std::sync::Arc;
+use std::thread;
 use tokio::sync::Mutex;
+use tokio::time::Duration;
 use zmq;
 
 use crate::appconfig::ZmqConfig;
@@ -121,15 +123,43 @@ pub async fn process_message(
     }
 }
 
+fn try_connect(endpoint: &str) -> zmq::Socket {
+    let context = zmq::Context::new();
+    let subscriber = context.socket(zmq::SUB).expect("Failed to create socket");
+
+    subscriber
+        .set_subscribe(b"")
+        .expect("Failed to set subscription");
+
+    loop {
+        match subscriber.connect(endpoint) {
+            Ok(_) => {
+                println!("Connected to publisher at {}", endpoint);
+                break;
+            }
+            Err(err) => {
+                eprintln!(
+                    "Failed to connect to publisher at {}: {}. Retrying...",
+                    endpoint, err
+                );
+                thread::sleep(Duration::from_secs(5));
+            }
+        }
+    }
+
+    subscriber
+}
+
 pub async fn subscriber(
     clients: client::XrayClients,
     config: ZmqConfig,
     state: Arc<Mutex<users::UserState>>,
 ) {
-    let context = zmq::Context::new();
-    let subscriber = context.socket(zmq::SUB).unwrap();
+    let _context = zmq::Context::new();
+    //let subscriber = context.socket(zmq::SUB).unwrap();
 
-    subscriber.connect(&config.endpoint).unwrap();
+    let subscriber = try_connect(&config.endpoint);
+    //subscriber.connect(&config.endpoint).unwrap();
     subscriber.set_subscribe(config.topic.as_bytes()).unwrap();
 
     info!(

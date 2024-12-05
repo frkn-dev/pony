@@ -145,24 +145,10 @@ async fn main() -> std::io::Result<()> {
                 xray_api_clients.clone(),
                 user_state.clone(),
                 tag.clone(),
-                StatType::Uplink,
             ));
             sleep(Duration::from_millis(100)).await;
 
-            debug!("Task added Uplink, {tag:?}");
-            tasks.push(task);
-        }
-
-        for tag in tags {
-            let task = tokio::spawn(get_stats_task(
-                xray_api_clients.clone(),
-                user_state.clone(),
-                tag.clone(),
-                StatType::Downlink,
-            ));
-            sleep(Duration::from_millis(100)).await;
-
-            debug!("Task added Downlink, {tag:?}");
+            debug!("Task added, {tag:?}");
             tasks.push(task);
         }
 

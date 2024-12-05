@@ -34,46 +34,65 @@ pub async fn get_user_stats(
     clients: XrayClients,
     user_id: String,
     tag: Tag,
-    stat: StatType,
-) -> Result<GetStatsResponse, Status> {
-    let mut client = clients.stats_client.lock().await;
-    let stat_name = format!("user>>>{user_id}@{tag}>>>traffic>>>{stat}");
-    debug!("Sending stat request: {}", stat_name);
+) -> Result<(GetStatsResponse, GetStatsResponse), Status> {
+    let client = clients.stats_client.lock().await;
 
-    let request = Request::new(GetStatsRequest {
-        name: stat_name,
+    // Формируем названия статистик для uplink и downlink
+    let downlink_stat_name = format!("user>>>{user_id}@{tag}>>>traffic>>>downlink");
+    let uplink_stat_name = format!("user>>>{user_id}@{tag}>>>traffic>>>uplink");
+
+    let downlink_request = Request::new(GetStatsRequest {
+        name: downlink_stat_name,
+        reset: false,
+    });
+    let uplink_request = Request::new(GetStatsRequest {
+        name: uplink_stat_name,
         reset: false,
     });
 
-    let response = client.get_stats(request).await?;
+    // Используем tokio::spawn для параллельного выполнения запросов
+    let downlink_response = tokio::spawn({
+        let mut client = client.clone();
+        async move { client.get_stats(downlink_request).await }
+    });
 
-    Ok(response.into_inner())
+    let uplink_response = tokio::spawn({
+        let mut client = client.clone();
+        async move { client.get_stats(uplink_request).await }
+    });
+
+    // Ожидаем завершения обоих запросов и правильно обрабатываем Result
+    let (downlink_result, uplink_result) = tokio::try_join!(downlink_response, uplink_response)
+        .map_err(|e| Status::internal(format!("Join error: {}", e)))?;
+
+    // Обрабатываем результаты
+    match (downlink_result, uplink_result) {
+        (Ok(downlink), Ok(uplink)) => {
+            debug!("Downlink stat: {:?}", downlink);
+            debug!("Uplink stat: {:?}", uplink);
+
+            // Возвращаем оба ответа
+            Ok((downlink.into_inner(), uplink.into_inner()))
+        }
+        (Err(e), _) | (_, Err(e)) => {
+            error!("Stat request failed: {}", e);
+            Err(Status::internal(format!("Stat request failed: {}", e)))
+        }
+    }
 }
 
-pub async fn get_stats_task(
-    clients: XrayClients,
-    state: Arc<Mutex<UserState>>,
-    tag: Tag,
-    stat_type: StatType,
-) {
+pub async fn get_stats_task(clients: XrayClients, state: Arc<Mutex<UserState>>, tag: Tag) {
     let user_state = state.lock().await;
     loop {
         for user in &user_state.users.clone() {
             match tag {
                 Tag::Vmess => {
-                    match get_user_stats(
-                        clients.clone(),
-                        user.user_id.clone(),
-                        tag.clone(),
-                        stat_type.clone(),
-                    )
-                    .await
-                    {
+                    match get_user_stats(clients.clone(), user.user_id.clone(), tag.clone()).await {
                         Ok(response) => {
-                            info!("{tag} {stat_type} Received stats: {:?}", response);
+                            info!("{tag} Received stats: {:?}", response);
                         }
                         Err(e) => {
-                            error!("{tag} {stat_type} Failed to get stats: {}", e);
+                            error!("{tag} Failed to get stats: {}", e);
                         }
                     }
                 }

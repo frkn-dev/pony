@@ -6,6 +6,7 @@ use std::fmt;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
+use tokio::time::{sleep, Duration};
 
 mod appconfig;
 mod geoip;
@@ -138,20 +139,31 @@ async fn main() -> std::io::Result<()> {
         let _ = join_all(sync_state_futures).await;
 
         let tags = vec![Tag::Vmess, Tag::Vless, Tag::Shadowsocks];
-        let stat_types = vec![StatType::Uplink, StatType::Downlink];
 
-        for stat_type in stat_types {
-            for tag in &tags {
-                let task = tokio::spawn(get_stats_task(
-                    xray_api_clients.stats_client.clone(),
-                    false,
-                    user_state.clone(),
-                    tag.clone(),
-                    stat_type.clone(),
-                ));
-                debug!("Task added {stat_type}, {tag}");
-                tasks.push(task);
-            }
+        for tag in tags.clone() {
+            let task = tokio::spawn(get_stats_task(
+                xray_api_clients.clone(),
+                user_state.clone(),
+                tag.clone(),
+                StatType::Uplink,
+            ));
+            sleep(Duration::from_millis(100)).await;
+
+            debug!("Task added Uplink, {tag:?}");
+            tasks.push(task);
+        }
+
+        for tag in tags {
+            let task = tokio::spawn(get_stats_task(
+                xray_api_clients.clone(),
+                user_state.clone(),
+                tag.clone(),
+                StatType::Downlink,
+            ));
+            sleep(Duration::from_millis(100)).await;
+
+            debug!("Task added Downlink, {tag:?}");
+            tasks.push(task);
         }
 
         tasks.push(tokio::spawn(zmq::subscriber(

@@ -1,21 +1,19 @@
+use log::debug;
 use log::error;
 use log::info;
 use std::fmt;
-use std::fmt::Display;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio::time::sleep;
 use tokio::time::Duration;
-use tonic::transport::Channel;
 use tonic::Request;
 use tonic::Status;
 
-use crate::xray_api::xray::app::stats::command::stats_service_client::StatsServiceClient;
+use super::client::XrayClients;
+use super::users::UserState;
 use crate::xray_api::xray::app::stats::command::GetStatsRequest;
 use crate::xray_api::xray::app::stats::command::GetStatsResponse;
 use crate::zmq::Tag;
-
-use super::users::UserState;
 
 #[derive(Debug, Clone)]
 pub enum StatType {
@@ -32,22 +30,19 @@ impl fmt::Display for StatType {
     }
 }
 
-pub async fn get_stats<T, T2>(
-    stats_client: Arc<Mutex<StatsServiceClient<Channel>>>,
+pub async fn get_user_stats(
+    clients: XrayClients,
     user_id: String,
-    tag: T,
-    stat: T2,
-    reset: bool,
-) -> Result<GetStatsResponse, Status>
-where
-    T: Display,
-    T2: Display,
-{
-    let mut client = stats_client.lock().await;
+    tag: Tag,
+    stat: StatType,
+) -> Result<GetStatsResponse, Status> {
+    let mut client = clients.stats_client.lock().await;
     let stat_name = format!("user>>>{user_id}@{tag}>>>traffic>>>{stat}");
+    debug!("Sending stat request: {}", stat_name);
+
     let request = Request::new(GetStatsRequest {
         name: stat_name,
-        reset,
+        reset: false,
     });
 
     let response = client.get_stats(request).await?;
@@ -56,8 +51,7 @@ where
 }
 
 pub async fn get_stats_task(
-    stats_client: Arc<Mutex<StatsServiceClient<Channel>>>,
-    reset: bool,
+    clients: XrayClients,
     state: Arc<Mutex<UserState>>,
     tag: Tag,
     stat_type: StatType,
@@ -65,23 +59,28 @@ pub async fn get_stats_task(
     let user_state = state.lock().await;
     loop {
         for user in &user_state.users.clone() {
-            match get_stats(
-                stats_client.clone(),
-                user.user_id.clone(),
-                tag.clone(),
-                stat_type.clone(),
-                reset,
-            )
-            .await
-            {
-                Ok(response) => {
-                    info!("Received stats: {:?}", response);
+            match tag {
+                Tag::Vmess => {
+                    match get_user_stats(
+                        clients.clone(),
+                        user.user_id.clone(),
+                        tag.clone(),
+                        stat_type.clone(),
+                    )
+                    .await
+                    {
+                        Ok(response) => {
+                            info!("{tag} {stat_type} Received stats: {:?}", response);
+                        }
+                        Err(e) => {
+                            error!("{tag} {stat_type} Failed to get stats: {}", e);
+                        }
+                    }
                 }
-                Err(e) => {
-                    error!("Failed to get stats: {}", e);
-                }
+                Tag::Vless => debug!("{tag} Stat: Not impemented"),
+                Tag::Shadowsocks => debug!("{tag} Stat: Not implemented"),
             }
         }
-        sleep(Duration::from_secs(10)).await;
+        sleep(Duration::from_secs(2)).await;
     }
 }

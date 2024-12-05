@@ -134,11 +134,11 @@ fn try_connect(endpoint: &str) -> zmq::Socket {
     loop {
         match subscriber.connect(endpoint) {
             Ok(_) => {
-                println!("Connected to publisher at {}", endpoint);
+                debug!("Connected to publisher at {}", endpoint);
                 break;
             }
             Err(err) => {
-                eprintln!(
+                error!(
                     "Failed to connect to publisher at {}: {}. Retrying...",
                     endpoint, err
                 );

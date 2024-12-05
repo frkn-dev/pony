@@ -194,24 +194,28 @@ pub async fn check_and_block_user(
         .iter_mut()
         .find(|user| user.user_id == user_id)
     {
-        if let (Some(limit), Some(downlink)) = (user.limit, user.downlink) {
-            if downlink > limit {
-                match tag {
-                    Tag::Vmess => {
-                        match vmess::remove_user(clients, format!("{user_id}@{tag}"), tag).await {
-                            Ok(()) => {
-                                let mut user_state = state.lock().await;
-                                let _ = user_state.expire_user(&user.user_id).await;
+        if let (Some(limit), Some(downlink), Some(trial)) = (user.limit, user.downlink, user.trial)
+        {
+            if trial {
+                if downlink > limit {
+                    match tag {
+                        Tag::Vmess => {
+                            match vmess::remove_user(clients, format!("{user_id}@{tag}"), tag).await
+                            {
+                                Ok(()) => {
+                                    let mut user_state = state.lock().await;
+                                    let _ = user_state.expire_user(&user.user_id).await;
 
-                                info!("User remove successfully {:?}", user.user_id);
-                            }
-                            Err(e) => {
-                                error!("User remove failed: {:?}", e);
+                                    info!("User remove successfully {:?}", user.user_id);
+                                }
+                                Err(e) => {
+                                    error!("User remove failed: {:?}", e);
+                                }
                             }
                         }
+                        Tag::Vless => debug!("Vless: not implemented"),
+                        Tag::Shadowsocks => debug!("Shadowsocks: not implemented"),
                     }
-                    Tag::Vless => debug!("Vless: not implemented"),
-                    Tag::Shadowsocks => debug!("Shadowsocks: not implemented"),
                 }
             }
         } else {

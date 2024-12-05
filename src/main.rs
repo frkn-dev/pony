@@ -1,10 +1,10 @@
 use clap::Parser;
 use fern::Dispatch;
+use futures::future::join_all;
 use log::{debug, info};
 use std::fmt;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-
 use tokio::task::JoinHandle;
 
 mod appconfig;
@@ -22,7 +22,10 @@ use crate::metrics::cpuusage::cpu_metrics;
 use crate::metrics::loadavg::loadavg_metrics;
 use crate::metrics::memory::mem_metrics;
 use crate::utils::{current_timestamp, human_readable_date, level_from_settings};
+use crate::xray_op::stats::get_stats_task;
+use crate::xray_op::stats::StatType;
 use crate::xray_op::users;
+use crate::zmq::Tag;
 
 #[derive(Parser)]
 #[command(version = "0.0.23", about = "Pony - control tool for Xray/Wireguard")]
@@ -101,30 +104,61 @@ async fn main() -> std::io::Result<()> {
         };
 
         let user_state =
-            match users::UserState::load_from_file_async(&settings.app.file_state).await {
+            match users::UserState::load_from_file_async(settings.app.file_state.clone()).await {
                 Ok(state) => {
                     debug!("State loaded from file");
                     Arc::new(Mutex::new(state))
                 }
                 Err(e) => {
                     debug!("State created from scratch, {}", e);
-                    Arc::new(Mutex::new(users::UserState::new()))
+                    Arc::new(Mutex::new(users::UserState::new(
+                        settings.app.file_state.clone(),
+                    )))
                 }
             };
 
-        let user_flush_task = tokio::spawn(xray_op::users::periodic_flush(
-            settings.app.file_state.clone(),
-            user_state.clone(),
-        ));
+        let sync_state_futures = vec![
+            utils::sync_state_to_xray_conf(
+                user_state.clone(),
+                xray_api_clients.clone(),
+                Tag::Vless,
+            ),
+            utils::sync_state_to_xray_conf(
+                user_state.clone(),
+                xray_api_clients.clone(),
+                Tag::Vmess,
+            ),
+            utils::sync_state_to_xray_conf(
+                user_state.clone(),
+                xray_api_clients.clone(),
+                Tag::Shadowsocks,
+            ),
+        ];
+
+        let _ = join_all(sync_state_futures).await;
+
+        let tags = vec![Tag::Vmess, Tag::Vless, Tag::Shadowsocks];
+        let stat_types = vec![StatType::Uplink, StatType::Downlink];
+
+        for stat_type in stat_types {
+            for tag in &tags {
+                let task = tokio::spawn(get_stats_task(
+                    xray_api_clients.stats_client.clone(),
+                    false,
+                    user_state.clone(),
+                    tag.clone(),
+                    stat_type.clone(),
+                ));
+                debug!("Task added {stat_type}, {tag}");
+                tasks.push(task);
+            }
+        }
 
         tasks.push(tokio::spawn(zmq::subscriber(
             xray_api_clients.clone(),
             settings.zmq.clone(),
             user_state.clone(),
         )));
-
-        //tasks.push(xray_stat_task);
-        tasks.push(user_flush_task);
     }
 
     let _ = futures::future::try_join_all(tasks).await;

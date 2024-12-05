@@ -1,154 +1,17 @@
 {
+  "file_path": "users.json",
   "users": [
     {
-      "user_id": "user_17",
-      "tag": "Vmess",
-      "trial": true,
-      "limit": 9999
+      "user_id": "dc79e5c9-4b10-48b3-b7b8-534821ce48c7",
+      "trial": false,
+      "limit": 2000,
+      "status": "Active"
     },
     {
-      "user_id": "user_21",
-      "tag": "Vmess",
-      "trial": true,
-      "limit": 9999
-    },
-    {
-      "user_id": "user_9",
-      "tag": "Vmess",
-      "trial": true,
-      "limit": 9999
-    },
-    {
-      "user_id": "user_27",
-      "tag": "Vmess",
-      "trial": true,
-      "limit": 9999
-    },
-    {
-      "user_id": "user_11",
-      "tag": "Vmess",
-      "trial": true,
-      "limit": 9999
-    },
-    {
-      "user_id": "user_15",
-      "tag": "Vmess",
-      "trial": true,
-      "limit": 9999
-    },
-    {
-      "user_id": "user_3",
-      "tag": "Vmess",
-      "trial": true,
-      "limit": 9999
-    },
-    {
-      "user_id": "user_23",
-      "tag": "Vmess",
-      "trial": true,
-      "limit": 9999
-    },
-    {
-      "user_id": "user_29",
-      "tag": "Vmess",
-      "trial": true,
-      "limit": 9999
-    },
-    {
-      "user_id": "user_5",
-      "tag": "Vmess",
-      "trial": true,
-      "limit": 9999
-    },
-    {
-      "user_id": "user_3",
-      "tag": "Vmess",
-      "trial": true,
-      "limit": 9999
-    },
-    {
-      "user_id": "user_5",
-      "tag": "Vmess",
-      "trial": true,
-      "limit": 9999
-    },
-    {
-      "user_id": "user_7",
-      "tag": "Vmess",
-      "trial": true,
-      "limit": 9999
-    },
-    {
-      "user_id": "user_9",
-      "tag": "Vmess",
-      "trial": true,
-      "limit": 9999
-    },
-    {
-      "user_id": "user_11",
-      "tag": "Vmess",
-      "trial": true,
-      "limit": 9999
-    },
-    {
-      "user_id": "user_13",
-      "tag": "Vmess",
-      "trial": true,
-      "limit": 9999
-    },
-    {
-      "user_id": "user_15",
-      "tag": "Vmess",
-      "trial": true,
-      "limit": 9999
-    },
-    {
-      "user_id": "user_17",
-      "tag": "Vmess",
-      "trial": true,
-      "limit": 9999
-    },
-    {
-      "user_id": "user_19",
-      "tag": "Vmess",
-      "trial": true,
-      "limit": 9999
-    },
-    {
-      "user_id": "user_21",
-      "tag": "Vmess",
-      "trial": true,
-      "limit": 9999
-    },
-    {
-      "user_id": "user_23",
-      "tag": "Vmess",
-      "trial": true,
-      "limit": 9999
-    },
-    {
-      "user_id": "user_25",
-      "tag": "Vmess",
-      "trial": true,
-      "limit": 9999
-    },
-    {
-      "user_id": "user_27",
-      "tag": "Vmess",
-      "trial": true,
-      "limit": 9999
-    },
-    {
-      "user_id": "user_29",
-      "tag": "Vmess",
-      "trial": true,
-      "limit": 9999
-    },
-    {
-      "user_id": "user_31",
-      "tag": "Vmess",
-      "trial": true,
-      "limit": 9999
+      "user_id": "1ec1499c-c255-4d67-9d12-c5cd6c2a9a53",
+      "trial": false,
+      "limit": null,
+      "status": "Active"
     }
   ]
 }

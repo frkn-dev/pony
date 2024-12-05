@@ -1,23 +1,50 @@
+use log::error;
+use log::info;
+use std::fmt;
+use std::fmt::Display;
+use std::sync::Arc;
+use tokio::sync::Mutex;
+use tokio::time::sleep;
+use tokio::time::Duration;
+use tonic::transport::Channel;
+use tonic::Request;
+use tonic::Status;
+
 use crate::xray_api::xray::app::stats::command::stats_service_client::StatsServiceClient;
 use crate::xray_api::xray::app::stats::command::GetStatsRequest;
 use crate::xray_api::xray::app::stats::command::GetStatsResponse;
-use log::error;
-use log::info;
-use tokio::time::sleep;
-use tokio::time::Duration;
+use crate::zmq::Tag;
 
-use std::sync::Arc;
-use tokio::sync::Mutex;
-use tonic::transport::Channel;
-use tonic::Request;
+use super::users::UserState;
 
-pub async fn get_stats(
+#[derive(Debug, Clone)]
+pub enum StatType {
+    Uplink,
+    Downlink,
+}
+
+impl fmt::Display for StatType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            StatType::Uplink => write!(f, "uplink"),
+            StatType::Downlink => write!(f, "downlink"),
+        }
+    }
+}
+
+pub async fn get_stats<T, T2>(
     stats_client: Arc<Mutex<StatsServiceClient<Channel>>>,
-    stat_name: String,
+    user_id: String,
+    tag: T,
+    stat: T2,
     reset: bool,
-) -> Result<GetStatsResponse, tonic::Status> {
+) -> Result<GetStatsResponse, Status>
+where
+    T: Display,
+    T2: Display,
+{
     let mut client = stats_client.lock().await;
-
+    let stat_name = format!("user>>>{user_id}@{tag}>>>traffic>>>{stat}");
     let request = Request::new(GetStatsRequest {
         name: stat_name,
         reset,
@@ -30,19 +57,31 @@ pub async fn get_stats(
 
 pub async fn get_stats_task(
     stats_client: Arc<Mutex<StatsServiceClient<Channel>>>,
-    stat_name: String,
     reset: bool,
+    state: Arc<Mutex<UserState>>,
+    tag: Tag,
+    stat_type: StatType,
 ) {
+    let user_state = state.lock().await;
     loop {
-        match get_stats(stats_client.clone(), stat_name.clone(), reset).await {
-            Ok(response) => {
-                info!("Received stats: {:?}", response);
-            }
-            Err(e) => {
-                error!("Failed to get stats: {}", e);
+        for user in &user_state.users.clone() {
+            match get_stats(
+                stats_client.clone(),
+                user.user_id.clone(),
+                tag.clone(),
+                stat_type.clone(),
+                reset,
+            )
+            .await
+            {
+                Ok(response) => {
+                    info!("Received stats: {:?}", response);
+                }
+                Err(e) => {
+                    error!("Failed to get stats: {}", e);
+                }
             }
         }
-
         sleep(Duration::from_secs(10)).await;
     }
 }

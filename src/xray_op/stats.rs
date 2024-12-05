@@ -78,16 +78,18 @@ pub async fn get_user_stats(
 }
 
 pub async fn get_stats_task(clients: XrayClients, state: Arc<Mutex<UserState>>, tag: Tag) {
-    let mut user_state = state.lock().await;
     loop {
-        for user in &user_state.users.clone() {
+        let mut user_state = state.lock().await;
+        for user in user_state.users.clone() {
             match tag {
                 Tag::Vmess => {
                     match get_user_stats(clients.clone(), user.user_id.clone(), tag.clone()).await {
                         Ok(response) => {
                             info!("{tag} Received stats: {:?}", response);
+
                             if let Some(downlink) = response.0.stat {
                                 user_state.update_user_downlink(&user.user_id, downlink.value);
+
                                 users::check_and_block_user(
                                     clients.clone(),
                                     state.clone(),

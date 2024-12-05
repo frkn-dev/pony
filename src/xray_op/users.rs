@@ -184,7 +184,7 @@ impl UserState {
 
 pub async fn check_and_block_user(
     clients: XrayClients,
-    state: Arc<Mutex<UserState>>,
+    state: Arc<Mutex<UserState>>, // Изменено на Arc<Mutex<UserState>>
     user_id: &str,
     tag: Tag,
 ) {
@@ -198,17 +198,23 @@ pub async fn check_and_block_user(
         if let (Some(limit), Some(downlink), Some(trial)) = (user.limit, user.downlink, user.trial)
         {
             if trial && downlink > limit {
+                let user_id_copy = user.user_id.clone(); // Сохраняем user_id перед асинхронным вызовом
+
                 match tag {
                     Tag::Vmess => {
-                        match vmess::remove_user(clients, format!("{user_id}@{tag}"), tag).await {
+                        drop(user_state); // Освобождаем блокировку перед асинхронным вызовом
+
+                        match vmess::remove_user(
+                            clients.clone(),
+                            format!("{user_id_copy}@{tag}"),
+                            tag,
+                        )
+                        .await
+                        {
                             Ok(()) => {
                                 let mut user_state = state.lock().await;
-                                match user_state.expire_user(&user.user_id).await {
-                                    Ok(()) => debug!("Removed user"),
-                                    Err(e) => error!("Remove user error {}", e),
-                                }
-
-                                info!("User removed successfully: {:?}", user.user_id);
+                                let _ = user_state.expire_user(&user_id_copy).await;
+                                info!("User removed successfully: {:?}", user_id_copy);
                             }
                             Err(e) => {
                                 error!("Failed to remove user: {:?}", e);
@@ -219,14 +225,7 @@ pub async fn check_and_block_user(
                     Tag::Shadowsocks => debug!("Shadowsocks: not implemented"),
                 }
             }
-        } else {
-            error!(
-                "User has missing limit, downlink, or trial information: {}",
-                user_id
-            );
         }
-    } else {
-        error!("User not found: {}", user_id);
     }
 }
 

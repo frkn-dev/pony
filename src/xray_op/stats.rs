@@ -4,7 +4,6 @@ use log::info;
 use std::fmt;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use tokio::time::sleep;
 use tokio::time::Duration;
 use tonic::Request;
 use tonic::Status;
@@ -79,52 +78,41 @@ pub async fn get_user_stats(
 
 pub async fn get_stats_task(clients: XrayClients, state: Arc<Mutex<UserState>>, tag: Tag) {
     loop {
-        let users; // Локальная переменная для хранения списка пользователей
+        let user_state = state.lock().await;
+        let users = user_state.users.clone(); // Копируем список пользователей
+        drop(user_state); // Освобождаем блокировку, чтобы избежать deadlock
 
-        // Захватываем блокировку только для чтения списка пользователей
-        {
-            let user_state = state.lock().await;
-            users = user_state.users.clone();
-        }
-
-        // Обрабатываем каждого пользователя
         for user in users {
-            match tag {
-                Tag::Vmess => {
-                    match get_user_stats(clients.clone(), user.user_id.clone(), tag.clone()).await {
-                        Ok(response) => {
-                            info!("{tag} Received stats: {:?}", response);
+            if let Tag::Vmess = tag {
+                match get_user_stats(clients.clone(), user.user_id.clone(), tag.clone()).await {
+                    Ok(response) => {
+                        info!("{tag} Received stats: {:?}", response);
 
-                            if let Some(downlink) = response.0.stat {
-                                {
-                                    let mut user_state = state.lock().await;
-                                    user_state.update_user_downlink(&user.user_id, downlink.value);
-                                }
+                        let mut user_state = state.lock().await;
 
-                                let _ = users::check_and_block_user(
-                                    clients.clone(),
-                                    state.clone(),
-                                    &user.user_id,
-                                    tag.clone(),
-                                )
-                                .await;
-                            }
-
-                            if let Some(uplink) = response.1.stat {
-                                let mut user_state = state.lock().await;
-                                user_state.update_user_uplink(&user.user_id, uplink.value);
-                            }
+                        if let Some(downlink) = response.0.stat {
+                            user_state.update_user_downlink(&user.user_id, downlink.value);
                         }
-                        Err(e) => {
-                            error!("{tag} Failed to get stats: {}", e);
+                        if let Some(uplink) = response.1.stat {
+                            user_state.update_user_uplink(&user.user_id, uplink.value);
                         }
+
+                        drop(user_state); // Освобождаем блокировку перед вызовом check_and_block_user
+
+                        let _ = users::check_and_block_user(
+                            clients.clone(),
+                            state.clone(),
+                            &user.user_id,
+                            tag.clone(),
+                        )
+                        .await;
+                    }
+                    Err(e) => {
+                        error!("{tag} Failed to get stats: {}", e);
                     }
                 }
-                Tag::Vless => debug!("{tag} Stat: Not implemented"),
-                Tag::Shadowsocks => debug!("{tag} Stat: Not implemented"),
             }
         }
-
-        sleep(Duration::from_secs(2)).await;
+        tokio::time::sleep(Duration::from_secs(2)).await;
     }
 }

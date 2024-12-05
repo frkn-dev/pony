@@ -83,7 +83,6 @@ pub async fn get_stats_task(clients: XrayClients, state: Arc<Mutex<UserState>>, 
         for user in &user_state.users.clone() {
             match tag {
                 Tag::Vmess => {
-                    debug!("user downlink {:?}", user.downlink);
                     match get_user_stats(clients.clone(), user.user_id.clone(), tag.clone()).await {
                         Ok(response) => {
                             info!("{tag} Received stats: {:?}", response);

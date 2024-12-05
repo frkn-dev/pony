@@ -7,6 +7,8 @@ use tokio::fs::File;
 use tokio::io::AsyncReadExt;
 use tokio::io::AsyncWriteExt;
 
+use super::stats::StatType;
+
 #[derive(Clone, Debug)]
 pub struct UserInfo {
     pub in_tag: String,
@@ -27,6 +29,8 @@ pub struct User {
     pub trial: Option<bool>,
     pub limit: Option<u64>,
     pub status: UserStatus,
+    pub uplink: Option<i64>,
+    pub downlink: Option<i64>,
 }
 
 #[derive(Deserialize, Serialize, Debug)]
@@ -70,6 +74,8 @@ impl UserState {
                 trial: new_user.trial.or(Some(true)),
                 limit: new_user.limit,
                 status: new_user.status,
+                uplink: None,
+                downlink: None,
             };
             self.users.push(user);
         }
@@ -103,6 +109,25 @@ impl UserState {
         self.save_to_file_async().await?;
 
         Ok(())
+    }
+
+    pub fn update_user_stat(&mut self, user_id: &str, stat: StatType, new_value: Option<i64>) {
+        if let Some(user) = self.users.iter_mut().find(|user| user.user_id == user_id) {
+            match stat {
+                StatType::Uplink => user.uplink = new_value,
+                StatType::Downlink => user.downlink = new_value,
+            }
+        } else {
+            error!("User not found: {}", user_id);
+        }
+    }
+
+    pub fn update_user_uplink(&mut self, user_id: &str, new_uplink: i64) {
+        self.update_user_stat(user_id, StatType::Uplink, Some(new_uplink));
+    }
+
+    pub fn update_user_downlink(&mut self, user_id: &str, new_downlink: i64) {
+        self.update_user_stat(user_id, StatType::Downlink, Some(new_downlink));
     }
 
     pub async fn update_user_trial(

@@ -75,6 +75,8 @@ pub async fn process_message(
                         limit: message.limit,
                         trial: message.trial,
                         status: users::UserStatus::Active,
+                        uplink: None,
+                        downlink: None,
                     };
                     let _ = user_state.add_or_update_user(user).await;
                     info!("User add completed successfully {:?}", user_info.uuid);
@@ -156,10 +158,8 @@ pub async fn subscriber(
     state: Arc<Mutex<users::UserState>>,
 ) {
     let _context = zmq::Context::new();
-    //let subscriber = context.socket(zmq::SUB).unwrap();
 
     let subscriber = try_connect(&config.endpoint);
-    //subscriber.connect(&config.endpoint).unwrap();
     subscriber.set_subscribe(config.topic.as_bytes()).unwrap();
 
     info!(

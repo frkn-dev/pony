@@ -24,7 +24,6 @@ use crate::metrics::loadavg::loadavg_metrics;
 use crate::metrics::memory::mem_metrics;
 use crate::utils::{current_timestamp, human_readable_date, level_from_settings};
 use crate::xray_op::stats::get_stats_task;
-use crate::xray_op::stats::StatType;
 use crate::xray_op::users;
 use crate::zmq::Tag;
 

@@ -37,7 +37,6 @@ pub async fn get_user_stats(
 ) -> Result<(GetStatsResponse, GetStatsResponse), Status> {
     let client = clients.stats_client.lock().await;
 
-    // Формируем названия статистик для uplink и downlink
     let downlink_stat_name = format!("user>>>{user_id}@{tag}>>>traffic>>>downlink");
     let uplink_stat_name = format!("user>>>{user_id}@{tag}>>>traffic>>>uplink");
 
@@ -50,7 +49,6 @@ pub async fn get_user_stats(
         reset: false,
     });
 
-    // Используем tokio::spawn для параллельного выполнения запросов
     let downlink_response = tokio::spawn({
         let mut client = client.clone();
         async move { client.get_stats(downlink_request).await }
@@ -61,17 +59,14 @@ pub async fn get_user_stats(
         async move { client.get_stats(uplink_request).await }
     });
 
-    // Ожидаем завершения обоих запросов и правильно обрабатываем Result
     let (downlink_result, uplink_result) = tokio::try_join!(downlink_response, uplink_response)
         .map_err(|e| Status::internal(format!("Join error: {}", e)))?;
 
-    // Обрабатываем результаты
     match (downlink_result, uplink_result) {
         (Ok(downlink), Ok(uplink)) => {
             debug!("Downlink stat: {:?}", downlink);
             debug!("Uplink stat: {:?}", uplink);
 
-            // Возвращаем оба ответа
             Ok((downlink.into_inner(), uplink.into_inner()))
         }
         (Err(e), _) | (_, Err(e)) => {
@@ -82,7 +77,7 @@ pub async fn get_user_stats(
 }
 
 pub async fn get_stats_task(clients: XrayClients, state: Arc<Mutex<UserState>>, tag: Tag) {
-    let user_state = state.lock().await;
+    let mut user_state = state.lock().await;
     loop {
         for user in &user_state.users.clone() {
             match tag {
@@ -90,13 +85,19 @@ pub async fn get_stats_task(clients: XrayClients, state: Arc<Mutex<UserState>>, 
                     match get_user_stats(clients.clone(), user.user_id.clone(), tag.clone()).await {
                         Ok(response) => {
                             info!("{tag} Received stats: {:?}", response);
+                            if let Some(downlink) = response.0.stat {
+                                user_state.update_user_downlink(&user.user_id, downlink.value);
+                            }
+                            if let Some(uplink) = response.1.stat {
+                                user_state.update_user_uplink(&user.user_id, uplink.value);
+                            }
                         }
                         Err(e) => {
                             error!("{tag} Failed to get stats: {}", e);
                         }
                     }
                 }
-                Tag::Vless => debug!("{tag} Stat: Not impemented"),
+                Tag::Vless => debug!("{tag} Stat: Not implemented"),
                 Tag::Shadowsocks => debug!("{tag} Stat: Not implemented"),
             }
         }

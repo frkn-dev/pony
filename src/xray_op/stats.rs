@@ -79,8 +79,16 @@ pub async fn get_user_stats(
 
 pub async fn get_stats_task(clients: XrayClients, state: Arc<Mutex<UserState>>, tag: Tag) {
     loop {
-        let mut user_state = state.lock().await;
-        for user in user_state.users.clone() {
+        let users; // Локальная переменная для хранения списка пользователей
+
+        // Захватываем блокировку только для чтения списка пользователей
+        {
+            let user_state = state.lock().await;
+            users = user_state.users.clone();
+        }
+
+        // Обрабатываем каждого пользователя
+        for user in users {
             match tag {
                 Tag::Vmess => {
                     match get_user_stats(clients.clone(), user.user_id.clone(), tag.clone()).await {
@@ -88,10 +96,22 @@ pub async fn get_stats_task(clients: XrayClients, state: Arc<Mutex<UserState>>, 
                             info!("{tag} Received stats: {:?}", response);
 
                             if let Some(downlink) = response.0.stat {
-                                user_state.update_user_downlink(&user.user_id, downlink.value);
+                                {
+                                    let mut user_state = state.lock().await;
+                                    user_state.update_user_downlink(&user.user_id, downlink.value);
+                                }
+
+                                let _ = users::check_and_block_user(
+                                    clients.clone(),
+                                    state.clone(),
+                                    &user.user_id,
+                                    tag.clone(),
+                                )
+                                .await;
                             }
 
                             if let Some(uplink) = response.1.stat {
+                                let mut user_state = state.lock().await;
                                 user_state.update_user_uplink(&user.user_id, uplink.value);
                             }
                         }
@@ -104,6 +124,7 @@ pub async fn get_stats_task(clients: XrayClients, state: Arc<Mutex<UserState>>, 
                 Tag::Shadowsocks => debug!("{tag} Stat: Not implemented"),
             }
         }
+
         sleep(Duration::from_secs(2)).await;
     }
 }

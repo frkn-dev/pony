@@ -189,38 +189,45 @@ pub async fn check_and_block_user(
     tag: Tag,
 ) {
     let mut user_state = state.lock().await;
+
+    // Ищем пользователя
     if let Some(user) = user_state
         .users
         .iter_mut()
         .find(|user| user.user_id == user_id)
     {
+        // Проверяем limit, downlink и trial
         if let (Some(limit), Some(downlink), Some(trial)) = (user.limit, user.downlink, user.trial)
         {
-            if trial {
-                if downlink > limit {
-                    match tag {
-                        Tag::Vmess => {
-                            match vmess::remove_user(clients, format!("{user_id}@{tag}"), tag).await
-                            {
-                                Ok(()) => {
-                                    let mut user_state = state.lock().await;
-                                    let _ = user_state.expire_user(&user.user_id).await;
+            if trial && downlink > limit {
+                // Удаление пользователя
+                match tag {
+                    Tag::Vmess => {
+                        match vmess::remove_user(clients, format!("{user_id}@{tag}"), tag).await {
+                            Ok(()) => {
+                                // Удаляем пользователя из состояния
+                                let mut user_state = state.lock().await;
+                                let _ = user_state.expire_user(&user.user_id).await;
 
-                                    info!("User remove successfully {:?}", user.user_id);
-                                }
-                                Err(e) => {
-                                    error!("User remove failed: {:?}", e);
-                                }
+                                info!("User removed successfully: {:?}", user.user_id);
+                            }
+                            Err(e) => {
+                                error!("Failed to remove user: {:?}", e);
                             }
                         }
-                        Tag::Vless => debug!("Vless: not implemented"),
-                        Tag::Shadowsocks => debug!("Shadowsocks: not implemented"),
                     }
+                    Tag::Vless => debug!("Vless: not implemented"),
+                    Tag::Shadowsocks => debug!("Shadowsocks: not implemented"),
                 }
             }
         } else {
-            error!("User not found: {}", user_id);
+            error!(
+                "User has missing limit, downlink, or trial information: {}",
+                user_id
+            );
         }
+    } else {
+        error!("User not found: {}", user_id);
     }
 }
 

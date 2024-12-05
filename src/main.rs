@@ -118,17 +118,17 @@ async fn main() -> std::io::Result<()> {
             };
 
         let sync_state_futures = vec![
-            utils::sync_state_to_xray_conf(
+            users::sync_state_to_xray_conf(
                 user_state.clone(),
                 xray_api_clients.clone(),
                 Tag::Vless,
             ),
-            utils::sync_state_to_xray_conf(
+            users::sync_state_to_xray_conf(
                 user_state.clone(),
                 xray_api_clients.clone(),
                 Tag::Vmess,
             ),
-            utils::sync_state_to_xray_conf(
+            users::sync_state_to_xray_conf(
                 user_state.clone(),
                 xray_api_clients.clone(),
                 Tag::Shadowsocks,

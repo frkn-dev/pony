@@ -1,13 +1,19 @@
+use crate::xray_op::vmess;
 use log::debug;
 use log::error;
+use log::info;
 use serde::{Deserialize, Serialize};
 use std::error::Error;
+use std::sync::Arc;
 use tokio::fs;
 use tokio::fs::File;
 use tokio::io::AsyncReadExt;
 use tokio::io::AsyncWriteExt;
+use tokio::sync::Mutex;
 
+use super::client::XrayClients;
 use super::stats::StatType;
+use crate::zmq::Tag;
 
 #[derive(Clone, Debug)]
 pub struct UserInfo {
@@ -27,7 +33,7 @@ pub enum UserStatus {
 pub struct User {
     pub user_id: String,
     pub trial: Option<bool>,
-    pub limit: Option<u64>,
+    pub limit: Option<i64>,
     pub status: UserStatus,
     pub uplink: Option<i64>,
     pub downlink: Option<i64>,
@@ -99,7 +105,7 @@ impl UserState {
     pub async fn update_user_limit(
         &mut self,
         user_id: &str,
-        new_limit: u64,
+        new_limit: i64,
     ) -> Result<(), Box<dyn Error>> {
         if let Some(user) = self.users.iter_mut().find(|user| user.user_id == user_id) {
             user.limit = Some(new_limit);
@@ -174,4 +180,74 @@ impl UserState {
         debug!("Written successfully");
         Ok(())
     }
+}
+
+pub async fn check_and_block_user(
+    clients: XrayClients,
+    state: Arc<Mutex<UserState>>,
+    user_id: &str,
+    tag: Tag,
+) {
+    let mut user_state = state.lock().await;
+    if let Some(user) = user_state
+        .users
+        .iter_mut()
+        .find(|user| user.user_id == user_id)
+    {
+        if let (Some(limit), Some(downlink)) = (user.limit, user.downlink) {
+            if downlink > limit {
+                match tag {
+                    Tag::Vmess => {
+                        match vmess::remove_user(clients, format!("{user_id}@{tag}"), tag).await {
+                            Ok(()) => {
+                                let mut user_state = state.lock().await;
+                                let _ = user_state.expire_user(&user.user_id).await;
+
+                                info!("User remove successfully {:?}", user.user_id);
+                            }
+                            Err(e) => {
+                                error!("User remove failed: {:?}", e);
+                            }
+                        }
+                    }
+                    Tag::Vless => debug!("Vless: not implemented"),
+                    Tag::Shadowsocks => debug!("Shadowsocks: not implemented"),
+                }
+            }
+        } else {
+            error!("User not found: {}", user_id);
+        }
+    }
+}
+
+pub async fn sync_state_to_xray_conf(
+    state: Arc<Mutex<UserState>>,
+    clients: XrayClients,
+    tag: Tag,
+) -> Result<(), Box<dyn Error>> {
+    let state = state.lock().await;
+    let users = state.get_all_active_users();
+
+    for user in &users {
+        debug!("Running sync for {:?} {:?}", tag, user);
+        match tag {
+            Tag::Vmess => {
+                let user_info = UserInfo {
+                    uuid: user.user_id.clone(),
+                    email: format!("{}@{}", user.user_id, tag),
+                    level: 0,
+                    in_tag: tag.to_string(),
+                };
+                match vmess::add_user(clients.clone(), user_info.clone()).await {
+                    Ok(()) => debug!("User sync success {:?}", user_info),
+                    Err(e) => error!("User sync fail {:?} {}", user_info, e),
+                }
+            }
+
+            Tag::Vless => debug!("Vless: Not implemented"),
+            Tag::Shadowsocks => debug!("ShadowSocks: Not implemented"),
+        }
+    }
+
+    Ok(())
 }

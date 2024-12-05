@@ -9,10 +9,11 @@ use tokio::time::Duration;
 use tonic::Request;
 use tonic::Status;
 
-use super::client::XrayClients;
-use super::users::UserState;
+use crate::users::UserState;
 use crate::xray_api::xray::app::stats::command::GetStatsRequest;
 use crate::xray_api::xray::app::stats::command::GetStatsResponse;
+use crate::xray_op::client::XrayClients;
+use crate::xray_op::users;
 use crate::zmq::Tag;
 
 #[derive(Debug, Clone)]
@@ -87,6 +88,13 @@ pub async fn get_stats_task(clients: XrayClients, state: Arc<Mutex<UserState>>, 
                             info!("{tag} Received stats: {:?}", response);
                             if let Some(downlink) = response.0.stat {
                                 user_state.update_user_downlink(&user.user_id, downlink.value);
+                                users::check_and_block_user(
+                                    clients.clone(),
+                                    state.clone(),
+                                    &user.user_id,
+                                    tag.clone(),
+                                )
+                                .await;
                             }
                             if let Some(uplink) = response.1.stat {
                                 user_state.update_user_uplink(&user.user_id, uplink.value);

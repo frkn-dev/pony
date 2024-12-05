@@ -1,22 +1,15 @@
-use crate::xray_op::client::XrayClients;
-use crate::xray_op::vmess;
-use crate::zmq::Tag;
 use chrono::{TimeZone, Utc};
-use log::debug;
 use log::{error, info, warn, LevelFilter};
 use std::error::Error;
 use std::io;
 use std::net::IpAddr;
 use std::net::SocketAddr;
-use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream;
-use tokio::sync::Mutex;
 
 use crate::geoip;
 use crate::metrics::metrics::Metric;
-use crate::xray_op::users::{UserInfo, UserState};
 
 pub async fn send_to_carbon<T: ToString>(
     metric: &Metric<T>,
@@ -108,36 +101,4 @@ pub async fn country(ip: String) -> Result<String, Box<dyn Error>> {
     let country = trim_quotes(&country_info.country);
 
     Ok(country)
-}
-
-pub async fn sync_state_to_xray_conf(
-    state: Arc<Mutex<UserState>>,
-    clients: XrayClients,
-    tag: Tag,
-) -> Result<(), Box<dyn Error>> {
-    let state = state.lock().await;
-    let users = state.get_all_active_users();
-
-    for user in &users {
-        debug!("Running sync for {:?} {:?}", tag, user);
-        match tag {
-            Tag::Vmess => {
-                let user_info = UserInfo {
-                    uuid: user.user_id.clone(),
-                    email: format!("{}@{}", user.user_id, tag),
-                    level: 0,
-                    in_tag: tag.to_string(),
-                };
-                match vmess::add_user(clients.clone(), user_info.clone()).await {
-                    Ok(()) => debug!("User sync success {:?}", user_info),
-                    Err(e) => error!("User sync fail {:?} {}", user_info, e),
-                }
-            }
-
-            Tag::Vless => debug!("Vless: Not implemented"),
-            Tag::Shadowsocks => debug!("ShadowSocks: Not implemented"),
-        }
-    }
-
-    Ok(())
 }

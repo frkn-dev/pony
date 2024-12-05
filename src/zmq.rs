@@ -49,7 +49,7 @@ pub struct Message {
     pub user_id: String,
     pub action: Action,
     pub trial: Option<bool>,
-    pub limit: Option<u64>,
+    pub limit: Option<i64>,
 }
 
 pub async fn process_message(
@@ -87,7 +87,8 @@ pub async fn process_message(
                     Err(Box::new(e))
                 }
             },
-            Action::Delete => match vmess::remove_user(clients.clone(), user_info.clone()).await {
+            Action::Delete => match vmess::remove_user(clients.clone(), user_info.email, tag).await
+            {
                 Ok(()) => {
                     let mut user_state = state.lock().await;
                     let _ = user_state.expire_user(&user_info.uuid).await;

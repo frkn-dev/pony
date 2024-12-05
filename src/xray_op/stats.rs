@@ -90,7 +90,7 @@ pub async fn get_stats_task(clients: XrayClients, state: Arc<Mutex<UserState>>, 
                             if let Some(downlink) = response.0.stat {
                                 user_state.update_user_downlink(&user.user_id, downlink.value);
 
-                                users::check_and_block_user(
+                                let _ = users::check_and_block_user(
                                     clients.clone(),
                                     state.clone(),
                                     &user.user_id,

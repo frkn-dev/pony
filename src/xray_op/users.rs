@@ -190,24 +190,23 @@ pub async fn check_and_block_user(
 ) {
     let mut user_state = state.lock().await;
 
-    // Ищем пользователя
     if let Some(user) = user_state
         .users
         .iter_mut()
         .find(|user| user.user_id == user_id)
     {
-        // Проверяем limit, downlink и trial
         if let (Some(limit), Some(downlink), Some(trial)) = (user.limit, user.downlink, user.trial)
         {
             if trial && downlink > limit {
-                // Удаление пользователя
                 match tag {
                     Tag::Vmess => {
                         match vmess::remove_user(clients, format!("{user_id}@{tag}"), tag).await {
                             Ok(()) => {
-                                // Удаляем пользователя из состояния
                                 let mut user_state = state.lock().await;
-                                let _ = user_state.expire_user(&user.user_id).await;
+                                match user_state.expire_user(&user.user_id).await {
+                                    Ok(()) => debug!("Removed user"),
+                                    Err(e) => error!("Remove user error {}", e),
+                                }
 
                                 info!("User removed successfully: {:?}", user.user_id);
                             }

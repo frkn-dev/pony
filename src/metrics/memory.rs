@@ -40,7 +40,7 @@ pub async fn mem_metrics(server: String, settings: Settings) {
     loop {
         let mut system = System::new();
 
-        let _ = system.refresh_memory_specifics(MemoryRefreshKind::new().with_ram());
+        let _ = system.refresh_memory_specifics(MemoryRefreshKind::nothing().with_ram());
         let mem_metrics = MemUsage {
             free: system.free_memory(),
             total: system.total_memory(),

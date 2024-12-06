@@ -1,19 +1,10 @@
-use log::debug;
-use log::error;
-use log::info;
-use std::fmt;
-use std::sync::Arc;
-use tokio::sync::Mutex;
-use tokio::time::Duration;
-use tonic::Request;
-use tonic::Status;
+use log::{debug, error, info};
+use std::{fmt, sync::Arc};
+use tokio::{sync::Mutex, time::Duration};
+use tonic::{Request, Status};
 
-use super::client::XrayClients;
-use super::users;
-use super::users::UserState;
-use super::Tag;
-use crate::xray_api::xray::app::stats::command::GetStatsRequest;
-use crate::xray_api::xray::app::stats::command::GetStatsResponse;
+use super::{client::XrayClients, user_state::UserState, users, Tag};
+use crate::xray_api::xray::app::stats::command::{GetStatsRequest, GetStatsResponse};
 
 #[derive(Debug, Clone)]
 pub enum StatType {
@@ -79,33 +70,31 @@ pub async fn get_stats_task(clients: XrayClients, state: Arc<Mutex<UserState>>, 
         let users = user_state.users.clone();
         drop(user_state);
         for user in users {
-            if let Tag::Vmess = tag {
-                match get_user_stats(clients.clone(), user.user_id.clone(), tag.clone()).await {
-                    Ok(response) => {
-                        info!("{tag} Received stats: {:?}", response);
+            match get_user_stats(clients.clone(), user.user_id.clone(), tag.clone()).await {
+                Ok(response) => {
+                    info!("{tag} Received stats: {:?}", response);
 
-                        let mut user_state = state.lock().await;
+                    let mut user_state = state.lock().await;
 
-                        if let Some(downlink) = response.0.stat {
-                            user_state.update_user_downlink(&user.user_id, downlink.value);
-                        }
-                        if let Some(uplink) = response.1.stat {
-                            user_state.update_user_uplink(&user.user_id, uplink.value);
-                        }
-
-                        drop(user_state);
-
-                        let _ = users::check_and_block_user(
-                            clients.clone(),
-                            state.clone(),
-                            &user.user_id,
-                            tag.clone(),
-                        )
-                        .await;
+                    if let Some(downlink) = response.0.stat {
+                        user_state.update_user_downlink(&user.user_id, downlink.value);
                     }
-                    Err(e) => {
-                        error!("{tag} Failed to get stats: {}", e);
+                    if let Some(uplink) = response.1.stat {
+                        user_state.update_user_uplink(&user.user_id, uplink.value);
                     }
+
+                    drop(user_state);
+
+                    let _ = users::check_and_block_user(
+                        clients.clone(),
+                        state.clone(),
+                        &user.user_id,
+                        tag.clone(),
+                    )
+                    .await;
+                }
+                Err(e) => {
+                    error!("{tag} Failed to get stats: {}", e);
                 }
             }
         }

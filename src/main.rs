@@ -11,6 +11,7 @@ use tokio::time::{sleep, Duration};
 mod appconfig;
 mod geoip;
 mod jobs;
+mod message;
 mod metrics;
 mod utils;
 mod xray_api;
@@ -25,7 +26,7 @@ use crate::metrics::loadavg::loadavg_metrics;
 use crate::metrics::memory::mem_metrics;
 use crate::utils::{current_timestamp, human_readable_date, level_from_settings};
 use crate::xray_op::stats::get_stats_task;
-use crate::xray_op::users;
+use crate::xray_op::user_state::{sync_state_to_xray_conf, UserState};
 use crate::xray_op::Tag;
 
 #[derive(Parser)]
@@ -105,40 +106,25 @@ async fn main() -> std::io::Result<()> {
         };
 
         let user_state =
-            match users::UserState::load_from_file_async(settings.app.file_state.clone()).await {
+            match UserState::load_from_file_async(settings.app.file_state.clone()).await {
                 Ok(state) => {
                     debug!("State loaded from file");
                     Arc::new(Mutex::new(state))
                 }
                 Err(e) => {
                     debug!("State created from scratch, {}", e);
-                    Arc::new(Mutex::new(users::UserState::new(
-                        settings.app.file_state.clone(),
-                    )))
+                    Arc::new(Mutex::new(UserState::new(settings.app.file_state.clone())))
                 }
             };
 
         let sync_state_futures = vec![
-            users::sync_state_to_xray_conf(
-                user_state.clone(),
-                xray_api_clients.clone(),
-                Tag::Vless,
-            ),
-            users::sync_state_to_xray_conf(
-                user_state.clone(),
-                xray_api_clients.clone(),
-                Tag::Vmess,
-            ),
-            users::sync_state_to_xray_conf(
-                user_state.clone(),
-                xray_api_clients.clone(),
-                Tag::Shadowsocks,
-            ),
+            sync_state_to_xray_conf(user_state.clone(), xray_api_clients.clone(), Tag::Vless),
+            sync_state_to_xray_conf(user_state.clone(), xray_api_clients.clone(), Tag::Vmess),
         ];
 
         let _ = join_all(sync_state_futures).await;
 
-        let tags = vec![Tag::Vmess, Tag::Vless, Tag::Shadowsocks];
+        let tags = vec![Tag::Vmess, Tag::Vless];
         for tag in &tags {
             sleep(Duration::from_millis(100)).await;
             let task = tokio::spawn(get_stats_task(

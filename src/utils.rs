@@ -1,5 +1,5 @@
 use chrono::{TimeZone, Utc};
-use log::{error, info, warn, LevelFilter};
+use log::{debug, error, warn, LevelFilter};
 use std::error::Error;
 use std::io;
 use std::net::IpAddr;
@@ -24,7 +24,7 @@ pub async fn send_to_carbon<T: ToString>(
                 return Err(e);
             }
 
-            info!("Sent metric to Carbon: {}", metric_string);
+            debug!("Sent metric to Carbon: {}", metric_string);
 
             if let Err(e) = stream.flush().await {
                 warn!("Failed to flush stream: {}", e);

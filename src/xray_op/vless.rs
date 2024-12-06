@@ -7,7 +7,7 @@ use crate::xray_api::xray::app::proxyman::command::{
 };
 use crate::xray_api::xray::common::protocol::User;
 use crate::xray_api::xray::common::serial::TypedMessage;
-use crate::xray_api::xray::proxy::vmess::Account;
+use crate::xray_api::xray::proxy::vless::Account;
 
 #[derive(Clone, Debug)]
 pub struct UserInfo {
@@ -15,6 +15,8 @@ pub struct UserInfo {
     pub level: u32,
     pub email: String,
     pub uuid: String,
+    encryption: Option<String>,
+    flow: Option<String>,
 }
 
 impl UserInfo {
@@ -24,25 +26,27 @@ impl UserInfo {
             level: 0,
             email: format!("{}@{}", uuid, in_tag),
             uuid: uuid,
+            encryption: Some("none".to_string()),
+            flow: Some("xtls-rprx-vision".to_string()),
         }
     }
 }
 
 pub async fn add_user(clients: XrayClients, user_info: UserInfo) -> Result<(), tonic::Status> {
-    let vmess_account = Account {
+    let vless_account = Account {
         id: user_info.uuid.clone(),
-        security_settings: None,
-        tests_enabled: String::new(),
+        flow: user_info.flow.unwrap_or_default(),
+        encryption: user_info.encryption.unwrap_or_else(|| "none".to_string()),
     };
 
-    let vmess_account_bytes = prost::Message::encode_to_vec(&vmess_account);
+    let vless_account_bytes = prost::Message::encode_to_vec(&vless_account);
 
     let user = User {
         level: user_info.level,
         email: user_info.email.clone(),
         account: Some(TypedMessage {
-            r#type: "xray.proxy.vmess.Account".to_string(),
-            value: vmess_account_bytes,
+            r#type: "xray.proxy.vless.Account".to_string(),
+            value: vless_account_bytes,
         }),
     };
 
@@ -69,7 +73,7 @@ pub async fn add_user(clients: XrayClients, user_info: UserInfo) -> Result<(), t
 }
 
 pub async fn remove_user(clients: XrayClients, user_id: String) -> Result<(), tonic::Status> {
-    let tag: Tag = Tag::Vmess;
+    let tag: Tag = Tag::Vless;
 
     let operation = RemoveUserOperation {
         email: format!("{}@{}", user_id, tag),

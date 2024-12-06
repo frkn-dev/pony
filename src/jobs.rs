@@ -4,13 +4,7 @@ use log::error;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
-use crate::xray_op::users::UserStatus;
-use crate::xray_op::Tag;
-use crate::xray_op::{
-    client::XrayClients,
-    users::{UserInfo, UserState},
-    vmess,
-};
+use crate::xray_op::{client::XrayClients, user_state::UserState, users::UserStatus, vmess, Tag};
 
 pub async fn restore_trial_users(state: Arc<Mutex<UserState>>, clients: XrayClients) {
     let trial_users = state.lock().await.get_all_trial_users(UserStatus::Expired);
@@ -41,7 +35,7 @@ pub async fn restore_trial_users(state: Arc<Mutex<UserState>>, clients: XrayClie
             if user_to_restore {
                 let tags = vec![Tag::Vmess, Tag::Vless, Tag::Shadowsocks];
                 for tag in &tags {
-                    let user_info = UserInfo::new(user.user_id.clone(), tag.clone());
+                    let user_info = vmess::UserInfo::new(user.user_id.clone(), tag.clone());
                     match tag {
                         Tag::Vmess => {
                             match vmess::add_user(clients.clone(), user_info.clone()).await {

@@ -3,16 +3,15 @@ use log::debug;
 use log::error;
 use log::info;
 use serde::Deserialize;
-use std::error::Error;
 use std::sync::Arc;
 use std::thread;
 use tokio::sync::Mutex;
 use tokio::time::Duration;
 use zmq;
 
+use super::message::{process_message, Message};
 use crate::appconfig::Settings;
-use crate::users::UserInfo;
-use crate::xray_op::{client, users, vmess, Tag};
+use crate::xray_op::{client, user_state};
 
 #[derive(Deserialize, Debug, Clone)]
 pub enum Action {
@@ -24,14 +23,6 @@ pub enum Action {
     Update,
     #[serde(rename = "restore")]
     Restore,
-}
-
-#[derive(Deserialize, Clone, Debug)]
-pub struct Message {
-    pub user_id: String,
-    pub action: Action,
-    pub trial: Option<bool>,
-    pub limit: Option<i64>,
 }
 
 fn try_connect(endpoint: &str) -> zmq::Socket {
@@ -64,7 +55,7 @@ fn try_connect(endpoint: &str) -> zmq::Socket {
 pub async fn subscriber(
     clients: client::XrayClients,
     config: Settings,
-    state: Arc<Mutex<users::UserState>>,
+    state: Arc<Mutex<user_state::UserState>>,
 ) {
     let _context = zmq::Context::new();
 
@@ -88,29 +79,12 @@ pub async fn subscriber(
                 Ok(message) => {
                     debug!("Message recieved {:?}", message.clone());
 
-                    let futures = vec![
-                        process_message(
-                            clients.clone(),
-                            message.clone(),
-                            Tag::Vmess,
-                            state.clone(),
-                            config.xray.xray_daily_limit_mb,
-                        ),
-                        process_message(
-                            clients.clone(),
-                            message.clone(),
-                            Tag::Vless,
-                            state.clone(),
-                            config.xray.xray_daily_limit_mb,
-                        ),
-                        process_message(
-                            clients.clone(),
-                            message.clone(),
-                            Tag::Shadowsocks,
-                            state.clone(),
-                            config.xray.xray_daily_limit_mb,
-                        ),
-                    ];
+                    let futures = vec![process_message(
+                        clients.clone(),
+                        message.clone(),
+                        state.clone(),
+                        config.xray.xray_daily_limit_mb,
+                    )];
 
                     let _ = join_all(futures).await;
                 }
@@ -118,87 +92,6 @@ pub async fn subscriber(
                     eprintln!("Error parsing JSON: {} {:?}", e, message.clone());
                 }
             };
-        }
-    }
-}
-
-pub async fn process_message(
-    clients: client::XrayClients,
-    message: Message,
-    tag: Tag,
-    state: Arc<Mutex<users::UserState>>,
-    config_daily_limit_mb: i64,
-) -> Result<(), Box<dyn Error + Send + Sync>> {
-    let user_info = UserInfo::new(message.user_id.to_string(), tag.clone());
-
-    match tag {
-        Tag::Vmess => match message.action {
-            Action::Create => match vmess::add_user(clients.clone(), user_info.clone()).await {
-                Ok(()) => {
-                    let mut user_state = state.lock().await;
-                    let daily_limit_mb = message.limit.unwrap_or(config_daily_limit_mb);
-                    let trial = message.trial.unwrap_or(true);
-                    let user = users::User::new(user_info.uuid.clone(), daily_limit_mb, trial);
-                    let _ = user_state.add_or_update_user(user).await;
-                    info!("User add completed successfully {:?}", user_info.uuid);
-                    Ok(())
-                }
-                Err(e) => {
-                    error!("User add operations failed: {:?}", e);
-                    Err(Box::new(e))
-                }
-            },
-            Action::Delete => {
-                match vmess::remove_user(clients.clone(), user_info.uuid.clone()).await {
-                    Ok(()) => {
-                        let mut user_state = state.lock().await;
-                        let _ = user_state.expire_user(&user_info.uuid).await;
-
-                        info!("User remove successfully {:?}", user_info.uuid);
-                        Ok(())
-                    }
-                    Err(e) => {
-                        error!("User remove failed: {:?}", e);
-                        Err(Box::new(e))
-                    }
-                }
-            }
-            Action::Restore => match vmess::add_user(clients.clone(), user_info.clone()).await {
-                Ok(()) => {
-                    let mut user_state = state.lock().await;
-                    let daily_limit_mb = message.limit.unwrap_or(config_daily_limit_mb);
-                    let trial = message.trial.unwrap_or(true);
-                    let user = users::User::new(user_info.uuid.clone(), daily_limit_mb, trial);
-                    let _ = user_state.restore_user(user).await;
-                    info!("User restored successfully {:?}", user_info.uuid);
-                    Ok(())
-                }
-                Err(e) => {
-                    error!("User add operations failed: {:?}", e);
-                    Err(Box::new(e))
-                }
-            },
-            Action::Update => {
-                if let Some(trial) = message.trial {
-                    debug!("Update user trial {} {}", user_info.uuid, trial);
-                    let mut user_state = state.lock().await;
-                    let _ = user_state.update_user_trial(&user_info.uuid, trial).await;
-                }
-                if let Some(limit) = message.limit {
-                    debug!("Update user limit {} {}", user_info.uuid, limit);
-                    let mut user_state = state.lock().await;
-                    let _ = user_state.update_user_limit(&user_info.uuid, limit).await;
-                }
-                Ok(())
-            }
-        },
-        Tag::Vless => {
-            debug!("Vless: Not implemented process_message");
-            Ok(())
-        }
-        Tag::Shadowsocks => {
-            debug!("Shadowsocks: Not implemented process_message");
-            Ok(())
         }
     }
 }

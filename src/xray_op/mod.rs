@@ -1,12 +1,14 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::fmt;
 
 pub mod client;
 pub mod stats;
+pub mod user_state;
 pub mod users;
+pub mod vless;
 pub mod vmess;
 
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Deserialize, Serialize, Debug, Clone, PartialEq)]
 pub enum Tag {
     #[serde(rename = "vless")]
     Vless,

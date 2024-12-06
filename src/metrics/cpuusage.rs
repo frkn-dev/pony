@@ -52,8 +52,9 @@ pub async fn cpu_metrics(server: String, settings: Settings) {
     info!("Starting cpu metric loop");
 
     loop {
-        let mut s =
-            System::new_with_specifics(RefreshKind::new().with_cpu(CpuRefreshKind::everything()));
+        let mut s = System::new_with_specifics(
+            RefreshKind::nothing().with_cpu(CpuRefreshKind::everything()),
+        );
 
         sleep(Duration::from_secs(settings.app.metrics_delay)).await;
 

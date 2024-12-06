@@ -105,13 +105,15 @@ impl UserState {
         Ok(())
     }
 
-    pub async fn restore_user(&mut self, user_id: String) -> Result<(), Box<dyn Error>> {
-        if let Some(existing_user) = self.users.iter_mut().find(|user| user.user_id == user_id) {
+    pub async fn restore_user(&mut self, user: User) -> Result<(), Box<dyn Error>> {
+        if let Some(existing_user) = self.users.iter_mut().find(|u| u.user_id == user.user_id) {
             debug!("Restoring {}", existing_user.user_id);
             existing_user.status = UserStatus::Active;
             existing_user.update_modified_at();
+            existing_user.limit = user.limit;
+            existing_user.trial = user.trial;
         } else {
-            error!("User not found {} ", user_id);
+            error!("User not found {} ", user.user_id);
         }
         self.save_to_file_async().await?;
         Ok(())
@@ -178,11 +180,11 @@ impl UserState {
         self.update_user_stat(user_id, StatType::Downlink, Some(new_downlink));
     }
 
-    pub fn get_all_trial_users(&self) -> Vec<User> {
+    pub fn get_all_trial_users(&self, status: UserStatus) -> Vec<User> {
         let users = self
             .users
             .iter()
-            .filter(|user| user.status == UserStatus::Expired && user.trial)
+            .filter(|user| user.status == status && user.trial)
             .cloned()
             .collect();
         users
@@ -234,12 +236,8 @@ pub async fn check_and_block_user(
                     Tag::Vmess => {
                         drop(user_state);
 
-                        match vmess::remove_user(
-                            clients.clone(),
-                            format!("{user_id_copy}@{tag}"),
-                            tag,
-                        )
-                        .await
+                        match vmess::remove_user(clients.clone(), format!("{user_id_copy}@{tag}"))
+                            .await
                         {
                             Ok(()) => {
                                 let mut user_state = state.lock().await;
@@ -277,9 +275,14 @@ pub async fn sync_state_to_xray_conf(
                     level: 0,
                     in_tag: tag.to_string(),
                 };
-                match vmess::add_user(clients.clone(), user_info.clone()).await {
-                    Ok(()) => debug!("User sync success {:?}", user_info),
-                    Err(e) => error!("User sync fail {:?} {}", user_info, e),
+                match user.status {
+                    UserStatus::Active => {
+                        match vmess::add_user(clients.clone(), user_info.clone()).await {
+                            Ok(()) => debug!("User sync success {:?}", user_info),
+                            Err(e) => error!("User sync fail {:?} {}", user_info, e),
+                        }
+                    }
+                    UserStatus::Expired => debug!("User expired, skip to restore"),
                 }
             }
 

@@ -69,10 +69,7 @@ pub async fn get_user_stats(
 
             Ok((downlink.into_inner(), uplink.into_inner()))
         }
-        (Err(e), _) | (_, Err(e)) => {
-            error!("Stat request failed: {}", e);
-            Err(Status::internal(format!("Stat request failed: {}", e)))
-        }
+        (Err(e), _) | (_, Err(e)) => Err(Status::internal(format!("Stat request failed: {}", e))),
     }
 }
 

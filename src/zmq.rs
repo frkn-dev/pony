@@ -149,7 +149,7 @@ pub async fn process_message(
                 }
             },
             Action::Delete => {
-                match vmess::remove_user(clients.clone(), user_info.uuid.clone(), tag).await {
+                match vmess::remove_user(clients.clone(), user_info.uuid.clone()).await {
                     Ok(()) => {
                         let mut user_state = state.lock().await;
                         let _ = user_state.expire_user(&user_info.uuid).await;
@@ -163,12 +163,21 @@ pub async fn process_message(
                     }
                 }
             }
-            Action::Restore => {
-                debug!("Restore user {}", user_info.uuid);
-                let mut user_state = state.lock().await;
-                let _ = user_state.restore_user(user_info.uuid).await;
-                Ok(())
-            }
+            Action::Restore => match vmess::add_user(clients.clone(), user_info.clone()).await {
+                Ok(()) => {
+                    let mut user_state = state.lock().await;
+                    let daily_limit_mb = message.limit.unwrap_or(config_daily_limit_mb);
+                    let trial = message.trial.unwrap_or(true);
+                    let user = users::User::new(user_info.uuid.clone(), daily_limit_mb, trial);
+                    let _ = user_state.restore_user(user).await;
+                    info!("User restored successfully {:?}", user_info.uuid);
+                    Ok(())
+                }
+                Err(e) => {
+                    error!("User add operations failed: {:?}", e);
+                    Err(Box::new(e))
+                }
+            },
             Action::Update => {
                 if let Some(trial) = message.trial {
                     debug!("Update user trial {} {}", user_info.uuid, trial);

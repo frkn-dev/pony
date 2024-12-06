@@ -139,15 +139,15 @@ async fn main() -> std::io::Result<()> {
         let _ = join_all(sync_state_futures).await;
 
         let tags = vec![Tag::Vmess, Tag::Vless, Tag::Shadowsocks];
-        for tag in tags.clone() {
+        for tag in &tags {
+            sleep(Duration::from_millis(100)).await;
             let task = tokio::spawn(get_stats_task(
                 xray_api_clients.clone(),
                 user_state.clone(),
                 tag.clone(),
             ));
-            sleep(Duration::from_millis(100)).await;
 
-            debug!("Task added, {tag:?}");
+            debug!("Stat Task added, {tag:?}");
             tasks.push(task);
         }
 
@@ -157,17 +157,31 @@ async fn main() -> std::io::Result<()> {
             user_state.clone(),
         )));
 
-        let restore_handle = tokio::spawn({
+        let restore_trial_users_handle = tokio::spawn({
             debug!("Running restoring trial users job");
             let state = user_state.clone();
+            let clients = xray_api_clients.clone();
             async move {
                 loop {
-                    jobs::restore_trial_users(state.clone()).await;
+                    jobs::restore_trial_users(state.clone(), clients.clone()).await;
                     sleep(Duration::from_secs(60)).await;
                 }
             }
         });
-        tasks.push(restore_handle);
+        tasks.push(restore_trial_users_handle);
+
+        let block_trial_users_by_limit_handle = tokio::spawn({
+            debug!("Running block trial users job");
+            let state = user_state.clone();
+            let clients = xray_api_clients.clone();
+            async move {
+                loop {
+                    sleep(Duration::from_secs(60)).await;
+                    jobs::block_trial_users_by_limit(state.clone(), clients.clone()).await;
+                }
+            }
+        });
+        tasks.push(block_trial_users_by_limit_handle);
     }
 
     let _ = futures::future::try_join_all(tasks).await;

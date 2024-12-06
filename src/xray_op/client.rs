@@ -1,6 +1,7 @@
 use crate::appconfig::Settings;
 use crate::xray_api::xray::app::proxyman::command::handler_service_client::HandlerServiceClient;
 use crate::xray_api::xray::app::stats::command::stats_service_client::StatsServiceClient;
+use log::debug;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tonic::transport::Channel;
@@ -12,10 +13,20 @@ pub struct XrayClients {
 }
 
 pub async fn create_clients(settings: Settings) -> Result<XrayClients, Box<dyn std::error::Error>> {
-    let channel = Channel::from_shared(settings.xray.xray_api_endpoint)
+    let channel = match Channel::from_shared(settings.xray.xray_api_endpoint.clone())
         .unwrap()
         .connect()
-        .await?;
+        .await
+    {
+        Ok(ch) => {
+            debug!("Success - Xray Clients created");
+            ch
+        }
+        Err(e) => panic!(
+            "Couldnt' connect to Xray API {} {}",
+            settings.xray.xray_api_endpoint, e
+        ),
+    };
 
     let handler_client = Arc::new(Mutex::new(HandlerServiceClient::new(channel.clone())));
 

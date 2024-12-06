@@ -10,6 +10,7 @@ use tokio::time::{sleep, Duration};
 
 mod appconfig;
 mod geoip;
+mod jobs;
 mod metrics;
 mod utils;
 mod xray_api;
@@ -25,7 +26,7 @@ use crate::metrics::memory::mem_metrics;
 use crate::utils::{current_timestamp, human_readable_date, level_from_settings};
 use crate::xray_op::stats::get_stats_task;
 use crate::xray_op::users;
-use crate::zmq::Tag;
+use crate::xray_op::Tag;
 
 #[derive(Parser)]
 #[command(version = "0.0.23", about = "Pony - control tool for Xray/Wireguard")]
@@ -138,7 +139,6 @@ async fn main() -> std::io::Result<()> {
         let _ = join_all(sync_state_futures).await;
 
         let tags = vec![Tag::Vmess, Tag::Vless, Tag::Shadowsocks];
-
         for tag in tags.clone() {
             let task = tokio::spawn(get_stats_task(
                 xray_api_clients.clone(),
@@ -153,9 +153,21 @@ async fn main() -> std::io::Result<()> {
 
         tasks.push(tokio::spawn(zmq::subscriber(
             xray_api_clients.clone(),
-            settings.zmq.clone(),
+            settings.clone(),
             user_state.clone(),
         )));
+
+        let restore_handle = tokio::spawn({
+            debug!("Running restoring trial users job");
+            let state = user_state.clone();
+            async move {
+                loop {
+                    jobs::restore_trial_users(state.clone()).await;
+                    sleep(Duration::from_secs(60)).await;
+                }
+            }
+        });
+        tasks.push(restore_handle);
     }
 
     let _ = futures::future::try_join_all(tasks).await;

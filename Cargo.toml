@@ -14,7 +14,7 @@ config = "0.14"
 openssl = { version = "0.10", features = ["vendored"] }
 log = "0.4"
 fern = "0.6"
-chrono = "0.4"
+chrono = { version = "0.4", features = ["serde"] }
 reqwest = "0.12"
 toml = "0.7"
 futures = "0.3"

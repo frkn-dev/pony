@@ -36,6 +36,15 @@ async function runPublisher() {
     // Небольшая задержка перед следующим сообщением
     await new Promise(resolve => setTimeout(resolve, 2000));
 
+     // Сообщение 1: Создание пользователя
+    const createMessage3 = JSON.stringify({
+        action: "create",
+        user_id: "3747aefe-add3-4bad-badf-621e6585f3d0",
+        trial: false,
+        limit: 6000,
+    });
+    console.log("Sending create message:", createMessage3);
+    await sock.send(["dev", createMessage3]);
 
 
 

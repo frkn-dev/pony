@@ -8,12 +8,12 @@ use tokio::time::Duration;
 use tonic::Request;
 use tonic::Status;
 
-use crate::users::UserState;
+use super::client::XrayClients;
+use super::users;
+use super::users::UserState;
+use super::Tag;
 use crate::xray_api::xray::app::stats::command::GetStatsRequest;
 use crate::xray_api::xray::app::stats::command::GetStatsResponse;
-use crate::xray_op::client::XrayClients;
-use crate::xray_op::users;
-use crate::zmq::Tag;
 
 #[derive(Debug, Clone)]
 pub enum StatType {
@@ -79,9 +79,8 @@ pub async fn get_user_stats(
 pub async fn get_stats_task(clients: XrayClients, state: Arc<Mutex<UserState>>, tag: Tag) {
     loop {
         let user_state = state.lock().await;
-        let users = user_state.users.clone(); // Копируем список пользователей
-        drop(user_state); // Освобождаем блокировку, чтобы избежать deadlock
-
+        let users = user_state.users.clone();
+        drop(user_state);
         for user in users {
             if let Tag::Vmess = tag {
                 match get_user_stats(clients.clone(), user.user_id.clone(), tag.clone()).await {
@@ -97,7 +96,7 @@ pub async fn get_stats_task(clients: XrayClients, state: Arc<Mutex<UserState>>, 
                             user_state.update_user_uplink(&user.user_id, uplink.value);
                         }
 
-                        drop(user_state); // Освобождаем блокировку перед вызовом check_and_block_user
+                        drop(user_state);
 
                         let _ = users::check_and_block_user(
                             clients.clone(),
@@ -113,6 +112,6 @@ pub async fn get_stats_task(clients: XrayClients, state: Arc<Mutex<UserState>>, 
                 }
             }
         }
-        tokio::time::sleep(Duration::from_secs(2)).await;
+        tokio::time::sleep(Duration::from_secs(300)).await;
     }
 }

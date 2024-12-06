@@ -1,4 +1,5 @@
 use crate::xray_op::vmess;
+use chrono::{DateTime, Utc};
 use log::debug;
 use log::error;
 use log::info;
@@ -13,7 +14,7 @@ use tokio::sync::Mutex;
 
 use super::client::XrayClients;
 use super::stats::StatType;
-use crate::zmq::Tag;
+use super::Tag;
 
 #[derive(Clone, Debug)]
 pub struct UserInfo {
@@ -21,6 +22,17 @@ pub struct UserInfo {
     pub level: u32,
     pub email: String,
     pub uuid: String,
+}
+
+impl UserInfo {
+    pub fn new(uuid: String, in_tag: Tag) -> Self {
+        Self {
+            in_tag: in_tag.to_string(),
+            level: 0,
+            email: format!("{}@{}", uuid, in_tag),
+            uuid: uuid,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -32,11 +44,33 @@ pub enum UserStatus {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct User {
     pub user_id: String,
-    pub trial: Option<bool>,
-    pub limit: Option<i64>,
+    pub trial: bool,
+    pub limit: i64,
     pub status: UserStatus,
     pub uplink: Option<i64>,
     pub downlink: Option<i64>,
+    pub created_at: DateTime<Utc>,
+    pub modified_at: Option<DateTime<Utc>>,
+}
+
+impl User {
+    pub fn new(user_id: String, limit: i64, trial: bool) -> Self {
+        let now = Utc::now();
+        Self {
+            user_id,
+            trial: trial,
+            limit: limit,
+            status: UserStatus::Active,
+            uplink: None,
+            downlink: None,
+            created_at: now,
+            modified_at: None,
+        }
+    }
+
+    pub fn update_modified_at(&mut self) {
+        self.modified_at = Some(Utc::now());
+    }
 }
 
 #[derive(Deserialize, Serialize, Debug)]
@@ -61,44 +95,37 @@ impl UserState {
             .iter_mut()
             .find(|user| user.user_id == new_user.user_id)
         {
-            debug!(
-                "Updating existing user: {:?} {:?}",
-                existing_user,
-                new_user.clone()
-            );
-            existing_user.status = new_user.status;
-            if let Some(trial) = new_user.trial {
-                existing_user.trial = Some(trial);
-            }
-            if let Some(limit) = new_user.limit {
-                existing_user.limit = Some(limit);
-            }
+            debug!("User {} already exist", existing_user.user_id);
         } else {
             debug!("Adding new user: {:?}", new_user);
-            let user = User {
-                user_id: new_user.user_id.clone(),
-                trial: new_user.trial.or(Some(true)),
-                limit: new_user.limit,
-                status: new_user.status,
-                uplink: None,
-                downlink: None,
-            };
-            self.users.push(user);
+            self.users.push(new_user);
         }
 
         self.save_to_file_async().await?;
+        Ok(())
+    }
 
+    pub async fn restore_user(&mut self, user_id: String) -> Result<(), Box<dyn Error>> {
+        if let Some(existing_user) = self.users.iter_mut().find(|user| user.user_id == user_id) {
+            debug!("Restoring {}", existing_user.user_id);
+            existing_user.status = UserStatus::Active;
+            existing_user.update_modified_at();
+        } else {
+            error!("User not found {} ", user_id);
+        }
+        self.save_to_file_async().await?;
         Ok(())
     }
 
     pub async fn expire_user(&mut self, user_id: &str) -> Result<(), Box<dyn Error>> {
         if let Some(user) = self.users.iter_mut().find(|user| user.user_id == user_id) {
             user.status = UserStatus::Expired;
+            user.update_modified_at();
         } else {
             error!("User not found: {:?} ", user_id);
         }
-        self.save_to_file_async().await?;
 
+        self.save_to_file_async().await?;
         Ok(())
     }
 
@@ -108,9 +135,24 @@ impl UserState {
         new_limit: i64,
     ) -> Result<(), Box<dyn Error>> {
         if let Some(user) = self.users.iter_mut().find(|user| user.user_id == user_id) {
-            user.limit = Some(new_limit);
+            user.limit = new_limit;
+            user.update_modified_at();
         } else {
             error!("User not found: {:?} ", user_id);
+        }
+        self.save_to_file_async().await?;
+
+        Ok(())
+    }
+
+    pub async fn update_user_trial(
+        &mut self,
+        user_id: &str,
+        new_trial: bool,
+    ) -> Result<(), Box<dyn Error>> {
+        if let Some(user) = self.users.iter_mut().find(|user| user.user_id == user_id) {
+            user.trial = new_trial;
+            user.update_modified_at();
         }
         self.save_to_file_async().await?;
 
@@ -136,24 +178,11 @@ impl UserState {
         self.update_user_stat(user_id, StatType::Downlink, Some(new_downlink));
     }
 
-    pub async fn update_user_trial(
-        &mut self,
-        user_id: &str,
-        new_trial: bool,
-    ) -> Result<(), Box<dyn Error>> {
-        if let Some(user) = self.users.iter_mut().find(|user| user.user_id == user_id) {
-            user.trial = Some(new_trial);
-        }
-        self.save_to_file_async().await?;
-
-        Ok(())
-    }
-
-    pub fn get_all_active_users(&self) -> Vec<User> {
+    pub fn get_all_trial_users(&self) -> Vec<User> {
         let users = self
             .users
             .iter()
-            .filter(|user| user.status == UserStatus::Active)
+            .filter(|user| user.status == UserStatus::Expired && user.trial)
             .cloned()
             .collect();
         users
@@ -184,7 +213,7 @@ impl UserState {
 
 pub async fn check_and_block_user(
     clients: XrayClients,
-    state: Arc<Mutex<UserState>>, // Изменено на Arc<Mutex<UserState>>
+    state: Arc<Mutex<UserState>>,
     user_id: &str,
     tag: Tag,
 ) {
@@ -195,14 +224,15 @@ pub async fn check_and_block_user(
         .iter_mut()
         .find(|user| user.user_id == user_id)
     {
-        if let (Some(limit), Some(downlink), Some(trial)) = (user.limit, user.downlink, user.trial)
+        if let (limit, Some(downlink), trial, status) =
+            (user.limit, user.downlink, user.trial, user.status.clone())
         {
-            if trial && downlink > limit {
-                let user_id_copy = user.user_id.clone(); // Сохраняем user_id перед асинхронным вызовом
+            if trial && status == UserStatus::Active && downlink > limit {
+                let user_id_copy = user.user_id.clone();
 
                 match tag {
                     Tag::Vmess => {
-                        drop(user_state); // Освобождаем блокировку перед асинхронным вызовом
+                        drop(user_state);
 
                         match vmess::remove_user(
                             clients.clone(),
@@ -235,7 +265,7 @@ pub async fn sync_state_to_xray_conf(
     tag: Tag,
 ) -> Result<(), Box<dyn Error>> {
     let state = state.lock().await;
-    let users = state.get_all_active_users();
+    let users = state.users.clone();
 
     for user in &users {
         debug!("Running sync for {:?} {:?}", tag, user);

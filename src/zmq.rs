@@ -2,17 +2,17 @@ use futures::future::join_all;
 use log::debug;
 use log::error;
 use log::info;
+use serde::Deserialize;
 use std::error::Error;
-use std::fmt;
 use std::sync::Arc;
 use std::thread;
 use tokio::sync::Mutex;
 use tokio::time::Duration;
 use zmq;
 
-use crate::appconfig::ZmqConfig;
-use crate::xray_op::{client, users, vmess};
-use serde::Deserialize;
+use crate::appconfig::Settings;
+use crate::users::UserInfo;
+use crate::xray_op::{client, users, vmess, Tag};
 
 #[derive(Deserialize, Debug, Clone)]
 pub enum Action {
@@ -22,26 +22,8 @@ pub enum Action {
     Delete,
     #[serde(rename = "update")]
     Update,
-}
-
-#[derive(Deserialize, Debug, Clone)]
-pub enum Tag {
-    #[serde(rename = "vless")]
-    Vless,
-    #[serde(rename = "vmess")]
-    Vmess,
-    #[serde(rename = "shadowsocks")]
-    Shadowsocks,
-}
-
-impl fmt::Display for Tag {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Tag::Vless => write!(f, "Vless"),
-            Tag::Vmess => write!(f, "Vmess"),
-            Tag::Shadowsocks => write!(f, "Shadowsocks"),
-        }
-    }
+    #[serde(rename = "restore")]
+    Restore,
 }
 
 #[derive(Deserialize, Clone, Debug)]
@@ -50,80 +32,6 @@ pub struct Message {
     pub action: Action,
     pub trial: Option<bool>,
     pub limit: Option<i64>,
-}
-
-pub async fn process_message(
-    clients: client::XrayClients,
-    message: Message,
-    tag: Tag,
-    state: Arc<Mutex<users::UserState>>,
-) -> Result<(), Box<dyn Error + Send + Sync>> {
-    let user_info = users::UserInfo {
-        in_tag: tag.to_string(),
-        level: 0,
-        email: format!("{}@{}", message.user_id, tag),
-        uuid: message.user_id.to_string(),
-    };
-
-    match tag {
-        Tag::Vmess => match message.action {
-            Action::Create => match vmess::add_user(clients.clone(), user_info.clone()).await {
-                Ok(()) => {
-                    let mut user_state = state.lock().await;
-                    let user = users::User {
-                        user_id: user_info.uuid.clone(),
-                        limit: message.limit,
-                        trial: message.trial,
-                        status: users::UserStatus::Active,
-                        uplink: None,
-                        downlink: None,
-                    };
-                    let _ = user_state.add_or_update_user(user).await;
-                    info!("User add completed successfully {:?}", user_info.uuid);
-                    Ok(())
-                }
-                Err(e) => {
-                    error!("User add operations failed: {:?}", e);
-                    Err(Box::new(e))
-                }
-            },
-            Action::Delete => match vmess::remove_user(clients.clone(), user_info.email, tag).await
-            {
-                Ok(()) => {
-                    let mut user_state = state.lock().await;
-                    let _ = user_state.expire_user(&user_info.uuid).await;
-
-                    info!("User remove successfully {:?}", user_info.uuid);
-                    Ok(())
-                }
-                Err(e) => {
-                    error!("User remove failed: {:?}", e);
-                    Err(Box::new(e))
-                }
-            },
-            Action::Update => {
-                if let Some(trial) = message.trial {
-                    debug!("Update user trial {} {}", user_info.uuid, trial);
-                    let mut user_state = state.lock().await;
-                    let _ = user_state.update_user_trial(&user_info.uuid, trial).await;
-                }
-                if let Some(limit) = message.limit {
-                    debug!("Update user limit {} {}", user_info.uuid, limit);
-                    let mut user_state = state.lock().await;
-                    let _ = user_state.update_user_limit(&user_info.uuid, limit).await;
-                }
-                Ok(())
-            }
-        },
-        Tag::Vless => {
-            debug!("Vless: Not implemented process_message");
-            Ok(())
-        }
-        Tag::Shadowsocks => {
-            debug!("Shadowsocks: Not implemented process_message");
-            Ok(())
-        }
-    }
 }
 
 fn try_connect(endpoint: &str) -> zmq::Socket {
@@ -155,23 +63,25 @@ fn try_connect(endpoint: &str) -> zmq::Socket {
 
 pub async fn subscriber(
     clients: client::XrayClients,
-    config: ZmqConfig,
+    config: Settings,
     state: Arc<Mutex<users::UserState>>,
 ) {
     let _context = zmq::Context::new();
 
-    let subscriber = try_connect(&config.endpoint);
-    subscriber.set_subscribe(config.topic.as_bytes()).unwrap();
+    let subscriber = try_connect(&config.zmq.endpoint);
+    subscriber
+        .set_subscribe(config.zmq.topic.as_bytes())
+        .unwrap();
 
     info!(
         "Subscriber connected to {}:{}",
-        config.endpoint, config.topic
+        config.zmq.endpoint, config.zmq.topic
     );
 
     loop {
         let message = subscriber.recv_string(0).unwrap();
         if let Ok(ref data) = message {
-            if data.trim() == config.topic {
+            if data.trim() == config.zmq.topic {
                 continue;
             }
             match serde_json::from_str::<Message>(&data) {
@@ -184,18 +94,21 @@ pub async fn subscriber(
                             message.clone(),
                             Tag::Vmess,
                             state.clone(),
+                            config.xray.xray_daily_limit_mb,
                         ),
                         process_message(
                             clients.clone(),
                             message.clone(),
                             Tag::Vless,
                             state.clone(),
+                            config.xray.xray_daily_limit_mb,
                         ),
                         process_message(
                             clients.clone(),
                             message.clone(),
                             Tag::Shadowsocks,
                             state.clone(),
+                            config.xray.xray_daily_limit_mb,
                         ),
                     ];
 
@@ -205,6 +118,78 @@ pub async fn subscriber(
                     eprintln!("Error parsing JSON: {} {:?}", e, message.clone());
                 }
             };
+        }
+    }
+}
+
+pub async fn process_message(
+    clients: client::XrayClients,
+    message: Message,
+    tag: Tag,
+    state: Arc<Mutex<users::UserState>>,
+    config_daily_limit_mb: i64,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    let user_info = UserInfo::new(message.user_id.to_string(), tag.clone());
+
+    match tag {
+        Tag::Vmess => match message.action {
+            Action::Create => match vmess::add_user(clients.clone(), user_info.clone()).await {
+                Ok(()) => {
+                    let mut user_state = state.lock().await;
+                    let daily_limit_mb = message.limit.unwrap_or(config_daily_limit_mb);
+                    let trial = message.trial.unwrap_or(true);
+                    let user = users::User::new(user_info.uuid.clone(), daily_limit_mb, trial);
+                    let _ = user_state.add_or_update_user(user).await;
+                    info!("User add completed successfully {:?}", user_info.uuid);
+                    Ok(())
+                }
+                Err(e) => {
+                    error!("User add operations failed: {:?}", e);
+                    Err(Box::new(e))
+                }
+            },
+            Action::Delete => {
+                match vmess::remove_user(clients.clone(), user_info.uuid.clone(), tag).await {
+                    Ok(()) => {
+                        let mut user_state = state.lock().await;
+                        let _ = user_state.expire_user(&user_info.uuid).await;
+
+                        info!("User remove successfully {:?}", user_info.uuid);
+                        Ok(())
+                    }
+                    Err(e) => {
+                        error!("User remove failed: {:?}", e);
+                        Err(Box::new(e))
+                    }
+                }
+            }
+            Action::Restore => {
+                debug!("Restore user {}", user_info.uuid);
+                let mut user_state = state.lock().await;
+                let _ = user_state.restore_user(user_info.uuid).await;
+                Ok(())
+            }
+            Action::Update => {
+                if let Some(trial) = message.trial {
+                    debug!("Update user trial {} {}", user_info.uuid, trial);
+                    let mut user_state = state.lock().await;
+                    let _ = user_state.update_user_trial(&user_info.uuid, trial).await;
+                }
+                if let Some(limit) = message.limit {
+                    debug!("Update user limit {} {}", user_info.uuid, limit);
+                    let mut user_state = state.lock().await;
+                    let _ = user_state.update_user_limit(&user_info.uuid, limit).await;
+                }
+                Ok(())
+            }
+        },
+        Tag::Vless => {
+            debug!("Vless: Not implemented process_message");
+            Ok(())
+        }
+        Tag::Shadowsocks => {
+            debug!("Shadowsocks: Not implemented process_message");
+            Ok(())
         }
     }
 }

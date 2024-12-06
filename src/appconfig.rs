@@ -37,6 +37,10 @@ fn default_metrics_delay() -> u64 {
     1
 }
 
+fn default_xray_daily_limit_mb() -> i64 {
+    1000
+}
+
 fn default_carbon_server() -> String {
     "localhost:2003".to_string()
 }
@@ -115,6 +119,8 @@ pub struct XrayConfig {
     pub ss_port: u16,
     #[serde(default = "default_xray_api_endpoint")]
     pub xray_api_endpoint: String,
+    #[serde(default = "default_xray_daily_limit_mb")]
+    pub xray_daily_limit_mb: i64,
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]

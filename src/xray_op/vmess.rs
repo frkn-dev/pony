@@ -4,12 +4,12 @@ use crate::xray_api::xray::app::proxyman::command::{
 
 use tonic::Request;
 
+use super::client::XrayClients;
+use super::users::UserInfo;
+use super::Tag;
 use crate::xray_api::xray::common::protocol::User;
 use crate::xray_api::xray::common::serial::TypedMessage;
 use crate::xray_api::xray::proxy::vmess::Account;
-use crate::xray_op::client::XrayClients;
-use crate::xray_op::users::UserInfo;
-use crate::zmq::Tag;
 
 pub async fn add_user(clients: XrayClients, user_info: UserInfo) -> Result<(), tonic::Status> {
     let vmess_account = Account {
@@ -53,10 +53,12 @@ pub async fn add_user(clients: XrayClients, user_info: UserInfo) -> Result<(), t
 
 pub async fn remove_user(
     clients: XrayClients,
-    user_email: String,
+    user_id: String,
     tag: Tag,
 ) -> Result<(), tonic::Status> {
-    let operation = RemoveUserOperation { email: user_email };
+    let operation = RemoveUserOperation {
+        email: format!("{}@{}", user_id, tag),
+    };
 
     let operation_message = TypedMessage {
         r#type: "xray.app.proxyman.command.RemoveUserOperation".to_string(),

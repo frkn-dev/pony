@@ -27,7 +27,7 @@ impl UserInfo {
             email: format!("{}@{}", uuid, in_tag),
             uuid: uuid,
             encryption: Some("none".to_string()),
-            flow: Some("xtls-rprx-vision".to_string()),
+            flow: Some("xtls-rprx-direct".to_string()),
         }
     }
 }

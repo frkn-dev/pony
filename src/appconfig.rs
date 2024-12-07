@@ -69,6 +69,10 @@ fn default_file_state() -> String {
     "users.json".to_string()
 }
 
+fn default_xray_config_path() -> String {
+    "xray-config.json".to_string()
+}
+
 pub fn read_config(config_file: &str) -> Result<Settings, Box<dyn std::error::Error>> {
     let config_str = fs::read_to_string(config_file)?;
     let settings: Settings = toml::from_str(&config_str)?;
@@ -121,6 +125,8 @@ pub struct XrayConfig {
     pub xray_api_endpoint: String,
     #[serde(default = "default_xray_daily_limit_mb")]
     pub xray_daily_limit_mb: i64,
+    #[serde(default = "default_xray_config_path")]
+    pub xray_config_path: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]

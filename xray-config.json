@@ -1,0 +1,173 @@
+{
+  "log": {
+    "loglevel": "debug"
+  },
+  "inbounds": [
+    {
+      "listen": "0.0.0.0",
+      "port": 12345,
+      "protocol": "dokodemo-door",
+      "settings": {
+        "address": "127.0.0.1"
+      },
+      "streamSettings": {
+        "security": "tls",
+        "tlsSettings": {
+          "certificates": [
+            {
+              "certificateFile": "cert.pem",
+              "keyFile": "key.pem"
+            }
+          ]
+        }
+      },
+      "tag": "API_INBOUND"
+    },
+    {
+      "tag": "Vmess",
+      "listen": "0.0.0.0",
+      "port": 8081,
+      "protocol": "vmess",
+      "settings": {
+        "clients": []
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "tcpSettings": {
+          "header": {
+            "type": "http",
+            "request": {
+              "method": "GET",
+              "path": [
+                "/"
+              ],
+              "headers": {
+                "Host": [
+                  "google.com"
+                ]
+              }
+            },
+            "response": {}
+          }
+        },
+        "security": "none"
+      },
+      "sniffing": {
+        "enabled": true,
+        "destOverride": [
+          "http",
+          "tls"
+        ]
+      }
+    },
+    {
+      "tag": "Vless",
+      "listen": "0.0.0.0",
+      "port": 2053,
+      "protocol": "vless",
+      "settings": {
+        "clients": [],
+        "decryption": "none"
+      },
+      "streamSettings": {
+        "network": "grpc",
+        "grpcSettings": {
+          "serviceName": "xyz"
+        },
+        "security": "reality",
+        "realitySettings": {
+          "show": false,
+          "dest": "discordapp.com:443",
+          "xver": 0,
+          "serverNames": [
+            "cdn.discordapp.com",
+            "discordapp.com"
+          ],
+          "privateKey": "PRIVATE_KEY",
+          "shortIds": [
+            "",
+            "SHORT_ID"
+          ]
+        }
+      },
+      "sniffing": {
+        "enabled": true,
+        "destOverride": [
+          "http",
+          "tls"
+        ]
+      }
+    }
+  ],
+  "outbounds": [
+    {
+      "protocol": "freedom",
+      "tag": "DIRECT"
+    },
+    {
+      "protocol": "blackhole",
+      "tag": "BLOCK"
+    }
+  ],
+  "routing": {
+    "rules": [
+      {
+        "inboundTag": [
+          "API_INBOUND"
+        ],
+        "source": [
+          "127.0.0.1",
+          "172.20.10.3"
+        ],
+        "outboundTag": "API",
+        "type": "field"
+      },
+      {
+        "ip": [
+          "geoip:private"
+        ],
+        "outboundTag": "BLOCK",
+        "type": "field"
+      },
+      {
+        "domain": [
+          "geosite:private"
+        ],
+        "outboundTag": "BLOCK",
+        "type": "field"
+      },
+      {
+        "protocol": [
+          "bittorrent"
+        ],
+        "outboundTag": "BLOCK",
+        "type": "field"
+      }
+    ]
+  },
+  "api": {
+    "listen": "127.0.0.1:23456",
+    "services": [
+      "HandlerService",
+      "StatsService",
+      "LoggerService",
+      "ReflectionService"
+    ],
+    "tag": "API"
+  },
+  "stats": {},
+  "policy": {
+    "levels": {
+      "0": {
+        "statsUserUplink": true,
+        "statsUserDownlink": true
+      }
+    },
+    "system": {
+      "statsInboundDownlink": false,
+      "statsInboundUplink": false,
+      "statsOutboundDownlink": true,
+      "statsOutboundUplink": true
+    }
+  }
+}

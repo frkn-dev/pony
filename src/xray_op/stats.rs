@@ -28,8 +28,8 @@ pub async fn get_user_stats(
 ) -> Result<(GetStatsResponse, GetStatsResponse), Status> {
     let client = clients.stats_client.lock().await;
 
-    let downlink_stat_name = format!("user>>>{user_id}@{tag}>>>traffic>>>downlink");
-    let uplink_stat_name = format!("user>>>{user_id}@{tag}>>>traffic>>>uplink");
+    let downlink_stat_name = format!("user>>>{user_id}@{tag}>>>traffic>>>{}", StatType::Downlink);
+    let uplink_stat_name = format!("user>>>{user_id}@{tag}>>>traffic>>>{}", StatType::Uplink);
 
     let downlink_request = Request::new(GetStatsRequest {
         name: downlink_stat_name,

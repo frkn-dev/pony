@@ -1,7 +1,7 @@
 use clap::Parser;
 use fern::Dispatch;
 use futures::future::join_all;
-use log::{debug, info};
+use log::{debug, error, info, warn};
 use std::fmt;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -15,6 +15,7 @@ mod message;
 mod metrics;
 mod utils;
 mod xray_api;
+mod xray_config;
 mod xray_op;
 mod zmq;
 
@@ -25,6 +26,7 @@ use crate::metrics::cpuusage::cpu_metrics;
 use crate::metrics::loadavg::loadavg_metrics;
 use crate::metrics::memory::mem_metrics;
 use crate::utils::{current_timestamp, human_readable_date, level_from_settings};
+use crate::xray_config::read_xray_config;
 use crate::xray_op::stats::get_stats_task;
 use crate::xray_op::user_state::{sync_state_to_xray_conf, UserState};
 use crate::xray_op::Tag;
@@ -72,6 +74,20 @@ async fn main() -> std::io::Result<()> {
     } else {
         info!(">>> Settings: {:?}", settings);
         info!(">>> Pony Version: 0.0.23");
+    }
+
+    match read_xray_config(&settings.xray.xray_config_path) {
+        Ok(config) => {
+            debug!(
+                "Xray Config: Successfully read Xray config file: {:?}",
+                config
+            );
+
+            config.validate();
+        }
+        Err(e) => {
+            warn!("Xray Config:: Error reading JSON file: {}", e);
+        }
     }
 
     let carbon_server = settings.carbon.address.clone();

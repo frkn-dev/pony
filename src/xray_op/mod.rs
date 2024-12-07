@@ -27,3 +27,15 @@ impl fmt::Display for Tag {
         }
     }
 }
+
+impl std::str::FromStr for Tag {
+    type Err = ();
+
+    fn from_str(input: &str) -> Result<Self, Self::Err> {
+        match input {
+            "Vless" => Ok(Tag::Vless),
+            "Vmess" => Ok(Tag::Vmess),
+            _ => Err(()),
+        }
+    }
+}

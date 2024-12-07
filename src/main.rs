@@ -1,42 +1,38 @@
-use ::clickhouse::Client;
-use actix_web::middleware::Logger;
-use actix_web::web::to;
-use actix_web::web::Data;
-use actix_web::{App, HttpServer};
 use clap::Parser;
 use fern::Dispatch;
-use log::{error, info};
+use futures::future::join_all;
+use log::{debug, error, info, warn};
 use std::fmt;
 use std::sync::Arc;
+use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
+use tokio::time::{sleep, Duration};
 
-mod bandwidth;
-mod clickhouse;
-mod config2;
-mod connections;
-mod cpuusage;
+mod appconfig;
 mod geoip;
-mod loadavg;
-mod memory;
+mod jobs;
+mod message;
 mod metrics;
 mod utils;
-mod web;
-mod webhook;
+mod xray_api;
+mod xray_config;
+mod xray_op;
+mod zmq;
 
-use crate::bandwidth::bandwidth_metrics;
-use crate::config2::{read_config, Settings};
-use crate::connections::connections_metric;
-use crate::cpuusage::cpu_metrics;
-use crate::loadavg::loadavg_metrics;
-use crate::memory::mem_metrics;
+use crate::appconfig::{read_config, Settings};
+use crate::metrics::bandwidth::bandwidth_metrics;
+use crate::metrics::connections::connections_metric;
+use crate::metrics::cpuusage::cpu_metrics;
+use crate::metrics::loadavg::loadavg_metrics;
+use crate::metrics::memory::mem_metrics;
 use crate::utils::{current_timestamp, human_readable_date, level_from_settings};
-use crate::web::not_found;
+use crate::xray_config::read_xray_config;
+use crate::xray_op::stats::get_stats_task;
+use crate::xray_op::user_state::{sync_state_to_xray_conf, UserState};
+use crate::xray_op::Tag;
 
 #[derive(Parser)]
-#[command(
-    version = "0.0.23",
-    about = "Pony - montiroing tool for Xray/Wireguard"
-)]
+#[command(version = "0.0.23", about = "Pony - control tool for Xray/Wireguard")]
 struct Cli {
     #[arg(short, long, default_value = "config.toml")]
     config: String,
@@ -77,25 +73,29 @@ async fn main() -> std::io::Result<()> {
         std::process::exit(1);
     } else {
         info!(">>> Settings: {:?}", settings);
-        info!(">>> Version: 0.0.23");
+        info!(">>> Pony Version: 0.0.23");
+    }
+
+    match read_xray_config(&settings.xray.xray_config_path) {
+        Ok(config) => {
+            debug!(
+                "Xray Config: Successfully read Xray config file: {:?}",
+                config
+            );
+
+            config.validate();
+        }
+        Err(e) => {
+            warn!("Xray Config:: Error reading JSON file: {}", e);
+        }
     }
 
     let carbon_server = settings.carbon.address.clone();
 
-    if settings.app.metrics_mode && settings.app.api_mode
-        || !settings.app.metrics_mode && !settings.app.api_mode
-    {
-        error!("Api and metrics mode enabled in the same time, choose mode");
-        std::process::exit(1);
-    }
-
     let mut tasks: Vec<JoinHandle<()>> = vec![];
 
     if settings.app.metrics_mode {
-        info!(
-            ">>> Running metric collector pony sends to {:?}",
-            carbon_server
-        );
+        info!(">>> Running metric collector sends to {:?}", carbon_server);
         let mut metrics_tasks: Vec<JoinHandle<()>> = vec![
             tokio::spawn(bandwidth_metrics(carbon_server.clone(), settings.clone())),
             tokio::spawn(cpu_metrics(carbon_server.clone(), settings.clone())),
@@ -115,32 +115,75 @@ async fn main() -> std::io::Result<()> {
         }
     }
 
-    if settings.app.api_mode {
-        let ch_client = Arc::new(Client::default().with_url(&settings.clickhouse.address));
-        let settings_arc = Arc::new(settings.clone());
+    if settings.app.xray_api_mode {
+        let xray_api_clients = match xray_op::client::create_clients(settings.clone()).await {
+            Ok(clients) => clients,
+            Err(e) => panic!("Can't create clients: {}", e),
+        };
 
-        HttpServer::new(move || {
-            let mut app = App::new()
-                .app_data(Data::new(ch_client.clone()))
-                .app_data(Data::new(settings_arc.clone()))
-                .wrap(Logger::default())
-                .service(web::hello)
-                .service(web::status_ch)
-                .service(web::status)
-                .default_service(to(not_found));
+        let user_state =
+            match UserState::load_from_file_async(settings.app.file_state.clone()).await {
+                Ok(state) => {
+                    debug!("State loaded from file");
+                    Arc::new(Mutex::new(state))
+                }
+                Err(e) => {
+                    debug!("State created from scratch, {}", e);
+                    Arc::new(Mutex::new(UserState::new(settings.app.file_state.clone())))
+                }
+            };
 
-            if settings.app.api_webhook_enabled {
-                app = app.service(webhook::webhook_handler);
+        let sync_state_futures = vec![
+            sync_state_to_xray_conf(user_state.clone(), xray_api_clients.clone(), Tag::Vless),
+            sync_state_to_xray_conf(user_state.clone(), xray_api_clients.clone(), Tag::Vmess),
+        ];
+
+        let _ = join_all(sync_state_futures).await;
+
+        let tags = vec![Tag::Vmess, Tag::Vless];
+        for tag in &tags {
+            sleep(Duration::from_millis(100)).await;
+            let task = tokio::spawn(get_stats_task(
+                xray_api_clients.clone(),
+                user_state.clone(),
+                tag.clone(),
+            ));
+
+            debug!("Stat Task added, {tag:?}");
+            tasks.push(task);
+        }
+
+        tasks.push(tokio::spawn(zmq::subscriber(
+            xray_api_clients.clone(),
+            settings.clone(),
+            user_state.clone(),
+        )));
+
+        let restore_trial_users_handle = tokio::spawn({
+            debug!("Running restoring trial users job");
+            let state = user_state.clone();
+            let clients = xray_api_clients.clone();
+            async move {
+                loop {
+                    jobs::restore_trial_users(state.clone(), clients.clone()).await;
+                    sleep(Duration::from_secs(60)).await;
+                }
             }
-            app
-        })
-        .bind((
-            settings.app.api_bind_addr.as_str(),
-            settings.app.api_bind_port,
-        ))?
-        .run()
-        .await
-        .expect("Run web server")
+        });
+        tasks.push(restore_trial_users_handle);
+
+        let block_trial_users_by_limit_handle = tokio::spawn({
+            debug!("Running block trial users job");
+            let state = user_state.clone();
+            let clients = xray_api_clients.clone();
+            async move {
+                loop {
+                    sleep(Duration::from_secs(60)).await;
+                    jobs::block_trial_users_by_limit(state.clone(), clients.clone()).await;
+                }
+            }
+        });
+        tasks.push(block_trial_users_by_limit_handle);
     }
 
     let _ = futures::future::try_join_all(tasks).await;

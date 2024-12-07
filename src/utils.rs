@@ -1,16 +1,15 @@
-use log::{error, info, warn, LevelFilter};
+use chrono::{TimeZone, Utc};
+use log::{debug, error, warn, LevelFilter};
 use std::error::Error;
 use std::io;
+use std::net::IpAddr;
 use std::net::SocketAddr;
-
-use chrono::{TimeZone, Utc};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream;
 
 use crate::geoip;
-use crate::metrics::Metric;
-use std::net::IpAddr;
+use crate::metrics::metrics::Metric;
 
 pub async fn send_to_carbon<T: ToString>(
     metric: &Metric<T>,
@@ -25,7 +24,7 @@ pub async fn send_to_carbon<T: ToString>(
                 return Err(e);
             }
 
-            info!("Sent metric to Carbon: {}", metric_string);
+            debug!("Sent metric to Carbon: {}", metric_string);
 
             if let Err(e) = stream.flush().await {
                 warn!("Failed to flush stream: {}", e);

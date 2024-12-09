@@ -115,6 +115,9 @@ pub async fn block_trial_users_by_limit(state: Arc<Mutex<UserState>>, clients: X
                     Err(e) => error!("Failed to block user {}: {:?}", user.user_id, e),
                 }
 
+                state.reset_user_downlink(&user_id);
+                state.reset_user_uplink(&user_id);
+
                 if let Err(e) = state.expire_user(&user_id).await {
                     error!("Failed to update status for user {}: {:?}", user_id, e);
                 }

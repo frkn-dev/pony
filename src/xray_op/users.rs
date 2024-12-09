@@ -44,6 +44,14 @@ impl User {
         self.modified_at = Some(Utc::now());
     }
 
+    pub fn reset_downlink(&mut self) {
+        self.downlink = Some(0);
+    }
+
+    pub fn reset_uplink(&mut self) {
+        self.uplink = Some(0);
+    }
+
     pub fn add_proto(&mut self, tag: Tag) {
         if let Some(proto) = &mut self.proto {
             if !proto.contains(&tag) {

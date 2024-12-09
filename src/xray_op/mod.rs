@@ -16,9 +16,9 @@ pub mod vmess;
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq)]
 pub enum Tag {
-    #[serde(rename = "VlessXtls")]
+    #[serde(rename = "vlessXtls")]
     VlessXtls,
-    #[serde(rename = "VlessGrpc")]
+    #[serde(rename = "vlessGrpc")]
     VlessGrpc,
     #[serde(rename = "vmess")]
     Vmess,

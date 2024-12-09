@@ -61,7 +61,7 @@ pub async fn add_user(clients: XrayClients, user_info: UserInfo) -> Result<(), t
     let ss_account = Account {
         password: password,
         cipher_type: ss_cipher_type as i32,
-        iv_check: true,
+        iv_check: false,
     };
 
     let ss_account_bytes = prost::Message::encode_to_vec(&ss_account);

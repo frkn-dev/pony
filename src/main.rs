@@ -1,7 +1,7 @@
 use clap::Parser;
 use fern::Dispatch;
 use futures::future::join_all;
-use log::{debug, info, warn};
+use log::{debug, info};
 use std::{fmt, sync::Arc};
 use tokio::{
     sync::Mutex,
@@ -79,7 +79,7 @@ async fn main() -> std::io::Result<()> {
         info!(">>> Settings: {:?}", settings);
     }
 
-    match read_xray_config(&settings.xray.xray_config_path) {
+    let xray_config = match read_xray_config(&settings.xray.xray_config_path) {
         Ok(config) => {
             debug!(
                 "Xray Config: Successfully read Xray config file: {:?}",
@@ -87,11 +87,12 @@ async fn main() -> std::io::Result<()> {
             );
 
             config.validate();
+            config
         }
         Err(e) => {
-            warn!("Xray Config:: Error reading JSON file: {}", e);
+            panic!("Xray Config:: Error reading JSON file: {}", e);
         }
-    }
+    };
 
     let carbon_server = settings.carbon.address.clone();
 
@@ -99,19 +100,17 @@ async fn main() -> std::io::Result<()> {
 
     if settings.app.metrics_mode {
         info!(">>> Running metric collector sends to {:?}", carbon_server);
-        let mut metrics_tasks: Vec<JoinHandle<()>> = vec![
+        let metrics_tasks: Vec<JoinHandle<()>> = vec![
             tokio::spawn(bandwidth_metrics(carbon_server.clone(), settings.clone())),
             tokio::spawn(cpu_metrics(carbon_server.clone(), settings.clone())),
             tokio::spawn(loadavg_metrics(carbon_server.clone(), settings.clone())),
             tokio::spawn(mem_metrics(carbon_server.clone(), settings.clone())),
-        ];
-
-        if settings.wg.enabled || settings.xray.enabled {
-            metrics_tasks.push(tokio::spawn(connections_metric(
+            tokio::spawn(connections_metric(
                 carbon_server.clone(),
+                xray_config,
                 settings.clone(),
-            )));
-        }
+            )),
+        ];
 
         for task in metrics_tasks {
             tasks.push(task);

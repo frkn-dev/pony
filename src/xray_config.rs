@@ -7,6 +7,7 @@ use crate::xray_op::Tag;
 #[derive(Debug, Deserialize)]
 pub struct Inbound {
     pub tag: String,
+    pub port: u16,
 }
 
 #[derive(Debug, Deserialize)]

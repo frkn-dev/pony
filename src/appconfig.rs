@@ -17,10 +17,6 @@ fn default_ss_port() -> u16 {
     10088
 }
 
-fn default_wg_port() -> u16 {
-    51820
-}
-
 fn default_env() -> String {
     "dev".to_string()
 }
@@ -130,14 +126,6 @@ pub struct XrayConfig {
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]
-pub struct WgConfig {
-    #[serde(default = "default_enabled")]
-    pub enabled: bool,
-    #[serde(default = "default_wg_port")]
-    pub port: u16,
-}
-
-#[derive(Clone, Debug, Deserialize, Default)]
 pub struct ZmqConfig {
     #[serde(default = "default_zmq_endpoint")]
     pub endpoint: String,
@@ -156,8 +144,6 @@ pub struct Settings {
     #[serde(default)]
     pub xray: XrayConfig,
     #[serde(default)]
-    pub wg: WgConfig,
-    #[serde(default)]
     pub zmq: ZmqConfig,
 }
 
@@ -171,9 +157,6 @@ impl Settings {
         }
         if self.xray.enabled && self.xray.ss_port == 0 {
             return Err("Xray ss port coulnd't be 0".into());
-        }
-        if self.wg.enabled && self.wg.port == 0 {
-            return Err("Xray wg порт port coulnd't be 0".into());
         }
         Ok(())
     }

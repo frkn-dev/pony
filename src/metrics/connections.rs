@@ -6,8 +6,10 @@ use tokio::task::JoinHandle;
 use tokio::time::sleep;
 
 use crate::appconfig::Settings;
-use crate::metrics::metrics::{AsMetric, Metric};
+use crate::metrics::metrics::Metric;
 use crate::utils::{country, current_timestamp, send_to_carbon};
+
+use crate::xray_config::Config;
 
 #[derive(Hash, Eq, PartialEq, Clone, Debug)]
 struct ConnectionInfo {
@@ -16,62 +18,6 @@ struct ConnectionInfo {
     remote_addr: String,
     remote_port: u16,
     state: String,
-}
-
-#[derive(Clone, Debug)]
-struct XrayConnections {
-    vmess: u64,
-    vless: u64,
-    ss: u64,
-}
-
-impl AsMetric for XrayConnections {
-    type Output = u64;
-
-    fn as_metric(&self, name: &str, settings: Settings) -> Vec<Metric<u64>> {
-        let timestamp = current_timestamp();
-        let h = &settings.app.hostname;
-        let env = &settings.app.env;
-
-        vec![
-            Metric {
-                path: format!("{env}.{h}.{name}.vmess"),
-                value: self.vmess,
-                timestamp,
-            },
-            Metric {
-                path: format!("{env}.{h}.{name}.vless"),
-                value: self.vless,
-                timestamp,
-            },
-            Metric {
-                path: format!("{env}.{h}.{name}.ss"),
-                value: self.ss,
-                timestamp,
-            },
-        ]
-    }
-}
-
-#[derive(Clone, Debug)]
-struct WgConnections {
-    connections: u64,
-}
-
-impl AsMetric for WgConnections {
-    type Output = u64;
-
-    fn as_metric(&self, name: &str, settings: Settings) -> Vec<Metric<u64>> {
-        let timestamp = current_timestamp();
-        let h = &settings.app.hostname;
-        let env = &settings.app.env;
-
-        vec![Metric {
-            path: format!("{env}.{h}.{name}.wg"),
-            value: self.connections,
-            timestamp,
-        }]
-    }
 }
 
 fn port_connections_data(target_port: u16) -> HashSet<ConnectionInfo> {
@@ -126,7 +72,6 @@ async fn country_parse(connections: HashSet<ConnectionInfo>) -> HashMap<String, 
 async fn send_to_carbon_country_metric(
     settings: Settings,
     data: HashSet<ConnectionInfo>,
-    name: &str,
     server: String,
 ) {
     let env = settings.app.env.clone();
@@ -136,12 +81,12 @@ async fn send_to_carbon_country_metric(
 
     for (country, count) in country_data.await {
         let metric = Metric::new(
-            format!("{env}.{hostname}.{name}.connections.geo.{country}"),
+            format!("{env}.{hostname}.connections.geo.{country}"),
             count,
             current_timestamp(),
         );
 
-        info!("Metric {}", metric.to_string());
+        debug!("Metric {}", metric.to_string());
 
         if let Err(e) = send_to_carbon(&metric, &server).await {
             log::error!("Failed to send metric to Carbon: {}", e);
@@ -149,63 +94,24 @@ async fn send_to_carbon_country_metric(
     }
 }
 
-pub async fn connections_metric(server: String, settings: Settings) {
+pub async fn connections_metric(server: String, xray_config: Config, settings: Settings) {
     info!("Starting connections metric loop");
 
     loop {
         let mut tasks: Vec<JoinHandle<()>> = vec![];
+        let mut connections: HashSet<ConnectionInfo> = HashSet::new();
+        for inbound in &xray_config.inbounds {
+            debug!("PORT {:?}", inbound.port);
 
-        if settings.xray.enabled {
-            let vmess_connections = port_connections_data(settings.xray.vmess_port);
-            let vless_connections = port_connections_data(settings.xray.vless_port);
-            let ss_connections = port_connections_data(settings.xray.ss_port);
-
-            let xray_connections = XrayConnections {
-                vmess: vmess_connections.len() as u64,
-                vless: vless_connections.len() as u64,
-                ss: ss_connections.len() as u64,
-            };
-
-            for metric in xray_connections.as_metric("connections", settings.clone()) {
-                if let Err(e) = send_to_carbon(&metric, &server).await {
-                    log::error!("Failed to send connection metric: {}", e);
-                }
-            }
-
-            tasks.push(tokio::spawn(send_to_carbon_country_metric(
-                settings.clone(),
-                vmess_connections.clone(),
-                "vmess",
-                server.clone(),
-            )));
-            tasks.push(tokio::spawn(send_to_carbon_country_metric(
-                settings.clone(),
-                vless_connections.clone(),
-                "vless",
-                server.clone(),
-            )));
-            tasks.push(tokio::spawn(send_to_carbon_country_metric(
-                settings.clone(),
-                ss_connections.clone(),
-                "ss",
-                server.clone(),
-            )));
+            connections.extend(port_connections_data(inbound.port));
         }
 
-        if settings.wg.enabled {
-            let wg_connections_data = port_connections_data(settings.wg.port);
-            let wg_connections = WgConnections {
-                connections: wg_connections_data.len() as u64,
-            };
-            for metric in wg_connections.as_metric("connections", settings.clone()) {
-                if let Err(e) = send_to_carbon(&metric, &server).await {
-                    log::error!("Failed to send connection metric: {}", e);
-                }
-            }
-        }
-
+        tasks.push(tokio::spawn(send_to_carbon_country_metric(
+            settings.clone(),
+            connections.clone(),
+            server.clone(),
+        )));
         let _ = futures::future::try_join_all(tasks).await;
-
         sleep(Duration::from_secs(settings.app.metrics_delay)).await;
     }
 }

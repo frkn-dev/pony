@@ -1,7 +1,11 @@
 
 
-- Shadowsocks 
+- Shadowsocks ✅️️️️️️️
+- Vless XTLS ✅️️️️️️️
+- Vless Grpc ✅️️️️️️️
+- node state
+- timeout hardcode
 - Wireguard 
-- state to PG
+- state to PG - ? Nazim 
 - xray userstat to carbon
 - web for system info?

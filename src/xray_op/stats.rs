@@ -1,10 +1,9 @@
-use log::{debug, error, info};
+use log::{debug, info, warn};
 use std::{fmt, sync::Arc};
 use tokio::{sync::Mutex, time::Duration};
 use tonic::{Request, Status};
 
-use super::{client::XrayClients, user_state::UserState, Tag};
-use crate::xray_api::xray::app::proxyman::command::GetInboundUserRequest;
+use super::{client::XrayClients, user_state::UserState};
 use crate::xray_api::xray::app::stats::command::{GetStatsRequest, GetStatsResponse};
 
 #[derive(Debug, Clone)]
@@ -25,13 +24,11 @@ impl fmt::Display for StatType {
 pub async fn get_user_stats(
     clients: XrayClients,
     user_id: String,
-    tag: Tag,
 ) -> Result<(GetStatsResponse, GetStatsResponse), Status> {
     let client = clients.stats_client.lock().await;
-    let handler_client = clients.handler_client.lock().await;
 
-    let downlink_stat_name = format!("user>>>{user_id}@{tag}>>>traffic>>>{}", StatType::Downlink);
-    let uplink_stat_name = format!("user>>>{user_id}@{tag}>>>traffic>>>{}", StatType::Uplink);
+    let downlink_stat_name = format!("user>>>{user_id}@pony>>>traffic>>>{}", StatType::Downlink);
+    let uplink_stat_name = format!("user>>>{user_id}@pony>>>traffic>>>{}", StatType::Uplink);
 
     let downlink_request = Request::new(GetStatsRequest {
         name: downlink_stat_name,
@@ -41,11 +38,6 @@ pub async fn get_user_stats(
     let uplink_request = Request::new(GetStatsRequest {
         name: uplink_stat_name,
         reset: false,
-    });
-
-    let user_count_request = Request::new(GetInboundUserRequest {
-        tag: tag.to_string(),
-        email: format!("{user_id}@{tag}"),
     });
 
     let downlink_response = tokio::spawn({
@@ -58,42 +50,30 @@ pub async fn get_user_stats(
         async move { client.get_stats(uplink_request).await }
     });
 
-    let user_count_response = tokio::spawn({
-        let mut handler_client = handler_client.clone();
-        async move {
-            handler_client
-                .get_inbound_users_count(user_count_request)
-                .await
-        }
-    });
+    let (downlink_result, uplink_result) = tokio::try_join!(downlink_response, uplink_response)
+        .map_err(|e| Status::internal(format!("Join error: {}", e)))?;
 
-    let (downlink_result, uplink_result, user_count_result) =
-        tokio::try_join!(downlink_response, uplink_response, user_count_response)
-            .map_err(|e| Status::internal(format!("Join error: {}", e)))?;
-
-    match (downlink_result, uplink_result, user_count_result) {
-        (Ok(downlink), Ok(uplink), Ok(user_count)) => {
-            debug!("Online Downlink stat: {:?}", downlink);
-            debug!("Online Uplink stat: {:?}", uplink);
-            debug!("UserCount stat: {:?}", user_count);
+    match (downlink_result, uplink_result) {
+        (Ok(downlink), Ok(uplink)) => {
+            debug!("Downlink stat: {:?}", downlink);
+            debug!("Uplink stat: {:?}", uplink);
 
             Ok((downlink.into_inner(), uplink.into_inner()))
         }
-        (Err(e), _, _) | (_, Err(e), _) | (_, _, Err(e)) => {
-            Err(Status::internal(format!("Stat request failed: {}", e)))
-        }
+        (Err(e), _) | (_, Err(e)) => Err(Status::internal(format!("Stat request failed: {}", e))),
     }
 }
 
-pub async fn get_stats_task(clients: XrayClients, state: Arc<Mutex<UserState>>, tag: Tag) {
+pub async fn get_stats_task(clients: XrayClients, state: Arc<Mutex<UserState>>) {
+    debug!("Stats task running");
     loop {
         let user_state = state.lock().await;
         let users = user_state.users.clone();
         drop(user_state);
         for user in users {
-            match get_user_stats(clients.clone(), user.user_id.clone(), tag.clone()).await {
+            match get_user_stats(clients.clone(), user.user_id.clone()).await {
                 Ok(response) => {
-                    info!("{tag} Received stats: {:?}", response);
+                    info!("Received stats: {:?}", response);
 
                     let mut user_state = state.lock().await;
 
@@ -105,7 +85,7 @@ pub async fn get_stats_task(clients: XrayClients, state: Arc<Mutex<UserState>>, 
                     }
                 }
                 Err(e) => {
-                    error!("{tag} Failed to get stats: {}", e);
+                    warn!("Failed to get stats: {}", e);
                 }
             }
         }

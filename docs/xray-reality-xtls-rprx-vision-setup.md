@@ -65,7 +65,10 @@ flow: xtls-rprx-vision
 
 5. Client connection string (you should add user(uuid) first to Xray serverside)
 
-```vless client connect example
-vless://<uuid>@<server_ip>:<port>?security=reality&type=grpc&headerType=&serviceName=<grpc_service_name>&authority=&mode=gun&sni=<server_name>&fp=<fingerprint>&pbk=<public_key>&sid=<short_id>#<name>```
+
+```
+vless://<uuid>@<server_ip>:<port>?security=reality&flow=xtls-rprx-vision&type=tcp&headerType=&serviceName=<service_name>&mode=gun&sni=<server_names>&fp=chrome&pbk=<public_key>&sid=<short_id>#<name in client>
+
+example: vless://1ec1499c-c255-4d67-9d12-c5cd6c2a9a53@127.0.0.1:2053?security=reality&flow=xtls-rprx-vision&type=tcp&headerType=&serviceName=xyz&mode=gun&sni=discordapp.com&fp=chrome&pbk=hmjNjdJfVQQjzoxfrLrgsjdReONcDvGG8siXYEAAAAA&sid=e5c4d84fb339fb92#TEST-Vless-XTLS```
 
 6. Optional: you can change SNI depends on your location

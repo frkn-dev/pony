@@ -10,22 +10,22 @@ use crate::xray_api::xray::proxy::shadowsocks::CipherType;
 use super::client::XrayClients;
 use super::Tag;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct UserInfo {
     pub cipher_type: String,
     pub in_tag: String,
     pub level: u32,
     pub email: String,
-    pub password: String,
+    pub password: Option<String>,
 }
 
 impl UserInfo {
-    pub fn new(uuid: String, in_tag: Tag, password: String) -> Self {
+    pub fn new(uuid: String, password: String) -> Self {
         Self {
-            in_tag: in_tag.to_string(),
+            in_tag: Tag::Shadowsocks.to_string(),
             level: 0,
-            email: format!("{}@{}", uuid, in_tag),
-            password: password,
+            email: format!("{}@{}", uuid, "pony"),
+            password: Some(password),
             cipher_type: "chacha20-ietf-poly1305".to_string(),
         }
     }
@@ -36,7 +36,7 @@ impl Default for UserInfo {
         UserInfo {
             email: String::default(),
             in_tag: Tag::Shadowsocks.to_string(),
-            password: generate_random_password(10),
+            password: Some(generate_random_password(10)),
             level: 0,
             cipher_type: "chacha20-ietf-poly1305".to_string(),
         }
@@ -53,8 +53,13 @@ pub async fn add_user(clients: XrayClients, user_info: UserInfo) -> Result<(), t
         }
     };
 
+    let password = match user_info.password {
+        Some(password) => password,
+        None => return Err(Status::new(403.into(), "Password is ommited")),
+    };
+
     let ss_account = Account {
-        password: user_info.password.clone(),
+        password: password,
         cipher_type: ss_cipher_type as i32,
         iv_check: true,
     };

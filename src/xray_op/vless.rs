@@ -1,7 +1,8 @@
-use super::client::XrayClients;
-use super::Tag;
+use std::fmt;
 use tonic::Request;
 
+use super::client::XrayClients;
+use super::Tag;
 use crate::xray_api::xray::app::proxyman::command::{AddUserOperation, AlterInboundRequest};
 use crate::xray_api::xray::common::protocol::User;
 use crate::xray_api::xray::common::serial::TypedMessage;
@@ -14,18 +15,38 @@ pub struct UserInfo {
     pub email: String,
     pub uuid: String,
     encryption: Option<String>,
-    flow: Option<String>,
+    flow: UserFlow,
 }
 
 impl UserInfo {
-    pub fn new(uuid: String, in_tag: Tag) -> Self {
+    pub fn new(uuid: String, flow: UserFlow) -> Self {
+        let tag = match flow {
+            UserFlow::Vision => Tag::VlessXtls,
+            UserFlow::Direct => Tag::VlessGrpc,
+        };
+
         Self {
-            in_tag: in_tag.to_string(),
+            in_tag: tag.to_string(),
             level: 0,
-            email: format!("{}@{}", uuid, in_tag),
+            email: format!("{}@{}", uuid, "pony"),
             uuid: uuid,
             encryption: Some("none".to_string()),
-            flow: Some("xtls-rprx-vision".to_string()),
+            flow: flow,
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub enum UserFlow {
+    Vision,
+    Direct,
+}
+
+impl fmt::Display for UserFlow {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            UserFlow::Vision => write!(f, "xtls-rprx-vision"),
+            UserFlow::Direct => write!(f, "xtls-rprx-direct"),
         }
     }
 }
@@ -33,7 +54,7 @@ impl UserInfo {
 pub async fn add_user(clients: XrayClients, user_info: UserInfo) -> Result<(), tonic::Status> {
     let vless_account = Account {
         id: user_info.uuid.clone(),
-        flow: user_info.flow.unwrap_or_default(),
+        flow: user_info.flow.to_string(),
         encryption: user_info.encryption.unwrap_or_else(|| "none".to_string()),
     };
 

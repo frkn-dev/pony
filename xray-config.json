@@ -24,6 +24,16 @@
       "tag": "API_INBOUND"
     },
     {
+      "tag": "Shadowsocks",
+      "listen": "0.0.0.0",
+      "port": 1080,
+      "protocol": "shadowsocks",
+      "settings": {
+        "clients": [],
+        "network": "tcp,udp"
+      }
+    },
+    {
       "tag": "Vmess",
       "listen": "0.0.0.0",
       "port": 8081,
@@ -61,7 +71,38 @@
       }
     },
     {
-      "tag": "Vless",
+      "tag": "VlessXtls",
+      "listen": "0.0.0.0",
+      "port": 8433,
+      "protocol": "vless",
+      "settings": {
+        "clients": [
+          {
+            "id": "1ec1499c-c255-4d67-9d12-c5cd6c2a9a53",
+            "level": 1,
+            "email": "user@example.com"
+          }
+        ],
+        "decryption": "none"
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "security": "reality",
+        "realitySettings": {
+          "serverNames": [
+            "cdn.discordapp.com",
+            "discordapp.com"
+          ],
+          "privateKey": "4AQgu1qeCaGT8nnZTOnKLSOudSp_Z_kAAAAAAA",
+          "shortIds": [
+            "e5c4d84fbAAAAAA"
+          ],
+          "dest": "discordapp.com:443"
+        }
+      }
+    },
+    {
+      "tag": "VlessGrpc",
       "listen": "0.0.0.0",
       "port": 2053,
       "protocol": "vless",
@@ -83,10 +124,10 @@
             "cdn.discordapp.com",
             "discordapp.com"
           ],
-          "privateKey": "PRIVATE_KEY",
+          "privateKey": "4AQgu1qeCaGT8nnZTOnKLSOudSp_Z_kS0kzIAAAAA",
           "shortIds": [
             "",
-            "SHORT_ID"
+            "e5c4d84fb33AAAAAA"
           ]
         }
       },
@@ -96,16 +137,6 @@
           "http",
           "tls"
         ]
-      }
-    },
-    {
-      "tag": "Shadowsocks",
-      "listen": "0.0.0.0",
-      "port": 1080,
-      "protocol": "shadowsocks",
-      "settings": {
-        "clients": [],
-        "network": "tcp,udp"
       }
     }
   ],
@@ -127,7 +158,7 @@
         ],
         "source": [
           "127.0.0.1",
-          "172.20.10.3"
+          "194.54.156.79"
         ],
         "outboundTag": "API",
         "type": "field"

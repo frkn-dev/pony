@@ -16,11 +16,11 @@ pub struct UserInfo {
 }
 
 impl UserInfo {
-    pub fn new(uuid: String, in_tag: Tag) -> Self {
+    pub fn new(uuid: String) -> Self {
         Self {
-            in_tag: in_tag.to_string(),
+            in_tag: Tag::Vmess.to_string(),
             level: 0,
-            email: format!("{}@{}", uuid, in_tag),
+            email: format!("{}@{}", uuid, "pony"),
             uuid: uuid,
         }
     }

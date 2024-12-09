@@ -134,24 +134,20 @@ async fn main() -> std::io::Result<()> {
             };
 
         let sync_state_futures = vec![
-            sync_state_to_xray_conf(user_state.clone(), xray_api_clients.clone(), Tag::Vless),
+            sync_state_to_xray_conf(user_state.clone(), xray_api_clients.clone(), Tag::VlessXtls),
+            sync_state_to_xray_conf(user_state.clone(), xray_api_clients.clone(), Tag::VlessGrpc),
             sync_state_to_xray_conf(user_state.clone(), xray_api_clients.clone(), Tag::Vmess),
+            sync_state_to_xray_conf(
+                user_state.clone(),
+                xray_api_clients.clone(),
+                Tag::Shadowsocks,
+            ),
         ];
 
         let _ = join_all(sync_state_futures).await;
 
-        let tags = vec![Tag::Vmess, Tag::Vless, Tag::Shadowsocks];
-        for tag in &tags {
-            sleep(Duration::from_millis(100)).await;
-            let task = tokio::spawn(get_stats_task(
-                xray_api_clients.clone(),
-                user_state.clone(),
-                tag.clone(),
-            ));
-
-            debug!("Stat Task added, {tag:?}");
-            tasks.push(task);
-        }
+        let stats_task = tokio::spawn(get_stats_task(xray_api_clients.clone(), user_state.clone()));
+        tasks.push(stats_task);
 
         tasks.push(tokio::spawn(zmq::subscriber(
             xray_api_clients.clone(),

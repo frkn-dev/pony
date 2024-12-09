@@ -20,7 +20,7 @@ pub struct User {
     pub created_at: DateTime<Utc>,
     pub modified_at: Option<DateTime<Utc>>,
     pub proto: Option<Vec<Tag>>,
-    pub password: Option<String>,
+    pub password: String,
 }
 
 impl User {
@@ -28,15 +28,15 @@ impl User {
         let now = Utc::now();
         Self {
             user_id,
-            trial: trial,
-            limit: limit,
+            limit,
+            trial,
             status: UserStatus::Active,
             uplink: None,
             downlink: None,
             created_at: now,
             modified_at: None,
             proto: None,
-            password: Some(password),
+            password: password,
         }
     }
 

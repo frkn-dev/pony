@@ -16,8 +16,10 @@ pub mod vmess;
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq)]
 pub enum Tag {
-    #[serde(rename = "vless")]
-    Vless,
+    #[serde(rename = "VlessXtls")]
+    VlessXtls,
+    #[serde(rename = "VlessGrpc")]
+    VlessGrpc,
     #[serde(rename = "vmess")]
     Vmess,
     #[serde(rename = "shadowsocks")]
@@ -27,7 +29,8 @@ pub enum Tag {
 impl fmt::Display for Tag {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Tag::Vless => write!(f, "Vless"),
+            Tag::VlessXtls => write!(f, "VlessXtls"),
+            Tag::VlessGrpc => write!(f, "VlessGrpc"),
             Tag::Vmess => write!(f, "Vmess"),
             Tag::Shadowsocks => write!(f, "Shadowsocks"),
         }
@@ -39,7 +42,8 @@ impl std::str::FromStr for Tag {
 
     fn from_str(input: &str) -> Result<Self, Self::Err> {
         match input {
-            "Vless" => Ok(Tag::Vless),
+            "VlessXtls" => Ok(Tag::VlessXtls),
+            "VlessGrpc" => Ok(Tag::VlessGrpc),
             "Vmess" => Ok(Tag::Vmess),
             "Shadowsocks" => Ok(Tag::Shadowsocks),
             _ => Err(()),
@@ -52,7 +56,7 @@ where
     Tag: ToString,
 {
     let operation = RemoveUserOperation {
-        email: format!("{}@{}", user_id, tag.to_string()),
+        email: format!("{}@{}", user_id, "pony"),
     };
 
     let operation_message = TypedMessage {

@@ -1,4 +1,3 @@
-use crate::xray_op::remove_user;
 use chrono::{Duration, Utc};
 use log::debug;
 use log::error;
@@ -8,6 +7,8 @@ use tokio::sync::Mutex;
 use crate::xray_op::{
     client::XrayClients, user_state::UserState, users::UserStatus, vless, vmess, Tag,
 };
+
+use crate::xray_op::remove_user;
 
 pub async fn restore_trial_users(state: Arc<Mutex<UserState>>, clients: XrayClients) {
     let trial_users = state.lock().await.get_all_trial_users(UserStatus::Expired);
@@ -33,22 +34,33 @@ pub async fn restore_trial_users(state: Arc<Mutex<UserState>>, clients: XrayClie
                 );
 
                 let vmess_restore = {
-                    let user_info = vmess::UserInfo::new(user.user_id.clone(), Tag::Vmess);
+                    let user_info = vmess::UserInfo::new(user.user_id.clone());
                     vmess::add_user(clients.clone(), user_info.clone())
                         .await
                         .map(|_| debug!("User restored in VMess: {}", user_info.uuid))
                         .map_err(|e| error!("Failed to restore user in VMess: {}", e))
                 };
 
-                let vless_restore = {
-                    let user_info = vless::UserInfo::new(user.user_id.clone(), Tag::Vless);
+                let xtls_vless_restore = {
+                    let user_info =
+                        vless::UserInfo::new(user.user_id.clone(), vless::UserFlow::Vision);
+                    vless::add_user(clients.clone(), user_info.clone())
+                        .await
+                        .map(|_| debug!("User restored in Vless: {}", user_info.uuid))
+                        .map_err(|e| error!("Failed to restore user in VlessXtls: {}", e))
+                };
+
+                let grpc_vless_restore = {
+                    let user_info =
+                        vless::UserInfo::new(user.user_id.clone(), vless::UserFlow::Direct);
                     vless::add_user(clients.clone(), user_info.clone())
                         .await
                         .map(|_| debug!("User restored in VLess: {}", user_info.uuid))
-                        .map_err(|e| error!("Failed to restore user in VLess: {}", e))
+                        .map_err(|e| error!("Failed to restore user in VlessGrpc: {}", e))
                 };
 
-                if vmess_restore.is_ok() && vless_restore.is_ok() {
+                if vmess_restore.is_ok() && xtls_vless_restore.is_ok() && grpc_vless_restore.is_ok()
+                {
                     if let Err(e) = state.restore_user(user.user_id.clone()).await {
                         error!("Failed to update user state: {:?}", e);
                     } else {
@@ -84,9 +96,19 @@ pub async fn block_trial_users_by_limit(state: Arc<Mutex<UserState>>, clients: X
                 );
 
                 let vmess_remove = remove_user(clients.clone(), user.user_id.clone(), Tag::Vmess);
-                let vless_remove = remove_user(clients.clone(), user.user_id.clone(), Tag::Vless);
+                let ss_remove =
+                    remove_user(clients.clone(), user.user_id.clone(), Tag::Shadowsocks);
+                let xtls_vless_remove =
+                    remove_user(clients.clone(), user.user_id.clone(), Tag::VlessXtls);
+                let grpc_vless_remove =
+                    remove_user(clients.clone(), user.user_id.clone(), Tag::VlessGrpc);
 
-                let results = tokio::try_join!(vmess_remove, vless_remove);
+                let results = tokio::try_join!(
+                    vmess_remove,
+                    xtls_vless_remove,
+                    grpc_vless_remove,
+                    ss_remove
+                );
 
                 match results {
                     Ok(_) => debug!("Successfully blocked user: {}", user.user_id),

@@ -7,6 +7,8 @@ use tokio::fs::File;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::Mutex;
 
+use crate::xray_op::shadowsocks;
+
 use super::client::XrayClients;
 use super::stats::StatType;
 use super::users::{User, UserStatus};
@@ -129,6 +131,15 @@ impl UserState {
         users
     }
 
+    pub fn get_user_password(&mut self, user_id: &str) -> Option<String> {
+        if let Some(user) = self.users.iter().find(|user| user.user_id == user_id) {
+            Some(user.password.clone())
+        } else {
+            error!("User not found: {}", user_id);
+            None
+        }
+    }
+
     pub async fn load_from_file_async(file_path: String) -> Result<Self, Box<dyn Error>> {
         let mut file = fs::File::open(file_path).await?;
         let mut file_content = String::new();
@@ -164,7 +175,7 @@ pub async fn sync_state_to_xray_conf(
         debug!("Running sync for {:?} {:?}", tag.clone(), user);
         match tag {
             Tag::Vmess => {
-                let user_info = vmess::UserInfo::new(user.user_id.clone(), tag.clone());
+                let user_info = vmess::UserInfo::new(user.user_id.clone());
                 if user.has_proto_tag(tag.clone()) {
                     match user.status {
                         UserStatus::Active => {
@@ -178,8 +189,8 @@ pub async fn sync_state_to_xray_conf(
                 }
             }
 
-            Tag::Vless => {
-                let user_info = vless::UserInfo::new(user.user_id.clone(), tag.clone());
+            Tag::VlessXtls => {
+                let user_info = vless::UserInfo::new(user.user_id.clone(), vless::UserFlow::Vision);
                 if user.has_proto_tag(tag.clone()) {
                     match user.status {
                         UserStatus::Active => {
@@ -192,7 +203,35 @@ pub async fn sync_state_to_xray_conf(
                     }
                 }
             }
-            Tag::Shadowsocks => debug!("ShadowSocks: Not implemented"),
+            Tag::VlessGrpc => {
+                let user_info = vless::UserInfo::new(user.user_id.clone(), vless::UserFlow::Direct);
+                if user.has_proto_tag(tag.clone()) {
+                    match user.status {
+                        UserStatus::Active => {
+                            match vless::add_user(clients.clone(), user_info.clone()).await {
+                                Ok(()) => debug!("User sync success {:?} {}", user_info, tag),
+                                Err(e) => error!("User sync fail {:?} {}", user_info, e),
+                            }
+                        }
+                        UserStatus::Expired => debug!("User expired, skip to restore"),
+                    }
+                }
+            }
+            Tag::Shadowsocks => {
+                let user_info =
+                    shadowsocks::UserInfo::new(user.user_id.clone(), user.password.clone());
+                if user.has_proto_tag(tag.clone()) {
+                    match user.status {
+                        UserStatus::Active => {
+                            match shadowsocks::add_user(clients.clone(), user_info.clone()).await {
+                                Ok(()) => debug!("User sync success {:?} {}", user_info, tag),
+                                Err(e) => error!("User sync fail {:?} {}", user_info, e),
+                            }
+                        }
+                        UserStatus::Expired => debug!("User expired, skip to restore"),
+                    }
+                }
+            }
         }
     }
 

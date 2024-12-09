@@ -1,6 +1,43 @@
 
 ### Vmess TCP 
 
+```inbound config
+
+{
+      "tag": "Vmess",
+      "listen": "0.0.0.0",
+      "port": 8081,
+      "protocol": "vmess",
+      "settings": {
+        "clients": []
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "tcpSettings": {
+          "header": {
+            "type": "http",
+            "request": {
+              "method": "GET",
+              "path": [
+                "/"
+              ],
+              "headers": {
+                "Host": [
+                  "google.com"
+                ]
+              }
+            },
+            "response": {}
+          }
+        },
+        "security": "none"
+      }
+
+ ````
+
+ It's possible to change host on the client, it should be available in th country you are located
+
+
 
 ```connections string 
 

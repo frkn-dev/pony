@@ -4,7 +4,8 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 
 use crate::xray_op::{
-    client::XrayClients, remove_user, user_state::UserState, users::UserStatus, vless, vmess, Tag,
+    client::XrayClients, remove_user, stats::StatType, user_state::UserState, users::UserStatus,
+    vless, vmess, Tag,
 };
 
 pub async fn restore_trial_users(state: Arc<Mutex<UserState>>, clients: XrayClients) {
@@ -113,8 +114,8 @@ pub async fn block_trial_users_by_limit(state: Arc<Mutex<UserState>>, clients: X
                     Err(e) => error!("Failed to block user {}: {:?}", user.user_id, e),
                 }
 
-                state.reset_user_downlink(&user_id);
-                state.reset_user_uplink(&user_id);
+                state.reset_user_stat(&user_id, StatType::Uplink);
+                state.reset_user_stat(&user_id, StatType::Downlink);
 
                 if let Err(e) = state.expire_user(&user_id).await {
                     error!("Failed to update status for user {}: {:?}", user_id, e);

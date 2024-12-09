@@ -135,17 +135,12 @@ impl UserState {
             .await
     }
 
-    pub fn reset_user_downlink(&mut self, user_id: &str) {
+    pub fn reset_user_stat(&mut self, user_id: &str, stat: StatType) {
         if let Some(user) = self.users.iter_mut().find(|user| user.user_id == user_id) {
-            user.reset_downlink();
-        } else {
-            error!("User not found: {}", user_id);
-        }
-    }
-
-    pub fn reset_user_uplink(&mut self, user_id: &str) {
-        if let Some(user) = self.users.iter_mut().find(|user| user.user_id == user_id) {
-            user.reset_uplink();
+            match stat {
+                StatType::Uplink => user.reset_uplink(),
+                StatType::Downlink => user.reset_downlink(),
+            }
         } else {
             error!("User not found: {}", user_id);
         }

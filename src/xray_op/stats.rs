@@ -24,6 +24,7 @@ impl fmt::Display for StatType {
 pub async fn get_user_stats(
     clients: XrayClients,
     user_id: String,
+    reset: bool,
 ) -> Result<(GetStatsResponse, GetStatsResponse), Status> {
     let client = clients.stats_client.lock().await;
 
@@ -32,12 +33,12 @@ pub async fn get_user_stats(
 
     let downlink_request = Request::new(GetStatsRequest {
         name: downlink_stat_name,
-        reset: false,
+        reset: reset,
     });
 
     let uplink_request = Request::new(GetStatsRequest {
         name: uplink_stat_name,
-        reset: false,
+        reset: reset,
     });
 
     let downlink_response = tokio::spawn({
@@ -71,7 +72,7 @@ pub async fn get_stats_task(clients: XrayClients, state: Arc<Mutex<UserState>>) 
         let users = user_state.users.clone();
         drop(user_state);
         for user in users {
-            match get_user_stats(clients.clone(), user.user_id.clone()).await {
+            match get_user_stats(clients.clone(), user.user_id.clone(), false).await {
                 Ok(response) => {
                     info!("Received stats: {:?}", response);
 

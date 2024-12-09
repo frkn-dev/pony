@@ -83,14 +83,14 @@ pub async fn block_trial_users_by_limit(state: Arc<Mutex<UserState>>, clients: X
 
             let user_exceeds_limit = user
                 .downlink
-                .map_or(false, |downlink| downlink > (user.limit * 1024 * 1024));
+                .map_or(false, |downlink| downlink > user.limit);
 
             if user_exceeds_limit {
                 debug!(
                     "User {} exceeds the limit: downlink={} > limit={}",
                     user.user_id,
                     user.downlink.unwrap_or(0),
-                    user.limit * 1024 * 1024
+                    user.limit
                 );
 
                 let vmess_remove = remove_user(clients.clone(), user.user_id.clone(), Tag::Vmess);

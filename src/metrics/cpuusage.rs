@@ -4,8 +4,8 @@ use std::time::Duration;
 use sysinfo::{CpuRefreshKind, RefreshKind, System};
 use tokio::time::sleep;
 
-use crate::config2::Settings;
-use crate::metrics::{AsMetric, Metric};
+use crate::appconfig::Settings;
+use crate::metrics::metrics::{AsMetric, Metric};
 use crate::utils::{current_timestamp, round_to_two_decimal_places, send_to_carbon};
 
 struct CpuUsage<'a> {
@@ -52,8 +52,9 @@ pub async fn cpu_metrics(server: String, settings: Settings) {
     info!("Starting cpu metric loop");
 
     loop {
-        let mut s =
-            System::new_with_specifics(RefreshKind::new().with_cpu(CpuRefreshKind::everything()));
+        let mut s = System::new_with_specifics(
+            RefreshKind::nothing().with_cpu(CpuRefreshKind::everything()),
+        );
 
         sleep(Duration::from_secs(settings.app.metrics_delay)).await;
 

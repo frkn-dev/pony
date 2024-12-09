@@ -4,8 +4,8 @@ use std::time::Duration;
 use sysinfo::Networks;
 use tokio::time::sleep;
 
-use crate::config2::Settings;
-use crate::metrics::{AsMetric, Metric};
+use crate::appconfig::Settings;
+use crate::metrics::metrics::{AsMetric, Metric};
 use crate::utils::{current_timestamp, send_to_carbon};
 
 #[derive(Debug)]
@@ -75,7 +75,7 @@ pub async fn bandwidth_metrics(server: String, settings: Settings) {
     let mut networks = Networks::new_with_refreshed_list();
 
     loop {
-        let _ = networks.refresh();
+        let _ = networks.refresh(true);
         let res = networks
             .iter()
             .find(|&(interface, _)| interface == &settings.app.iface);

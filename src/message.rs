@@ -37,8 +37,6 @@ pub async fn process_message(
                 None => generate_random_password(10),
             };
 
-            debug!("PASSWORD - {}", password);
-
             let user = users::User::new(
                 message.user_id.clone(),
                 daily_limit_mb,

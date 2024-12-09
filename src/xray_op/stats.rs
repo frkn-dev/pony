@@ -4,6 +4,7 @@ use tokio::{sync::Mutex, time::Duration};
 use tonic::{Request, Status};
 
 use super::{client::XrayClients, user_state::UserState, Tag};
+use crate::xray_api::xray::app::proxyman::command::GetInboundUserRequest;
 use crate::xray_api::xray::app::stats::command::{GetStatsRequest, GetStatsResponse};
 
 #[derive(Debug, Clone)]
@@ -27,6 +28,7 @@ pub async fn get_user_stats(
     tag: Tag,
 ) -> Result<(GetStatsResponse, GetStatsResponse), Status> {
     let client = clients.stats_client.lock().await;
+    let handler_client = clients.handler_client.lock().await;
 
     let downlink_stat_name = format!("user>>>{user_id}@{tag}>>>traffic>>>{}", StatType::Downlink);
     let uplink_stat_name = format!("user>>>{user_id}@{tag}>>>traffic>>>{}", StatType::Uplink);
@@ -35,9 +37,15 @@ pub async fn get_user_stats(
         name: downlink_stat_name,
         reset: false,
     });
+
     let uplink_request = Request::new(GetStatsRequest {
         name: uplink_stat_name,
         reset: false,
+    });
+
+    let user_count_request = Request::new(GetInboundUserRequest {
+        tag: tag.to_string(),
+        email: format!("{user_id}@{tag}"),
     });
 
     let downlink_response = tokio::spawn({
@@ -50,17 +58,30 @@ pub async fn get_user_stats(
         async move { client.get_stats(uplink_request).await }
     });
 
-    let (downlink_result, uplink_result) = tokio::try_join!(downlink_response, uplink_response)
-        .map_err(|e| Status::internal(format!("Join error: {}", e)))?;
+    let user_count_response = tokio::spawn({
+        let mut handler_client = handler_client.clone();
+        async move {
+            handler_client
+                .get_inbound_users_count(user_count_request)
+                .await
+        }
+    });
 
-    match (downlink_result, uplink_result) {
-        (Ok(downlink), Ok(uplink)) => {
-            debug!("Downlink stat: {:?}", downlink);
-            debug!("Uplink stat: {:?}", uplink);
+    let (downlink_result, uplink_result, user_count_result) =
+        tokio::try_join!(downlink_response, uplink_response, user_count_response)
+            .map_err(|e| Status::internal(format!("Join error: {}", e)))?;
+
+    match (downlink_result, uplink_result, user_count_result) {
+        (Ok(downlink), Ok(uplink), Ok(user_count)) => {
+            debug!("Online Downlink stat: {:?}", downlink);
+            debug!("Online Uplink stat: {:?}", uplink);
+            debug!("UserCount stat: {:?}", user_count);
 
             Ok((downlink.into_inner(), uplink.into_inner()))
         }
-        (Err(e), _) | (_, Err(e)) => Err(Status::internal(format!("Stat request failed: {}", e))),
+        (Err(e), _, _) | (_, Err(e), _) | (_, _, Err(e)) => {
+            Err(Status::internal(format!("Stat request failed: {}", e)))
+        }
     }
 }
 

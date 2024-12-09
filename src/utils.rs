@@ -1,17 +1,16 @@
+use std::{
+    error::Error,
+    io,
+    net::{IpAddr, SocketAddr},
+    time::{SystemTime, UNIX_EPOCH},
+};
+
 use chrono::{TimeZone, Utc};
 use log::{debug, error, warn, LevelFilter};
-use rand::distributions::Alphanumeric;
-use rand::{thread_rng, Rng};
-use std::error::Error;
-use std::io;
-use std::net::IpAddr;
-use std::net::SocketAddr;
-use std::time::{SystemTime, UNIX_EPOCH};
-use tokio::io::AsyncWriteExt;
-use tokio::net::TcpStream;
+use rand::{distributions::Alphanumeric, thread_rng, Rng};
+use tokio::{io::AsyncWriteExt, net::TcpStream};
 
-use crate::geoip;
-use crate::metrics::metrics::Metric;
+use crate::{geoip, metrics::metrics::Metric};
 
 pub fn generate_random_password(length: usize) -> String {
     thread_rng()

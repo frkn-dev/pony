@@ -1,10 +1,8 @@
+use std::{sync::Arc, thread};
+
 use futures::future::join_all;
-use log::debug;
-use log::error;
-use log::info;
+use log::{debug, error, info};
 use serde::Deserialize;
-use std::sync::Arc;
-use std::thread;
 use tokio::sync::Mutex;
 use tokio::time::Duration;
 use zmq;

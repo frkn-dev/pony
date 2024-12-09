@@ -55,7 +55,6 @@ pub mod xray {
             }
         }
         pub mod shadowsocks {
-
             tonic::include_proto!("xray.proxy.shadowsocks");
         }
     }

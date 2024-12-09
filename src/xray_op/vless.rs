@@ -3,10 +3,13 @@ use tonic::Request;
 
 use super::client::XrayClients;
 use super::Tag;
-use crate::xray_api::xray::app::proxyman::command::{AddUserOperation, AlterInboundRequest};
-use crate::xray_api::xray::common::protocol::User;
-use crate::xray_api::xray::common::serial::TypedMessage;
-use crate::xray_api::xray::proxy::vless::Account;
+
+use crate::xray_api::xray::{
+    app::proxyman::command::{AddUserOperation, AlterInboundRequest},
+    common::protocol::User,
+    common::serial::TypedMessage,
+    proxy::vless::Account,
+};
 
 #[derive(Clone, Debug)]
 pub struct UserInfo {

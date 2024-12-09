@@ -1,14 +1,15 @@
 use tonic::{Request, Status};
 
 use crate::utils::generate_random_password;
-use crate::xray_api::xray::app::proxyman::command::{AddUserOperation, AlterInboundRequest};
-use crate::xray_api::xray::common::protocol::User;
-use crate::xray_api::xray::common::serial::TypedMessage;
-use crate::xray_api::xray::proxy::shadowsocks::Account;
-use crate::xray_api::xray::proxy::shadowsocks::CipherType;
+use crate::xray_api::xray::{
+    app::proxyman::command::{AddUserOperation, AlterInboundRequest},
+    common::protocol::User,
+    common::serial::TypedMessage,
+    proxy::shadowsocks::Account,
+    proxy::shadowsocks::CipherType,
+};
 
-use super::client::XrayClients;
-use super::Tag;
+use super::{client::XrayClients, Tag};
 
 #[derive(Clone, Debug)]
 pub struct UserInfo {

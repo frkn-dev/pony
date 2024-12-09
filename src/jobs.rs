@@ -1,14 +1,11 @@
 use chrono::{Duration, Utc};
-use log::debug;
-use log::error;
+use log::{debug, error};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
 use crate::xray_op::{
-    client::XrayClients, user_state::UserState, users::UserStatus, vless, vmess, Tag,
+    client::XrayClients, remove_user, user_state::UserState, users::UserStatus, vless, vmess, Tag,
 };
-
-use crate::xray_op::remove_user;
 
 pub async fn restore_trial_users(state: Arc<Mutex<UserState>>, clients: XrayClients) {
     let trial_users = state.lock().await.get_all_trial_users(UserStatus::Expired);

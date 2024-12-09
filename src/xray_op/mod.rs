@@ -1,10 +1,11 @@
-use crate::xray_api::xray::app::proxyman::command::{AlterInboundRequest, RemoveUserOperation};
-use crate::xray_api::xray::common::serial::TypedMessage;
+use crate::xray_api::xray::{
+    app::proxyman::command::{AlterInboundRequest, RemoveUserOperation},
+    common::serial::TypedMessage,
+};
 use crate::xray_op::client::XrayClients;
 use serde::{Deserialize, Serialize};
 use std::fmt;
-use tonic::Request;
-use tonic::Status;
+use tonic::{Request, Status};
 
 pub mod client;
 pub mod shadowsocks;

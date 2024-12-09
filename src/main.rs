@@ -2,11 +2,27 @@ use clap::Parser;
 use fern::Dispatch;
 use futures::future::join_all;
 use log::{debug, info, warn};
-use std::fmt;
-use std::sync::Arc;
-use tokio::sync::Mutex;
-use tokio::task::JoinHandle;
-use tokio::time::{sleep, Duration};
+use std::{fmt, sync::Arc};
+use tokio::{
+    sync::Mutex,
+    task::JoinHandle,
+    time::{sleep, Duration},
+};
+
+use crate::{
+    appconfig::{read_config, Settings},
+    metrics::{
+        bandwidth::bandwidth_metrics, connections::connections_metric, cpuusage::cpu_metrics,
+        loadavg::loadavg_metrics, memory::mem_metrics,
+    },
+    utils::{current_timestamp, human_readable_date, level_from_settings},
+    xray_config::read_xray_config,
+    xray_op::{
+        stats::get_stats_task,
+        user_state::{sync_state_to_xray_conf, UserState},
+        Tag,
+    },
+};
 
 mod appconfig;
 mod geoip;
@@ -19,20 +35,8 @@ mod xray_config;
 mod xray_op;
 mod zmq;
 
-use crate::appconfig::{read_config, Settings};
-use crate::metrics::bandwidth::bandwidth_metrics;
-use crate::metrics::connections::connections_metric;
-use crate::metrics::cpuusage::cpu_metrics;
-use crate::metrics::loadavg::loadavg_metrics;
-use crate::metrics::memory::mem_metrics;
-use crate::utils::{current_timestamp, human_readable_date, level_from_settings};
-use crate::xray_config::read_xray_config;
-use crate::xray_op::stats::get_stats_task;
-use crate::xray_op::user_state::{sync_state_to_xray_conf, UserState};
-use crate::xray_op::Tag;
-
 #[derive(Parser)]
-#[command(version = "0.0.23", about = "Pony - control tool for Xray/Wireguard")]
+#[command(version = "0.1.0", about = "Pony - control tool for Xray/Wireguard")]
 struct Cli {
     #[arg(short, long, default_value = "config.toml")]
     config: String,
@@ -73,7 +77,6 @@ async fn main() -> std::io::Result<()> {
         std::process::exit(1);
     } else {
         info!(">>> Settings: {:?}", settings);
-        info!(">>> Pony Version: 0.0.23");
     }
 
     match read_xray_config(&settings.xray.xray_config_path) {

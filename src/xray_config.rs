@@ -1,8 +1,8 @@
-use crate::xray_op::Tag;
 use log::{debug, warn};
 use serde::Deserialize;
-use std::fs::File;
-use std::io::Read;
+use std::{fs::File, io::Read};
+
+use crate::xray_op::Tag;
 
 #[derive(Debug, Deserialize)]
 pub struct Inbound {

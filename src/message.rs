@@ -1,14 +1,14 @@
 use log::{debug, error, info};
 use serde::Deserialize;
-use std::error::Error;
-use std::sync::Arc;
+use std::{error::Error, sync::Arc};
 use tokio::sync::Mutex;
 
-use super::zmq::Action;
 use crate::{
     utils::generate_random_password,
     xray_op::{client, remove_user, shadowsocks, user_state, users, vless, vmess, Tag},
 };
+
+use super::zmq::Action;
 
 #[derive(Deserialize, Clone, Debug)]
 pub struct Message {

@@ -1,19 +1,20 @@
 use log::{debug, error};
 use serde::{Deserialize, Serialize};
-use std::error::Error;
-use std::sync::Arc;
-use tokio::fs;
-use tokio::fs::File;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::sync::Mutex;
+use std::{error::Error, sync::Arc};
+use tokio::{
+    fs,
+    fs::File,
+    io::{AsyncReadExt, AsyncWriteExt},
+    sync::Mutex,
+};
 
-use crate::xray_op::shadowsocks;
-
-use super::client::XrayClients;
-use super::stats::StatType;
-use super::users::{User, UserStatus};
-use super::Tag;
-use super::{vless, vmess};
+use super::{
+    client::XrayClients,
+    shadowsocks,
+    stats::StatType,
+    users::{User, UserStatus},
+    Tag, {vless, vmess},
+};
 
 #[derive(Deserialize, Serialize, Debug)]
 pub struct UserState {

@@ -1,7 +1,7 @@
 use clap::Parser;
 use fern::Dispatch;
 use futures::future::join_all;
-use log::{debug, info};
+use log::{debug, info, warn};
 use std::{fmt, sync::Arc};
 use tokio::{
     sync::Mutex,
@@ -12,8 +12,8 @@ use tokio::{
 use crate::{
     appconfig::{read_config, Settings},
     metrics::{
-        bandwidth::bandwidth_metrics, connections::connections_metric, cpuusage::cpu_metrics,
-        loadavg::loadavg_metrics, memory::mem_metrics,
+        bandwidth::bandwidth_metrics, cpuusage::cpu_metrics, loadavg::loadavg_metrics,
+        memory::mem_metrics,
     },
     utils::{current_timestamp, human_readable_date, level_from_settings},
     xray_config::read_xray_config,
@@ -25,7 +25,6 @@ use crate::{
 };
 
 mod appconfig;
-mod geoip;
 mod jobs;
 mod message;
 mod metrics;
@@ -79,7 +78,7 @@ async fn main() -> std::io::Result<()> {
         info!(">>> Settings: {:?}", settings);
     }
 
-    let xray_config = match read_xray_config(&settings.xray.xray_config_path) {
+    match read_xray_config(&settings.xray.xray_config_path) {
         Ok(config) => {
             debug!(
                 "Xray Config: Successfully read Xray config file: {:?}",
@@ -87,10 +86,9 @@ async fn main() -> std::io::Result<()> {
             );
 
             config.validate();
-            config
         }
         Err(e) => {
-            panic!("Xray Config:: Error reading JSON file: {}", e);
+            warn!("Xray Config:: Error reading JSON file: {}", e);
         }
     };
 
@@ -105,11 +103,6 @@ async fn main() -> std::io::Result<()> {
             tokio::spawn(cpu_metrics(carbon_server.clone(), settings.clone())),
             tokio::spawn(loadavg_metrics(carbon_server.clone(), settings.clone())),
             tokio::spawn(mem_metrics(carbon_server.clone(), settings.clone())),
-            tokio::spawn(connections_metric(
-                carbon_server.clone(),
-                xray_config,
-                settings.clone(),
-            )),
         ];
 
         for task in metrics_tasks {

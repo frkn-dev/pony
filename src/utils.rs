@@ -1,7 +1,5 @@
 use std::{
-    error::Error,
     io,
-    net::{IpAddr, SocketAddr},
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -10,7 +8,7 @@ use log::{debug, error, warn, LevelFilter};
 use rand::{distributions::Alphanumeric, thread_rng, Rng};
 use tokio::{io::AsyncWriteExt, net::TcpStream};
 
-use crate::{geoip, metrics::metrics::Metric};
+use crate::metrics::metrics::Metric;
 
 pub fn generate_random_password(length: usize) -> String {
     thread_rng()
@@ -76,38 +74,4 @@ pub fn level_from_settings(level: &str) -> LevelFilter {
         "error" => LevelFilter::Error,
         _ => LevelFilter::Info,
     }
-}
-
-fn remove_prefix(input: &str) -> String {
-    input.replace("::ffff:", "")
-}
-
-fn trim_quotes(s: &str) -> String {
-    s.replace("\"", "").trim().to_string()
-}
-
-fn parse_ip(ip: &str) -> Result<String, Box<dyn Error + 'static>> {
-    if let Ok(ip_addr) = ip.parse::<IpAddr>() {
-        return Ok(ip_addr.to_string());
-    }
-
-    match ip.parse::<SocketAddr>() {
-        Ok(socket_addr) => {
-            let ip: IpAddr = socket_addr.ip();
-            Ok(ip.to_string())
-        }
-        Err(_) => Err("Failed to parse IP or SocketAddr".into()),
-    }
-}
-
-pub async fn country(ip: String) -> Result<String, Box<dyn Error>> {
-    let parsed_ip = parse_ip(&ip)?;
-
-    let country_info = geoip::find(&remove_prefix(&parsed_ip))
-        .await
-        .map_err(|_| "Failed to find country by IP")?;
-
-    let country = trim_quotes(&country_info.country);
-
-    Ok(country)
 }

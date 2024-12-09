@@ -46,13 +46,3 @@ impl<T: ToString> Metric<T> {
         )
     }
 }
-
-impl<T> Metric<T> {
-    pub fn new(path: String, value: T, timestamp: u64) -> Self {
-        Metric {
-            path,
-            value,
-            timestamp,
-        }
-    }
-}

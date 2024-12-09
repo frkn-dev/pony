@@ -5,18 +5,6 @@ fn default_enabled() -> bool {
     true
 }
 
-fn default_vmess_port() -> u16 {
-    10086
-}
-
-fn default_vless_port() -> u16 {
-    10087
-}
-
-fn default_ss_port() -> u16 {
-    10088
-}
-
 fn default_env() -> String {
     "dev".to_string()
 }
@@ -109,14 +97,6 @@ pub struct AppConfig {
 
 #[derive(Clone, Debug, Deserialize, Default)]
 pub struct XrayConfig {
-    #[serde(default = "default_enabled")]
-    pub enabled: bool,
-    #[serde(default = "default_vmess_port")]
-    pub vmess_port: u16,
-    #[serde(default = "default_vless_port")]
-    pub vless_port: u16,
-    #[serde(default = "default_ss_port")]
-    pub ss_port: u16,
     #[serde(default = "default_xray_api_endpoint")]
     pub xray_api_endpoint: String,
     #[serde(default = "default_xray_daily_limit_mb")]
@@ -149,14 +129,8 @@ pub struct Settings {
 
 impl Settings {
     pub fn validate(&self) -> Result<(), String> {
-        if self.xray.enabled && self.xray.vmess_port == 0 {
-            return Err("Xray vmess port coulnd't be 0".into());
-        }
-        if self.xray.enabled && self.xray.vless_port == 0 {
-            return Err("Xray vless port coulnd't be 0".into());
-        }
-        if self.xray.enabled && self.xray.ss_port == 0 {
-            return Err("Xray ss port coulnd't be 0".into());
+        if !self.zmq.endpoint.starts_with("tcp://") {
+            return Err("ZMQ endpoint should starts with tcp://".into());
         }
         Ok(())
     }

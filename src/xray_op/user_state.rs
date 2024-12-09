@@ -44,7 +44,6 @@ impl UserState {
             self.users.push(new_user);
         }
 
-        self.save_to_file_async().await?;
         Ok(())
     }
 
@@ -57,7 +56,6 @@ impl UserState {
             error!("User not found {} ", user_id);
             return Err("User not found".into());
         }
-        self.save_to_file_async().await?;
         Ok(())
     }
 
@@ -69,7 +67,6 @@ impl UserState {
             error!("User not found: {:?} ", user_id);
         }
 
-        self.save_to_file_async().await?;
         Ok(())
     }
 
@@ -84,7 +81,6 @@ impl UserState {
         } else {
             error!("User not found: {:?} ", user_id);
         }
-        self.save_to_file_async().await?;
 
         Ok(())
     }
@@ -98,7 +94,6 @@ impl UserState {
             user.trial = new_trial;
             user.update_modified_at();
         }
-        self.save_to_file_async().await?;
 
         Ok(())
     }

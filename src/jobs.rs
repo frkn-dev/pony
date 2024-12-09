@@ -64,6 +64,7 @@ pub async fn restore_trial_users(state: Arc<Mutex<UserState>>, clients: XrayClie
                         debug!("Successfully restored user in state: {}", user.user_id);
                     }
                 }
+                let _ = state.save_to_file_async().await;
             }
         });
     }
@@ -118,6 +119,8 @@ pub async fn block_trial_users_by_limit(state: Arc<Mutex<UserState>>, clients: X
                 if let Err(e) = state.expire_user(&user_id).await {
                     error!("Failed to update status for user {}: {:?}", user_id, e);
                 }
+
+                let _ = state.save_to_file_async().await;
             }
         });
     }

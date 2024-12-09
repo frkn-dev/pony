@@ -183,6 +183,7 @@ pub async fn process_message(
             }
 
             let _ = user_state.expire_user(&message.user_id).await;
+            let _ = user_state.save_to_file_async().await;
 
             Ok(())
         }
@@ -247,20 +248,21 @@ pub async fn process_message(
 
             let _ = user_state.restore_user(message.user_id.clone()).await;
             info!("Restore: user restored: {:?}", message.user_id);
+            let _ = user_state.save_to_file_async().await;
 
             Ok(())
         }
         Action::Update => {
+            let mut user_state = state.lock().await;
             if let Some(trial) = message.trial {
                 debug!("Update user trial {} {}", message.user_id, trial);
-                let mut user_state = state.lock().await;
                 let _ = user_state.update_user_trial(&message.user_id, trial).await;
             }
             if let Some(limit) = message.limit {
                 debug!("Update user limit {} {}", message.user_id, limit);
-                let mut user_state = state.lock().await;
                 let _ = user_state.update_user_limit(&message.user_id, limit).await;
             }
+            let _ = user_state.save_to_file_async().await;
             Ok(())
         }
     }

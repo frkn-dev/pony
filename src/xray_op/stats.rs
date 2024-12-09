@@ -79,12 +79,12 @@ pub async fn get_stats_task(clients: XrayClients, state: Arc<Mutex<UserState>>) 
 
                     if let Some(downlink) = response.0.stat {
                         let _ = user_state
-                            .update_user_downlink(&user.user_id, downlink.value)
+                            .update_user_downlink(&user.user_id, downlink.value / (1024 * 1024))
                             .await;
                     }
                     if let Some(uplink) = response.1.stat {
                         let _ = user_state
-                            .update_user_uplink(&user.user_id, uplink.value)
+                            .update_user_uplink(&user.user_id, uplink.value / (1024 * 1024))
                             .await;
                     }
                     let _ = user_state.save_to_file_async().await;

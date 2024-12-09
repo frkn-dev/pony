@@ -78,11 +78,16 @@ pub async fn get_stats_task(clients: XrayClients, state: Arc<Mutex<UserState>>) 
                     let mut user_state = state.lock().await;
 
                     if let Some(downlink) = response.0.stat {
-                        user_state.update_user_downlink(&user.user_id, downlink.value);
+                        let _ = user_state
+                            .update_user_downlink(&user.user_id, downlink.value)
+                            .await;
                     }
                     if let Some(uplink) = response.1.stat {
-                        user_state.update_user_uplink(&user.user_id, uplink.value);
+                        let _ = user_state
+                            .update_user_uplink(&user.user_id, uplink.value)
+                            .await;
                     }
+                    let _ = user_state.save_to_file_async().await;
                 }
                 Err(e) => {
                     warn!("Failed to get stats: {}", e);

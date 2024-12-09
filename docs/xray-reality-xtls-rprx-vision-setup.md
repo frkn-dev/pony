@@ -4,44 +4,30 @@
 
 ```
 {
-  "tag": "Vless",
-  "listen": "0.0.0.0",
-  "port": 2053,
-  "protocol": "vless",
-  "settings": {
-    "clients": [
-    ],
-    "decryption": "none"
-  },
-  "streamSettings": {
-    "network": "grpc",
-    "grpcSettings": {
-      "serviceName": "xyz"
-    },
-    "security": "reality",
-    "realitySettings": {
-      "show": false,
-      "dest": "discordapp.com:443", 
-      "xver": 0,
-      "serverNames": [
-        "cdn.discordapp.com",
-        "discordapp.com"
-      ],
-      "privateKey": "PRIVATE_KEY", 
-      "shortIds": [
-        "SHORTID1",
-        "SHORTID2"
-      ]
+      "tag": "VlessXtls",
+      "listen": "0.0.0.0",
+      "port": 8433,
+      "protocol": "vless",
+      "settings": {
+        "clients": [],
+        "decryption": "none"
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "security": "reality",
+        "realitySettings": {
+          "serverNames": [
+            "cdn.discordapp.com",
+            "discordapp.com"
+          ],
+          "privateKey": "4AQgu1qeCaGT8nnZTOnKLSOudSp_Z_AAAAAAAAA",
+          "shortIds": [
+            "e5c4d84fb3AAAAAAA"
+          ],
+          "dest": "discordapp.com:443"
+        }
+      }
     }
-  },
-  "sniffing": {
-    "enabled": true,
-    "destOverride": [
-      "http",
-      "tls"
-    ]
-  }
-}
 ```
 
 2. Short_id 8-16 chars [a-f0-9] 

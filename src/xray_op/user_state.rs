@@ -102,23 +102,41 @@ impl UserState {
         Ok(())
     }
 
-    pub fn update_user_stat(&mut self, user_id: &str, stat: StatType, new_value: Option<i64>) {
+    pub async fn update_user_stat(
+        &mut self,
+        user_id: &str,
+        stat: StatType,
+        new_value: Option<i64>,
+    ) -> Result<(), Box<dyn Error>> {
         if let Some(user) = self.users.iter_mut().find(|user| user.user_id == user_id) {
             match stat {
                 StatType::Uplink => user.uplink = new_value,
                 StatType::Downlink => user.downlink = new_value,
             }
+            Ok(())
         } else {
-            error!("User not found: {}", user_id);
+            let err_msg = format!("User not found: {}", user_id);
+            error!("{}", err_msg);
+            Err(err_msg.into())
         }
     }
 
-    pub fn update_user_uplink(&mut self, user_id: &str, new_uplink: i64) {
-        self.update_user_stat(user_id, StatType::Uplink, Some(new_uplink));
+    pub async fn update_user_uplink(
+        &mut self,
+        user_id: &str,
+        new_uplink: i64,
+    ) -> Result<(), Box<dyn Error>> {
+        self.update_user_stat(user_id, StatType::Uplink, Some(new_uplink))
+            .await
     }
 
-    pub fn update_user_downlink(&mut self, user_id: &str, new_downlink: i64) {
-        self.update_user_stat(user_id, StatType::Downlink, Some(new_downlink));
+    pub async fn update_user_downlink(
+        &mut self,
+        user_id: &str,
+        new_downlink: i64,
+    ) -> Result<(), Box<dyn Error>> {
+        self.update_user_stat(user_id, StatType::Downlink, Some(new_downlink))
+            .await
     }
 
     pub fn get_all_trial_users(&self, status: UserStatus) -> Vec<User> {

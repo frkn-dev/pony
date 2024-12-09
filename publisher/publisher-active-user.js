@@ -37,15 +37,25 @@ async function runPublisher() {
         user_id: "3747aefe-add3-4bad-badf-621e6585f3d0",
         trial: false,
         limit: 6000,
+
     });
     console.log("Sending create message:", createMessage3);
     await sock.send(["dev", createMessage3]);
 
-
+        await new Promise(resolve => setTimeout(resolve, 2000));
 
    
+    const createMessage4 = JSON.stringify({
+        action: "create",
+        user_id: "954fa467-3433-4e56-8fcc-6fdf06626119",
+        trial: false,
+        limit: 6000,
+        password: "TESTPASSWORD"
 
-  
+    });
+    console.log("Sending create message:", createMessage4);
+    await sock.send(["dev", createMessage4]);
+
 
 
 }

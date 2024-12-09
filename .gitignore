@@ -10,3 +10,4 @@ deploy/servers
 query.txt
 query2.txt
 node_modules
+users.json

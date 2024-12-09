@@ -1,7 +1,13 @@
+use crate::xray_api::xray::app::proxyman::command::{AlterInboundRequest, RemoveUserOperation};
+use crate::xray_api::xray::common::serial::TypedMessage;
+use crate::xray_op::client::XrayClients;
 use serde::{Deserialize, Serialize};
 use std::fmt;
+use tonic::Request;
+use tonic::Status;
 
 pub mod client;
+pub mod shadowsocks;
 pub mod stats;
 pub mod user_state;
 pub mod users;
@@ -35,7 +41,33 @@ impl std::str::FromStr for Tag {
         match input {
             "Vless" => Ok(Tag::Vless),
             "Vmess" => Ok(Tag::Vmess),
+            "Shadowsocks" => Ok(Tag::Shadowsocks),
             _ => Err(()),
         }
     }
+}
+
+pub async fn remove_user<Tag>(clients: XrayClients, user_id: String, tag: Tag) -> Result<(), Status>
+where
+    Tag: ToString,
+{
+    let operation = RemoveUserOperation {
+        email: format!("{}@{}", user_id, tag.to_string()),
+    };
+
+    let operation_message = TypedMessage {
+        r#type: "xray.app.proxyman.command.RemoveUserOperation".to_string(),
+        value: prost::Message::encode_to_vec(&operation),
+    };
+
+    let request = AlterInboundRequest {
+        tag: tag.to_string(),
+        operation: Some(operation_message),
+    };
+
+    let mut handler_client = clients.handler_client.lock().await;
+    handler_client
+        .alter_inbound(Request::new(request))
+        .await
+        .map(|_| ())
 }

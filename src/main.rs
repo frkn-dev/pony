@@ -1,7 +1,7 @@
 use clap::Parser;
 use fern::Dispatch;
 use futures::future::join_all;
-use log::{debug, error, info, warn};
+use log::{debug, info, warn};
 use std::fmt;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -140,7 +140,7 @@ async fn main() -> std::io::Result<()> {
 
         let _ = join_all(sync_state_futures).await;
 
-        let tags = vec![Tag::Vmess, Tag::Vless];
+        let tags = vec![Tag::Vmess, Tag::Vless, Tag::Shadowsocks];
         for tag in &tags {
             sleep(Duration::from_millis(100)).await;
             let task = tokio::spawn(get_stats_task(

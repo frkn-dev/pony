@@ -1,3 +1,4 @@
+use crate::xray_op::remove_user;
 use chrono::{Duration, Utc};
 use log::debug;
 use log::error;
@@ -48,7 +49,7 @@ pub async fn restore_trial_users(state: Arc<Mutex<UserState>>, clients: XrayClie
                 };
 
                 if vmess_restore.is_ok() && vless_restore.is_ok() {
-                    if let Err(e) = state.restore_user(user.clone()).await {
+                    if let Err(e) = state.restore_user(user.user_id.clone()).await {
                         error!("Failed to update user state: {:?}", e);
                     } else {
                         debug!("Successfully restored user in state: {}", user.user_id);
@@ -82,8 +83,8 @@ pub async fn block_trial_users_by_limit(state: Arc<Mutex<UserState>>, clients: X
                     user.limit * 1024 * 1024
                 );
 
-                let vmess_remove = vmess::remove_user(clients.clone(), user.user_id.clone());
-                let vless_remove = vless::remove_user(clients.clone(), user.user_id.clone());
+                let vmess_remove = remove_user(clients.clone(), user.user_id.clone(), Tag::Vmess);
+                let vless_remove = remove_user(clients.clone(), user.user_id.clone(), Tag::Vless);
 
                 let results = tokio::try_join!(vmess_remove, vless_remove);
 

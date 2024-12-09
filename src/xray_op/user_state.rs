@@ -28,7 +28,7 @@ impl UserState {
     }
 
     pub async fn add_user(&mut self, new_user: User) -> Result<(), Box<dyn Error>> {
-        debug!("Starting add_or_update_user for user: {:?}", new_user);
+        debug!("Starting add_user for user: {:?}", new_user);
 
         if let Some(existing_user) = self
             .users
@@ -45,15 +45,14 @@ impl UserState {
         Ok(())
     }
 
-    pub async fn restore_user(&mut self, user: User) -> Result<(), Box<dyn Error>> {
-        if let Some(existing_user) = self.users.iter_mut().find(|u| u.user_id == user.user_id) {
-            debug!("Restoring {}", existing_user.user_id);
+    pub async fn restore_user(&mut self, user_id: String) -> Result<(), Box<dyn Error>> {
+        if let Some(existing_user) = self.users.iter_mut().find(|u| u.user_id == user_id) {
+            debug!("Restoring {}", user_id);
             existing_user.status = UserStatus::Active;
             existing_user.update_modified_at();
-            existing_user.limit = user.limit;
-            existing_user.trial = user.trial;
         } else {
-            error!("User not found {} ", user.user_id);
+            error!("User not found {} ", user_id);
+            return Err("User not found".into());
         }
         self.save_to_file_async().await?;
         Ok(())

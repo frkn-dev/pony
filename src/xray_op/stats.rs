@@ -3,7 +3,7 @@ use std::{fmt, sync::Arc};
 use tokio::{sync::Mutex, time::Duration};
 use tonic::{Request, Status};
 
-use super::{client::XrayClients, user_state::UserState, users, Tag};
+use super::{client::XrayClients, user_state::UserState, Tag};
 use crate::xray_api::xray::app::stats::command::{GetStatsRequest, GetStatsResponse};
 
 #[derive(Debug, Clone)]
@@ -82,16 +82,6 @@ pub async fn get_stats_task(clients: XrayClients, state: Arc<Mutex<UserState>>, 
                     if let Some(uplink) = response.1.stat {
                         user_state.update_user_uplink(&user.user_id, uplink.value);
                     }
-
-                    drop(user_state);
-
-                    let _ = users::check_and_block_user(
-                        clients.clone(),
-                        state.clone(),
-                        &user.user_id,
-                        tag.clone(),
-                    )
-                    .await;
                 }
                 Err(e) => {
                     error!("{tag} Failed to get stats: {}", e);

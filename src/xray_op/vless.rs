@@ -2,9 +2,7 @@ use super::client::XrayClients;
 use super::Tag;
 use tonic::Request;
 
-use crate::xray_api::xray::app::proxyman::command::{
-    AddUserOperation, AlterInboundRequest, RemoveUserOperation,
-};
+use crate::xray_api::xray::app::proxyman::command::{AddUserOperation, AlterInboundRequest};
 use crate::xray_api::xray::common::protocol::User;
 use crate::xray_api::xray::common::serial::TypedMessage;
 use crate::xray_api::xray::proxy::vless::Account;
@@ -66,30 +64,6 @@ pub async fn add_user(clients: XrayClients, user_info: UserInfo) -> Result<(), t
 
     let mut handler_client = clients.handler_client.lock().await;
 
-    handler_client
-        .alter_inbound(Request::new(request))
-        .await
-        .map(|_| ())
-}
-
-pub async fn remove_user(clients: XrayClients, user_id: String) -> Result<(), tonic::Status> {
-    let tag: Tag = Tag::Vless;
-
-    let operation = RemoveUserOperation {
-        email: format!("{}@{}", user_id, tag),
-    };
-
-    let operation_message = TypedMessage {
-        r#type: "xray.app.proxyman.command.RemoveUserOperation".to_string(),
-        value: prost::Message::encode_to_vec(&operation),
-    };
-
-    let request = AlterInboundRequest {
-        tag: tag.to_string(),
-        operation: Some(operation_message),
-    };
-
-    let mut handler_client = clients.handler_client.lock().await;
     handler_client
         .alter_inbound(Request::new(request))
         .await

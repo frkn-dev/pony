@@ -10,9 +10,10 @@ use tokio::{
 
 use super::{
     client::XrayClients,
+    node::Node,
     shadowsocks,
     stats::StatType,
-    users::{User, UserStatus},
+    user::{User, UserStatus},
     Tag, {vless, vmess},
 };
 
@@ -20,13 +21,15 @@ use super::{
 pub struct UserState {
     pub file_path: String,
     pub users: Vec<User>,
+    pub node: Node,
 }
 
 impl UserState {
-    pub fn new(file_path: String) -> Self {
+    pub fn new(file_path: String, inbounds: Vec<Tag>) -> Self {
         UserState {
             users: Vec::new(),
             file_path: file_path,
+            node: Node::new(inbounds),
         }
     }
 
@@ -146,6 +149,27 @@ impl UserState {
         }
     }
 
+    pub async fn update_node_stat(
+        &mut self,
+        stat: StatType,
+        new_value: i64,
+    ) -> Result<(), Box<dyn Error>> {
+        match stat {
+            StatType::Uplink => self.node.uplink = new_value,
+            StatType::Downlink => self.node.downlink = new_value,
+        }
+        Ok(())
+    }
+
+    pub async fn update_node_uplink(&mut self, new_uplink: i64) -> Result<(), Box<dyn Error>> {
+        self.update_node_stat(StatType::Uplink, new_uplink).await
+    }
+
+    pub async fn update_node_downlink(&mut self, new_downlink: i64) -> Result<(), Box<dyn Error>> {
+        self.update_node_stat(StatType::Downlink, new_downlink)
+            .await
+    }
+
     pub fn get_all_trial_users(&self, status: UserStatus) -> Vec<User> {
         let users = self
             .users
@@ -171,32 +195,32 @@ impl UserState {
         file.read_to_string(&mut file_content).await?;
 
         let user_state: UserState = serde_json::from_str(&file_content)?;
-        debug!("State {:?}", user_state);
+        debug!("State loaded {:?}", user_state);
 
         Ok(user_state)
     }
 
-    pub async fn save_to_file_async(&self) -> Result<(), Box<dyn Error>> {
+    pub async fn save_to_file_async(&self, msg: &str) -> Result<(), Box<dyn Error>> {
         let file_content = serde_json::to_string_pretty(&self)?;
 
         let mut file = File::create(self.file_path.clone()).await?;
         file.write_all(file_content.as_bytes()).await?;
         file.sync_all().await?;
 
-        debug!("Written successfully");
+        debug!("{msg}: Written successfully");
         Ok(())
     }
 }
 
-pub async fn sync_state_to_xray_conf(
+pub async fn sync_state(
     state: Arc<Mutex<UserState>>,
     clients: XrayClients,
     tag: Tag,
 ) -> Result<(), Box<dyn Error>> {
     let state = state.lock().await;
-    let users = state.users.clone();
+    let users = &state.users;
 
-    for user in &users {
+    for user in users.iter() {
         debug!("Running sync for {:?} {:?}", tag.clone(), user);
         match tag {
             Tag::Vmess => {

@@ -57,4 +57,4 @@ vless://<uuid>@<server_ip>:<port>?security=reality&flow=xtls-rprx-vision&type=tc
 
 example: vless://1ec1499c-c255-4d67-9d12-c5cd6c2a9a53@127.0.0.1:2053?security=reality&flow=xtls-rprx-vision&type=tcp&headerType=&serviceName=xyz&mode=gun&sni=discordapp.com&fp=chrome&pbk=hmjNjdJfVQQjzoxfrLrgsjdReONcDvGG8siXYEAAAAA&sid=e5c4d84fb339fb92#TEST-Vless-XTLS```
 
-6. Optional: you can change SNI depends on your location
+6. Optional: You can change the SNI depending on your location (this must be updated on both the server and client sides accordingly).

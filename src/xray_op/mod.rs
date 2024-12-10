@@ -8,10 +8,12 @@ use std::fmt;
 use tonic::{Request, Status};
 
 pub mod client;
+pub mod config;
+pub mod node;
 pub mod shadowsocks;
 pub mod stats;
+pub mod user;
 pub mod user_state;
-pub mod users;
 pub mod vless;
 pub mod vmess;
 

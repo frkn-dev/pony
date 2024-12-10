@@ -4,8 +4,8 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 
 use crate::xray_op::{
-    client::XrayClients, remove_user, stats::get_user_stats, stats::StatType,
-    user_state::UserState, users::UserStatus, vless, vmess, Tag,
+    client::XrayClients, remove_user, stats::get_user_stats, stats::StatType, user::UserStatus,
+    user_state::UserState, vless, vmess, Tag,
 };
 
 pub async fn restore_trial_users(state: Arc<Mutex<UserState>>, clients: XrayClients) {
@@ -65,7 +65,7 @@ pub async fn restore_trial_users(state: Arc<Mutex<UserState>>, clients: XrayClie
                         debug!("Successfully restored user in state: {}", user.user_id);
                     }
                 }
-                let _ = state.save_to_file_async().await;
+                let _ = state.save_to_file_async("Restore job").await;
             }
         });
     }
@@ -122,7 +122,7 @@ pub async fn block_trial_users_by_limit(state: Arc<Mutex<UserState>>, clients: X
                     error!("Failed to update status for user {}: {:?}", user_id, e);
                 }
 
-                let _ = state.save_to_file_async().await;
+                let _ = state.save_to_file_async("Block by limit job").await;
             }
         });
     }

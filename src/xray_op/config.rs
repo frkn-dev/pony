@@ -1,10 +1,10 @@
 use log::{debug, warn};
 use serde::Deserialize;
-use std::{fs::File, io::Read};
+use std::{fs::File, io::Read, str::FromStr};
 
 use crate::xray_op::Tag;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct Inbound {
     pub tag: String,
 }
@@ -22,6 +22,13 @@ impl Config {
                 Err(_) => warn!("Xray Config: Tag {} is invalid", inbound.tag),
             }
         }
+    }
+
+    pub fn get_inbounds(&self) -> Vec<Tag> {
+        <Vec<Inbound> as Clone>::clone(&self.inbounds)
+            .into_iter()
+            .filter_map(|i| Tag::from_str(&i.tag).ok())
+            .collect()
     }
 }
 

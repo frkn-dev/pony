@@ -1,7 +1,9 @@
 use clap::Parser;
 use fern::Dispatch;
 use futures::future::join_all;
-use log::{debug, info, warn};
+use futures::Future;
+use log::{debug, error, info, warn};
+use std::pin::Pin;
 use std::{fmt, sync::Arc};
 use tokio::{
     sync::Mutex,
@@ -16,10 +18,10 @@ use crate::{
         memory::mem_metrics,
     },
     utils::{current_timestamp, human_readable_date, level_from_settings},
-    xray_config::read_xray_config,
     xray_op::{
+        config,
         stats::get_stats_task,
-        user_state::{sync_state_to_xray_conf, UserState},
+        user_state::{sync_state, UserState},
         Tag,
     },
 };
@@ -30,7 +32,6 @@ mod message;
 mod metrics;
 mod utils;
 mod xray_api;
-mod xray_config;
 mod xray_op;
 mod zmq;
 
@@ -78,20 +79,6 @@ async fn main() -> std::io::Result<()> {
         info!(">>> Settings: {:?}", settings);
     }
 
-    match read_xray_config(&settings.xray.xray_config_path) {
-        Ok(config) => {
-            debug!(
-                "Xray Config: Successfully read Xray config file: {:?}",
-                config
-            );
-
-            config.validate();
-        }
-        Err(e) => {
-            warn!("Xray Config:: Error reading JSON file: {}", e);
-        }
-    };
-
     let carbon_server = settings.carbon.address.clone();
 
     let mut tasks: Vec<JoinHandle<()>> = vec![];
@@ -116,23 +103,52 @@ async fn main() -> std::io::Result<()> {
             Err(e) => panic!("Can't create clients: {}", e),
         };
 
+        let xray_config = match config::read_xray_config(&settings.xray.xray_config_path) {
+            Ok(config) => {
+                debug!(
+                    "Xray Config: Successfully read Xray config file: {:?}",
+                    config
+                );
+
+                config.validate();
+                config
+            }
+            Err(e) => {
+                panic!("Xray Config:: Error reading JSON file: {}", e);
+            }
+        };
+
         let user_state =
             match UserState::load_from_file_async(settings.app.file_state.clone()).await {
-                Ok(state) => {
-                    debug!("State loaded from file");
-                    Arc::new(Mutex::new(state))
-                }
+                Ok(state) => Arc::new(Mutex::new(state)),
                 Err(e) => {
                     debug!("State created from scratch, {}", e);
-                    Arc::new(Mutex::new(UserState::new(settings.app.file_state.clone())))
+                    Arc::new(Mutex::new(UserState::new(
+                        settings.app.file_state.clone(),
+                        xray_config.get_inbounds(),
+                    )))
                 }
             };
 
+        // let mut sync_state_tasks: Vec<Pin<Box<dyn Future<Output = ()> + Send>>> = vec![];
+        // let state = user_state.clone();
+        // let state = state.lock().await;
+        // for tag in state.node.inbounds.clone() {
+        //     debug!("Running sync {}", tag);
+        //     let ustate = user_state.clone();
+        //     let xray_api_clients = xray_api_clients.clone();
+        //     sync_state_tasks.push(Box::pin(async move {
+        //         if let Err(e) = sync_state(ustate, xray_api_clients, tag.clone()).await {
+        //             error!("Failed to sync state for tag {:?}", e);
+        //         }
+        //     }));
+        // }
+
         let sync_state_futures = vec![
-            sync_state_to_xray_conf(user_state.clone(), xray_api_clients.clone(), Tag::VlessXtls),
-            sync_state_to_xray_conf(user_state.clone(), xray_api_clients.clone(), Tag::VlessGrpc),
-            sync_state_to_xray_conf(user_state.clone(), xray_api_clients.clone(), Tag::Vmess),
-            sync_state_to_xray_conf(
+            sync_state(user_state.clone(), xray_api_clients.clone(), Tag::VlessXtls),
+            sync_state(user_state.clone(), xray_api_clients.clone(), Tag::VlessGrpc),
+            sync_state(user_state.clone(), xray_api_clients.clone(), Tag::Vmess),
+            sync_state(
                 user_state.clone(),
                 xray_api_clients.clone(),
                 Tag::Shadowsocks,

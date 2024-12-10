@@ -5,7 +5,7 @@ use tokio::sync::Mutex;
 
 use crate::{
     utils::generate_random_password,
-    xray_op::{client, remove_user, shadowsocks, user_state, users, vless, vmess, Tag},
+    xray_op::{client, remove_user, shadowsocks, user::User, user_state, vless, vmess, Tag},
 };
 
 use super::zmq::Action;
@@ -37,7 +37,7 @@ pub async fn process_message(
                 None => generate_random_password(10),
             };
 
-            let user = users::User::new(
+            let user = User::new(
                 message.user_id.clone(),
                 daily_limit_mb,
                 trial,
@@ -120,7 +120,7 @@ pub async fn process_message(
 
             info!("Create: User added: {:?}", message.user_id);
 
-            let _ = user_state.save_to_file_async().await;
+            let _ = user_state.save_to_file_async("Create action").await;
 
             Ok(())
         }
@@ -183,7 +183,7 @@ pub async fn process_message(
             }
 
             let _ = user_state.expire_user(&message.user_id).await;
-            let _ = user_state.save_to_file_async().await;
+            let _ = user_state.save_to_file_async("Delete action").await;
 
             Ok(())
         }
@@ -248,7 +248,7 @@ pub async fn process_message(
 
             let _ = user_state.restore_user(message.user_id.clone()).await;
             info!("Restore: user restored: {:?}", message.user_id);
-            let _ = user_state.save_to_file_async().await;
+            let _ = user_state.save_to_file_async("Restore action").await;
 
             Ok(())
         }
@@ -262,7 +262,7 @@ pub async fn process_message(
                 debug!("Update user limit {} {}", message.user_id, limit);
                 let _ = user_state.update_user_limit(&message.user_id, limit).await;
             }
-            let _ = user_state.save_to_file_async().await;
+            let _ = user_state.save_to_file_async("Restore action").await;
             Ok(())
         }
     }

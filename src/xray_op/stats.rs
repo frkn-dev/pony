@@ -3,7 +3,7 @@ use std::{fmt, sync::Arc};
 use tokio::{sync::Mutex, time::Duration};
 use tonic::{Request, Status};
 
-use super::{client::XrayClients, user_state::UserState, Tag};
+use super::{client::XrayClients, user_state::UserState};
 use crate::xray_api::xray::app::stats::command::{GetStatsRequest, GetStatsResponse};
 
 #[derive(Debug, Clone)]
@@ -21,50 +21,6 @@ impl fmt::Display for StatType {
     }
 }
 
-pub async fn get_user_stats(
-    clients: XrayClients,
-    user_id: String,
-    reset: bool,
-) -> Result<(GetStatsResponse, GetStatsResponse), Status> {
-    let client = clients.stats_client.lock().await;
-
-    let downlink_stat_name = format!("user>>>{user_id}@pony>>>traffic>>>{}", StatType::Downlink);
-    let uplink_stat_name = format!("user>>>{user_id}@pony>>>traffic>>>{}", StatType::Uplink);
-
-    let downlink_request = Request::new(GetStatsRequest {
-        name: downlink_stat_name,
-        reset: reset,
-    });
-
-    let uplink_request = Request::new(GetStatsRequest {
-        name: uplink_stat_name,
-        reset: reset,
-    });
-
-    let downlink_response = tokio::spawn({
-        let mut client = client.clone();
-        async move { client.get_stats(downlink_request).await }
-    });
-
-    let uplink_response = tokio::spawn({
-        let mut client = client.clone();
-        async move { client.get_stats(uplink_request).await }
-    });
-
-    let (downlink_result, uplink_result) = tokio::try_join!(downlink_response, uplink_response)
-        .map_err(|e| Status::internal(format!("Join error: {}", e)))?;
-
-    match (downlink_result, uplink_result) {
-        (Ok(downlink), Ok(uplink)) => {
-            debug!("Downlink stat: {:?}", downlink);
-            debug!("Uplink stat: {:?}", uplink);
-
-            Ok((downlink.into_inner(), uplink.into_inner()))
-        }
-        (Err(e), _) | (_, Err(e)) => Err(Status::internal(format!("Stat request failed: {}", e))),
-    }
-}
-
 pub async fn get_stats_task(clients: XrayClients, state: Arc<Mutex<UserState>>) {
     debug!("Stats task running");
     loop {
@@ -72,7 +28,13 @@ pub async fn get_stats_task(clients: XrayClients, state: Arc<Mutex<UserState>>) 
         let users = user_state.users.clone();
         drop(user_state);
         for user in users {
-            match get_user_stats(clients.clone(), user.user_id.clone(), false).await {
+            match get_traffic_stats(
+                clients.clone(),
+                format!("user>>>{}@pony>>>traffic", user.user_id),
+                false,
+            )
+            .await
+            {
                 Ok(response) => {
                     info!("Received stats: {:?}", response);
 
@@ -102,9 +64,15 @@ pub async fn get_stats_task(clients: XrayClients, state: Arc<Mutex<UserState>>) 
         let mut downlink_sum: i64 = 0;
 
         for inbound in &node.inbounds {
-            match get_node_stats(clients.clone(), inbound.clone(), false).await {
+            match get_traffic_stats(
+                clients.clone(),
+                format!("inbound>>>{inbound}>>>traffic"),
+                false,
+            )
+            .await
+            {
                 Ok(response) => {
-                    info!("Received stats: {:?}", response);
+                    info!("Received node stats: {:?}", response);
 
                     let mut user_state = state.lock().await;
 
@@ -119,7 +87,7 @@ pub async fn get_stats_task(clients: XrayClients, state: Arc<Mutex<UserState>>) 
                     let _ = user_state.save_to_file_async("Stats task").await;
                 }
                 Err(e) => {
-                    warn!("Failed to get stats: {}", e);
+                    warn!("Failed to get node stats: {}", e);
                 }
             }
         }
@@ -127,15 +95,15 @@ pub async fn get_stats_task(clients: XrayClients, state: Arc<Mutex<UserState>>) 
     }
 }
 
-pub async fn get_node_stats(
+pub async fn get_traffic_stats(
     clients: XrayClients,
-    inbound: Tag,
+    stat: String,
     reset: bool,
 ) -> Result<(GetStatsResponse, GetStatsResponse), Status> {
     let client = clients.stats_client.lock().await;
 
-    let downlink_stat_name = format!("user>>>{inbound}>>>traffic>>>{}", StatType::Downlink);
-    let uplink_stat_name = format!("user>>>{inbound}@pony>>>traffic>>>{}", StatType::Uplink);
+    let downlink_stat_name = format!("{stat}>>>{}", StatType::Downlink);
+    let uplink_stat_name = format!("{stat}>>>{}", StatType::Uplink);
 
     let downlink_request = Request::new(GetStatsRequest {
         name: downlink_stat_name,
@@ -162,8 +130,8 @@ pub async fn get_node_stats(
 
     match (downlink_result, uplink_result) {
         (Ok(downlink), Ok(uplink)) => {
-            debug!("Downlink Node stat: {:?}", downlink);
-            debug!("Uplink Node stat: {:?}", uplink);
+            debug!("Downlink stat: {:?}", downlink);
+            debug!("Uplink stat: {:?}", uplink);
 
             Ok((downlink.into_inner(), uplink.into_inner()))
         }

@@ -2,35 +2,7 @@ use serde::Deserialize;
 use std::fs;
 
 fn default_enabled() -> bool {
-    false
-}
-
-fn default_vmess_port() -> u16 {
-    10086
-}
-
-fn default_vless_port() -> u16 {
-    10087
-}
-
-fn default_ss_port() -> u16 {
-    10088
-}
-
-fn default_wg_port() -> u16 {
-    51820
-}
-
-fn default_fetch_interval() -> u8 {
-    10
-}
-
-fn default_api_bind_addr() -> String {
-    "0.0.0.0".to_string()
-}
-
-fn default_api_bind_port() -> u16 {
-    5005
+    true
 }
 
 fn default_env() -> String {
@@ -49,12 +21,16 @@ fn default_metrics_delay() -> u64 {
     1
 }
 
+fn default_xray_daily_limit_mb() -> i64 {
+    1000
+}
+
 fn default_carbon_server() -> String {
     "localhost:2003".to_string()
 }
 
-fn default_ch_server() -> String {
-    "http://localhost:8123".to_string()
+fn default_xray_api_endpoint() -> String {
+    "http://localhost:23456".to_string()
 }
 
 fn default_loglevel() -> String {
@@ -63,6 +39,22 @@ fn default_loglevel() -> String {
 
 fn default_logfile() -> String {
     "pony.log".to_string()
+}
+
+fn default_zmq_endpoint() -> String {
+    "tcp://localhost:3000".to_string()
+}
+
+fn default_zmq_topic() -> String {
+    "dev".to_string()
+}
+
+fn default_file_state() -> String {
+    "users.json".to_string()
+}
+
+fn default_xray_config_path() -> String {
+    "xray-config.json".to_string()
 }
 
 pub fn read_config(config_file: &str) -> Result<Settings, Box<dyn std::error::Error>> {
@@ -75,14 +67,6 @@ pub fn read_config(config_file: &str) -> Result<Settings, Box<dyn std::error::Er
 pub struct CarbonConfig {
     #[serde(default = "default_carbon_server")]
     pub address: String,
-}
-
-#[derive(Clone, Debug, Deserialize, Default)]
-pub struct ChConfig {
-    #[serde(default = "default_ch_server")]
-    pub address: String,
-    #[serde(default = "default_fetch_interval")]
-    pub fetch_interval_minute: u8,
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]
@@ -104,43 +88,35 @@ pub struct AppConfig {
     #[serde(default = "default_metrics_delay")]
     pub metrics_delay: u64,
     #[serde(default = "default_enabled")]
-    pub api_mode: bool,
-    #[serde(default = "default_enabled")]
     pub metrics_mode: bool,
-    pub api_webhook_token: Option<String>,
     #[serde(default = "default_enabled")]
-    pub api_webhook_enabled: bool,
-    #[serde(default = "default_api_bind_addr")]
-    pub api_bind_addr: String,
-    #[serde(default = "default_api_bind_port")]
-    pub api_bind_port: u16,
+    pub xray_api_mode: bool,
+    #[serde(default = "default_file_state")]
+    pub file_state: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]
 pub struct XrayConfig {
-    #[serde(default = "default_enabled")]
-    pub enabled: bool,
-    #[serde(default = "default_vmess_port")]
-    pub vmess_port: u16,
-    #[serde(default = "default_vless_port")]
-    pub vless_port: u16,
-    #[serde(default = "default_ss_port")]
-    pub ss_port: u16,
+    #[serde(default = "default_xray_api_endpoint")]
+    pub xray_api_endpoint: String,
+    #[serde(default = "default_xray_daily_limit_mb")]
+    pub xray_daily_limit_mb: i64,
+    #[serde(default = "default_xray_config_path")]
+    pub xray_config_path: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]
-pub struct WgConfig {
-    #[serde(default = "default_enabled")]
-    pub enabled: bool,
-    #[serde(default = "default_wg_port")]
-    pub port: u16,
+pub struct ZmqConfig {
+    #[serde(default = "default_zmq_endpoint")]
+    pub endpoint: String,
+    #[serde(default = "default_zmq_topic")]
+    pub topic: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]
 pub struct Settings {
     #[serde(default)]
     pub carbon: CarbonConfig,
-    pub clickhouse: ChConfig,
     #[serde(default)]
     pub logging: LoggingConfig,
     #[serde(default)]
@@ -148,22 +124,13 @@ pub struct Settings {
     #[serde(default)]
     pub xray: XrayConfig,
     #[serde(default)]
-    pub wg: WgConfig,
+    pub zmq: ZmqConfig,
 }
 
 impl Settings {
     pub fn validate(&self) -> Result<(), String> {
-        if self.xray.enabled && self.xray.vmess_port == 0 {
-            return Err("Xray vmess port coulnd't be 0".into());
-        }
-        if self.xray.enabled && self.xray.vless_port == 0 {
-            return Err("Xray vless port coulnd't be 0".into());
-        }
-        if self.xray.enabled && self.xray.ss_port == 0 {
-            return Err("Xray ss port coulnd't be 0".into());
-        }
-        if self.wg.enabled && self.wg.port == 0 {
-            return Err("Xray wg порт port coulnd't be 0".into());
+        if !self.zmq.endpoint.starts_with("tcp://") {
+            return Err("ZMQ endpoint should starts with tcp://".into());
         }
         Ok(())
     }

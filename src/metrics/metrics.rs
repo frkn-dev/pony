@@ -1,7 +1,7 @@
 use crate::fmt;
 use serde::{Deserialize, Serialize};
 
-use crate::config2::Settings;
+use crate::appconfig::Settings;
 
 pub trait AsMetric {
     type Output;
@@ -44,15 +44,5 @@ impl<T: ToString> Metric<T> {
             self.value.to_string(),
             self.timestamp
         )
-    }
-}
-
-impl<T> Metric<T> {
-    pub fn new(path: String, value: T, timestamp: u64) -> Self {
-        Metric {
-            path,
-            value,
-            timestamp,
-        }
     }
 }

@@ -1,7 +1,13 @@
 use chrono::{DateTime, Utc};
+use log::error;
 use serde::{Deserialize, Serialize};
+use std::error::Error;
+use tonic::Request;
 
-use super::Tag;
+use super::{client::XrayClients, Tag};
+use crate::xray_api::xray::app::proxyman::command::{
+    GetInboundUserRequest, GetInboundUserResponse, GetInboundUsersCountResponse,
+};
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub enum UserStatus {
@@ -76,5 +82,53 @@ impl User {
             return proto_tags.contains(&tag);
         }
         false
+    }
+}
+
+pub async fn get_user(
+    clients: XrayClients,
+    tag: Tag,
+    user_id: String,
+) -> Result<GetInboundUserResponse, tonic::Status> {
+    let request = GetInboundUserRequest {
+        tag: tag.to_string(),
+        email: format!("{}@pony", user_id).to_string(),
+    };
+
+    let mut handler_client = clients.handler_client.lock().await;
+
+    handler_client
+        .get_inbound_users(Request::new(request))
+        .await
+        .map(|res| res.into_inner())
+        .map_err(|e| {
+            error!("Failed to fetch users for tag {}: {}", tag, e);
+            e
+        })
+}
+
+pub async fn user_count(
+    clients: XrayClients,
+    tag: Tag,
+) -> Result<i64, Box<dyn Error + Send + Sync>> {
+    let request = GetInboundUserRequest {
+        tag: tag.to_string(),
+        email: "".to_string(),
+    };
+
+    let mut handler_client = clients.handler_client.lock().await;
+
+    match handler_client
+        .get_inbound_users_count(Request::new(request))
+        .await
+    {
+        Ok(res) => {
+            let res: GetInboundUsersCountResponse = res.into_inner();
+            Ok(res.count)
+        }
+        Err(e) => {
+            error!("Failed to fetch users for tag {}: {}", tag, e);
+            Err(Box::new(e))
+        }
     }
 }

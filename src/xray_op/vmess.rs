@@ -12,7 +12,7 @@ use super::Tag;
 
 #[derive(Clone, Debug)]
 pub struct UserInfo {
-    pub in_tag: String,
+    pub in_tag: Tag,
     pub level: u32,
     pub email: String,
     pub uuid: String,
@@ -21,7 +21,7 @@ pub struct UserInfo {
 impl UserInfo {
     pub fn new(uuid: String) -> Self {
         Self {
-            in_tag: Tag::Vmess.to_string(),
+            in_tag: Tag::Vmess,
             level: 0,
             email: format!("{}@{}", uuid, "pony"),
             uuid: uuid,
@@ -57,7 +57,7 @@ pub async fn add_user(clients: XrayClients, user_info: UserInfo) -> Result<(), t
     };
 
     let request = AlterInboundRequest {
-        tag: user_info.in_tag.clone(),
+        tag: user_info.in_tag.to_string(),
         operation: Some(operation_message),
     };
 

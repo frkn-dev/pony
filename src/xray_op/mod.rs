@@ -17,7 +17,7 @@ pub mod user_state;
 pub mod vless;
 pub mod vmess;
 
-#[derive(Deserialize, Serialize, Debug, Clone, PartialEq)]
+#[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Tag {
     #[serde(rename = "vlessXtls")]
     VlessXtls,

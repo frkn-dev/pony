@@ -13,7 +13,7 @@ use crate::xray_api::xray::{
 
 #[derive(Clone, Debug)]
 pub struct UserInfo {
-    pub in_tag: String,
+    pub in_tag: Tag,
     pub level: u32,
     pub email: String,
     pub uuid: String,
@@ -29,7 +29,7 @@ impl UserInfo {
         };
 
         Self {
-            in_tag: tag.to_string(),
+            in_tag: tag,
             level: 0,
             email: format!("{}@{}", uuid, "pony"),
             uuid: uuid,
@@ -82,7 +82,7 @@ pub async fn add_user(clients: XrayClients, user_info: UserInfo) -> Result<(), t
     };
 
     let request = AlterInboundRequest {
-        tag: user_info.in_tag.clone(),
+        tag: user_info.in_tag.to_string(),
         operation: Some(operation_message),
     };
 

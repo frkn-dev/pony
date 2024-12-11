@@ -1,8 +1,11 @@
 use log::{debug, warn};
 use serde::Deserialize;
-use std::{fs::File, io::Read, str::FromStr};
+use std::collections::HashMap;
+use std::{fs::File, io::Read};
 
 use crate::xray_op::Tag;
+
+use super::node;
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct Inbound {
@@ -24,11 +27,23 @@ impl Config {
         }
     }
 
-    pub fn get_inbounds(&self) -> Vec<Tag> {
-        <Vec<Inbound> as Clone>::clone(&self.inbounds)
-            .into_iter()
-            .filter_map(|i| Tag::from_str(&i.tag).ok())
-            .collect()
+    pub fn get_inbounds(&self) -> HashMap<Tag, node::Inbound> {
+        let mut result_inbounds = HashMap::new();
+        for inbound in &self.inbounds {
+            match inbound.tag.parse::<Tag>() {
+                Ok(tag) => {
+                    result_inbounds.insert(tag, node::Inbound::new());
+                    debug!("Xray Config: Tag {} inserted into HashMap", inbound.tag);
+                }
+                Err(_) => {
+                    warn!(
+                        "Xray Config: Tag {} is invalid and will be skipped",
+                        inbound.tag
+                    );
+                }
+            }
+        }
+        result_inbounds
     }
 }
 

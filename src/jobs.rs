@@ -1,12 +1,68 @@
 use chrono::{Duration, Utc};
 use log::{debug, error};
+use std::error::Error;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
 use crate::xray_op::{
-    client::XrayClients, remove_user, stats::get_traffic_stats, stats::StatType, user::UserStatus,
-    user_state::UserState, vless, vmess, Tag,
+    client::XrayClients, remove_user, shadowsocks, stats::get_traffic_stats, stats::StatType,
+    user::UserStatus, user_state::UserState, vless, vmess, Tag,
 };
+
+pub async fn sync_state(
+    state: Arc<Mutex<UserState>>,
+    clients: XrayClients,
+    tag: Tag,
+) -> Result<(), Box<dyn Error>> {
+    let state = state.lock().await;
+    let users = &state.users;
+
+    for user in users.iter() {
+        debug!("Running sync for {:?} {:?}", tag, user);
+
+        if user.has_proto_tag(tag.clone()) {
+            if let UserStatus::Active = user.status {
+                match tag {
+                    Tag::Vmess => {
+                        let user_info = vmess::UserInfo::new(user.user_id.clone());
+                        match vmess::add_user(clients.clone(), user_info).await {
+                            Ok(()) => debug!("User sync success {:?}", user),
+                            Err(e) => error!("User sync fail {:?} {}", user, e),
+                        }
+                    }
+                    Tag::VlessXtls => {
+                        let user_info =
+                            vless::UserInfo::new(user.user_id.clone(), vless::UserFlow::Vision);
+                        match vless::add_user(clients.clone(), user_info).await {
+                            Ok(()) => debug!("User sync success {:?}", user),
+                            Err(e) => error!("User sync fail {:?} {}", user, e),
+                        }
+                    }
+                    Tag::VlessGrpc => {
+                        let user_info =
+                            vless::UserInfo::new(user.user_id.clone(), vless::UserFlow::Direct);
+                        match vless::add_user(clients.clone(), user_info).await {
+                            Ok(()) => debug!("User sync success {:?}", user),
+                            Err(e) => error!("User sync fail {:?} {}", user, e),
+                        }
+                    }
+                    Tag::Shadowsocks => {
+                        let user_info =
+                            shadowsocks::UserInfo::new(user.user_id.clone(), user.password.clone());
+                        match shadowsocks::add_user(clients.clone(), user_info).await {
+                            Ok(()) => debug!("User sync success {:?}", user),
+                            Err(e) => error!("User sync fail {:?} {}", user, e),
+                        }
+                    }
+                }
+            } else {
+                debug!("User expired, skip to restore");
+            }
+        }
+    }
+
+    Ok(())
+}
 
 pub async fn restore_trial_users(state: Arc<Mutex<UserState>>, clients: XrayClients) {
     let trial_users = state.lock().await.get_all_trial_users(UserStatus::Expired);

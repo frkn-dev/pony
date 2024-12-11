@@ -55,8 +55,6 @@ pub async fn subscriber(
     config: Settings,
     state: Arc<Mutex<user_state::UserState>>,
 ) {
-    let _context = zmq::Context::new();
-
     let subscriber = try_connect(&config.zmq.endpoint);
     subscriber
         .set_subscribe(config.zmq.topic.as_bytes())
@@ -76,6 +74,8 @@ pub async fn subscriber(
             match serde_json::from_str::<Message>(&data) {
                 Ok(message) => {
                     debug!("Message recieved {:?}", message.clone());
+
+                    let state = state.clone();
 
                     let futures = vec![process_message(
                         clients.clone(),

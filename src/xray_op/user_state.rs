@@ -1,23 +1,21 @@
 use log::{debug, error};
 use serde::{Deserialize, Serialize};
-use std::{error::Error, sync::Arc};
+use std::collections::HashMap;
+use std::error::Error;
 use tokio::{
     fs,
     fs::File,
     io::{AsyncReadExt, AsyncWriteExt},
-    sync::Mutex,
 };
 
 use super::{
-    client::XrayClients,
-    node::Node,
-    shadowsocks,
+    node::{Inbound, Node},
     stats::StatType,
     user::{User, UserStatus},
-    Tag, {vless, vmess},
+    Tag,
 };
 
-#[derive(Deserialize, Serialize, Debug)]
+#[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct UserState {
     pub file_path: String,
     pub users: Vec<User>,
@@ -25,7 +23,7 @@ pub struct UserState {
 }
 
 impl UserState {
-    pub fn new(file_path: String, inbounds: Vec<Tag>) -> Self {
+    pub fn new(file_path: String, inbounds: HashMap<Tag, Inbound>) -> Self {
         UserState {
             users: Vec::new(),
             file_path: file_path,
@@ -149,25 +147,31 @@ impl UserState {
         }
     }
 
-    pub async fn update_node_stat(
+    pub async fn update_node_uplink(
         &mut self,
-        stat: StatType,
-        new_value: i64,
+        tag: Tag,
+        new_uplink: i64,
     ) -> Result<(), Box<dyn Error>> {
-        match stat {
-            StatType::Uplink => self.node.uplink = new_value,
-            StatType::Downlink => self.node.downlink = new_value,
-        }
+        self.node.update_uplink(tag, new_uplink)?;
         Ok(())
     }
 
-    pub async fn update_node_uplink(&mut self, new_uplink: i64) -> Result<(), Box<dyn Error>> {
-        self.update_node_stat(StatType::Uplink, new_uplink).await
+    pub async fn update_node_downlink(
+        &mut self,
+        tag: Tag,
+        new_downlink: i64,
+    ) -> Result<(), Box<dyn Error>> {
+        self.node.update_downlink(tag, new_downlink)?;
+        Ok(())
     }
 
-    pub async fn update_node_downlink(&mut self, new_downlink: i64) -> Result<(), Box<dyn Error>> {
-        self.update_node_stat(StatType::Downlink, new_downlink)
-            .await
+    pub async fn update_node_user_count(
+        &mut self,
+        tag: Tag,
+        user_count: i64,
+    ) -> Result<(), Box<dyn Error>> {
+        self.node.update_user_count(tag, user_count)?;
+        Ok(())
     }
 
     pub fn get_all_trial_users(&self, status: UserStatus) -> Vec<User> {
@@ -210,79 +214,4 @@ impl UserState {
         debug!("{msg}: Written successfully");
         Ok(())
     }
-}
-
-pub async fn sync_state(
-    state: Arc<Mutex<UserState>>,
-    clients: XrayClients,
-    tag: Tag,
-) -> Result<(), Box<dyn Error>> {
-    let state = state.lock().await;
-    let users = &state.users;
-
-    for user in users.iter() {
-        debug!("Running sync for {:?} {:?}", tag.clone(), user);
-        match tag {
-            Tag::Vmess => {
-                let user_info = vmess::UserInfo::new(user.user_id.clone());
-                if user.has_proto_tag(tag.clone()) {
-                    match user.status {
-                        UserStatus::Active => {
-                            match vmess::add_user(clients.clone(), user_info.clone()).await {
-                                Ok(()) => debug!("User sync success {:?} {}", user_info, tag),
-                                Err(e) => error!("User sync fail {:?} {}", user_info, e),
-                            }
-                        }
-                        UserStatus::Expired => debug!("User expired, skip to restore"),
-                    }
-                }
-            }
-
-            Tag::VlessXtls => {
-                let user_info = vless::UserInfo::new(user.user_id.clone(), vless::UserFlow::Vision);
-                if user.has_proto_tag(tag.clone()) {
-                    match user.status {
-                        UserStatus::Active => {
-                            match vless::add_user(clients.clone(), user_info.clone()).await {
-                                Ok(()) => debug!("User sync success {:?} {}", user_info, tag),
-                                Err(e) => error!("User sync fail {:?} {}", user_info, e),
-                            }
-                        }
-                        UserStatus::Expired => debug!("User expired, skip to restore"),
-                    }
-                }
-            }
-            Tag::VlessGrpc => {
-                let user_info = vless::UserInfo::new(user.user_id.clone(), vless::UserFlow::Direct);
-                if user.has_proto_tag(tag.clone()) {
-                    match user.status {
-                        UserStatus::Active => {
-                            match vless::add_user(clients.clone(), user_info.clone()).await {
-                                Ok(()) => debug!("User sync success {:?} {}", user_info, tag),
-                                Err(e) => error!("User sync fail {:?} {}", user_info, e),
-                            }
-                        }
-                        UserStatus::Expired => debug!("User expired, skip to restore"),
-                    }
-                }
-            }
-            Tag::Shadowsocks => {
-                let user_info =
-                    shadowsocks::UserInfo::new(user.user_id.clone(), user.password.clone());
-                if user.has_proto_tag(tag.clone()) {
-                    match user.status {
-                        UserStatus::Active => {
-                            match shadowsocks::add_user(clients.clone(), user_info.clone()).await {
-                                Ok(()) => debug!("User sync success {:?} {}", user_info, tag),
-                                Err(e) => error!("User sync fail {:?} {}", user_info, e),
-                            }
-                        }
-                        UserStatus::Expired => debug!("User expired, skip to restore"),
-                    }
-                }
-            }
-        }
-    }
-
-    Ok(())
 }

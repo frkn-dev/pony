@@ -90,7 +90,7 @@ pub struct AppConfig {
     #[serde(default = "default_enabled")]
     pub metrics_mode: bool,
     #[serde(default = "default_enabled")]
-    pub xray_api_mode: bool,
+    pub xray_control_mode: bool,
     #[serde(default = "default_file_state")]
     pub file_state: String,
 }

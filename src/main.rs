@@ -1,9 +1,7 @@
 use clap::Parser;
 use fern::Dispatch;
 use futures::future::join_all;
-use futures::Future;
-use log::{debug, error, info, warn};
-use std::pin::Pin;
+use log::{debug, error, info};
 use std::{fmt, sync::Arc};
 use tokio::{
     sync::Mutex,
@@ -18,12 +16,7 @@ use crate::{
         memory::mem_metrics,
     },
     utils::{current_timestamp, human_readable_date, level_from_settings},
-    xray_op::{
-        config,
-        stats::get_stats_task,
-        user_state::{sync_state, UserState},
-        Tag,
-    },
+    xray_op::{config, stats::stats_task, user_state::UserState},
 };
 
 mod appconfig;
@@ -97,7 +90,7 @@ async fn main() -> std::io::Result<()> {
         }
     }
 
-    if settings.app.xray_api_mode {
+    if settings.app.xray_control_mode {
         let xray_api_clients = match xray_op::client::create_clients(settings.clone()).await {
             Ok(clients) => clients,
             Err(e) => panic!("Can't create clients: {}", e),
@@ -123,48 +116,43 @@ async fn main() -> std::io::Result<()> {
                 Ok(state) => Arc::new(Mutex::new(state)),
                 Err(e) => {
                     debug!("State created from scratch, {}", e);
-                    Arc::new(Mutex::new(UserState::new(
-                        settings.app.file_state.clone(),
-                        xray_config.get_inbounds(),
-                    )))
+                    let user_state =
+                        UserState::new(settings.app.file_state.clone(), xray_config.get_inbounds());
+                    let _ = user_state.save_to_file_async(&user_state.file_path).await;
+                    Arc::new(Mutex::new(user_state))
                 }
             };
 
-        // let mut sync_state_tasks: Vec<Pin<Box<dyn Future<Output = ()> + Send>>> = vec![];
-        // let state = user_state.clone();
-        // let state = state.lock().await;
-        // for tag in state.node.inbounds.clone() {
-        //     debug!("Running sync {}", tag);
-        //     let ustate = user_state.clone();
-        //     let xray_api_clients = xray_api_clients.clone();
-        //     sync_state_tasks.push(Box::pin(async move {
-        //         if let Err(e) = sync_state(ustate, xray_api_clients, tag.clone()).await {
-        //             error!("Failed to sync state for tag {:?}", e);
-        //         }
-        //     }));
-        // }
+        let inbounds = {
+            let state = user_state.lock().await;
 
-        let sync_state_futures = vec![
-            sync_state(user_state.clone(), xray_api_clients.clone(), Tag::VlessXtls),
-            sync_state(user_state.clone(), xray_api_clients.clone(), Tag::VlessGrpc),
-            sync_state(user_state.clone(), xray_api_clients.clone(), Tag::Vmess),
-            sync_state(
-                user_state.clone(),
-                xray_api_clients.clone(),
-                Tag::Shadowsocks,
-            ),
-        ];
+            state.node.inbounds.clone()
+        };
 
-        let _ = join_all(sync_state_futures).await;
+        let sync_state_futures: Vec<_> = inbounds
+            .keys()
+            .map(|tag| jobs::sync_state(user_state.clone(), xray_api_clients.clone(), tag.clone()))
+            .collect();
 
-        let stats_task = tokio::spawn(get_stats_task(xray_api_clients.clone(), user_state.clone()));
+        let results = join_all(sync_state_futures).await;
+
+        for result in results {
+            if let Err(e) = result {
+                error!("Error during sync: {:?}", e);
+            }
+        }
+
+        let stats_task = tokio::spawn(stats_task(xray_api_clients.clone(), user_state.clone()));
         tasks.push(stats_task);
 
-        tasks.push(tokio::spawn(zmq::subscriber(
-            xray_api_clients.clone(),
-            settings.clone(),
-            user_state.clone(),
-        )));
+        let _ = {
+            let user_state = user_state.clone();
+            tasks.push(tokio::spawn(zmq::subscriber(
+                xray_api_clients.clone(),
+                settings.clone(),
+                user_state,
+            )))
+        };
 
         let restore_trial_users_handle = tokio::spawn({
             debug!("Running restoring trial users job");

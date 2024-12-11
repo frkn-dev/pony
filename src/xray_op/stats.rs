@@ -3,7 +3,7 @@ use std::{fmt, sync::Arc};
 use tokio::{sync::Mutex, time::Duration};
 use tonic::{Request, Status};
 
-use super::{client::XrayClients, user_state::UserState};
+use super::{client::XrayClients, user, user_state::UserState};
 use crate::xray_api::xray::app::stats::command::{GetStatsRequest, GetStatsResponse};
 
 #[derive(Debug, Clone)]
@@ -21,7 +21,7 @@ impl fmt::Display for StatType {
     }
 }
 
-pub async fn get_stats_task(clients: XrayClients, state: Arc<Mutex<UserState>>) {
+pub async fn stats_task(clients: XrayClients, state: Arc<Mutex<UserState>>) {
     debug!("Stats task running");
     loop {
         let user_state = state.lock().await;
@@ -57,13 +57,32 @@ pub async fn get_stats_task(clients: XrayClients, state: Arc<Mutex<UserState>>) 
                 }
             }
         }
+
+        let _ = {
+            let user_state = state.lock().await;
+            let node = user_state.node.clone();
+            drop(user_state);
+
+            for inbound in node.inbounds.keys() {
+                let mut user_state = state.lock().await;
+
+                match user::user_count(clients.clone(), inbound.clone()).await {
+                    Ok(count) => {
+                        let _ = user_state
+                            .update_node_user_count(inbound.clone(), count)
+                            .await;
+                    }
+                    Err(e) => {
+                        warn!("Failed to fetch user count for tag {}: {}", inbound, e);
+                    }
+                }
+            }
+        };
+
         let user_state = state.lock().await;
         let node = user_state.node.clone();
         drop(user_state);
-        let mut uplink_sum: i64 = 0;
-        let mut downlink_sum: i64 = 0;
-
-        for inbound in &node.inbounds {
+        for inbound in node.inbounds.keys() {
             match get_traffic_stats(
                 clients.clone(),
                 format!("inbound>>>{inbound}>>>traffic"),
@@ -77,13 +96,16 @@ pub async fn get_stats_task(clients: XrayClients, state: Arc<Mutex<UserState>>) 
                     let mut user_state = state.lock().await;
 
                     if let Some(downlink) = response.0.stat {
-                        downlink_sum = downlink_sum + downlink.value;
+                        let _ = user_state
+                            .update_node_downlink(inbound.clone(), downlink.value)
+                            .await;
                     }
                     if let Some(uplink) = response.1.stat {
-                        uplink_sum = uplink_sum + uplink.value;
+                        let _ = user_state
+                            .update_node_uplink(inbound.clone(), uplink.value)
+                            .await;
                     }
-                    let _ = user_state.update_node_downlink(downlink_sum).await;
-                    let _ = user_state.update_node_uplink(uplink_sum).await;
+
                     let _ = user_state.save_to_file_async("Stats task").await;
                 }
                 Err(e) => {

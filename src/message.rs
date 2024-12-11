@@ -5,7 +5,7 @@ use tokio::sync::Mutex;
 
 use crate::{
     utils::generate_random_password,
-    xray_op::{client, remove_user, shadowsocks, user::User, user_state, vless, vmess, Tag},
+    xray_op::{client, remove_user, shadowsocks, user, user::User, user_state, vless, vmess, Tag},
 };
 
 use super::zmq::Action;
@@ -33,8 +33,8 @@ pub async fn process_message(
             let trial = message.trial.unwrap_or(true);
 
             let password = match message.password {
-                Some(password) => password,
-                None => generate_random_password(10),
+                Some(ref password) => password,
+                None => &generate_random_password(10),
             };
 
             let user = User::new(
@@ -52,6 +52,16 @@ pub async fn process_message(
             }
 
             let user_info = vmess::UserInfo::new(message.user_id.to_string());
+            match user::get_user(
+                clients.clone(),
+                user_info.in_tag.clone(),
+                user_info.uuid.clone(),
+            )
+            .await
+            {
+                Ok(user) => debug!("---> User Vmess Found {:?}", user),
+                Err(e) => debug!("---> User Vmess not found {}", e),
+            }
             if let Err(e) = vmess::add_user(clients.clone(), user_info.clone()).await {
                 error!("Create: Fail to add Vmess user: {:?}", e);
             } else {
@@ -67,6 +77,16 @@ pub async fn process_message(
 
             let user_info =
                 vless::UserInfo::new(message.user_id.to_string(), vless::UserFlow::Vision);
+            match user::get_user(
+                clients.clone(),
+                user_info.in_tag.clone(),
+                user_info.uuid.clone(),
+            )
+            .await
+            {
+                Ok(user) => debug!("--->  User VlessXtls Found {:?}", user),
+                Err(e) => debug!("--->  User VlessXtls not found {}", e),
+            }
             if let Err(e) = vless::add_user(clients.clone(), user_info.clone()).await {
                 error!("Create: Fail to add VlessXtls  user: {:?}", e);
             } else {
@@ -85,6 +105,16 @@ pub async fn process_message(
 
             let user_info =
                 vless::UserInfo::new(message.user_id.to_string(), vless::UserFlow::Direct);
+            match user::get_user(
+                clients.clone(),
+                user_info.in_tag.clone(),
+                user_info.uuid.clone(),
+            )
+            .await
+            {
+                Ok(user) => debug!("--->  User VlessGrpc Found {:?}", user),
+                Err(e) => debug!("--->  User VlessGrpc not found {}", e),
+            }
             if let Err(e) = vless::add_user(clients.clone(), user_info.clone()).await {
                 error!("Create: Fail to add VlessGrpc user: {:?}", e);
             } else {
@@ -101,7 +131,18 @@ pub async fn process_message(
                 }
             }
 
-            let user_info = shadowsocks::UserInfo::new(message.user_id.to_string(), password);
+            let user_info =
+                shadowsocks::UserInfo::new(message.user_id.to_string(), password.to_string());
+            match user::get_user(
+                clients.clone(),
+                user_info.in_tag.clone(),
+                message.user_id.clone(),
+            )
+            .await
+            {
+                Ok(user) => debug!("--->  User SS  Found {:?}", user),
+                Err(e) => debug!("---> User SS not found {}", e),
+            }
             if let Err(e) = shadowsocks::add_user(clients.clone(), user_info.clone()).await {
                 error!("Create: Fail to add Shadowsocks user: {:?}", e);
             } else {

@@ -6,8 +6,11 @@ use tokio::sync::Mutex;
 
 use crate::xray_op::{
     client::XrayClients, remove_user, shadowsocks, stats::get_traffic_stats, stats::StatType,
-    user::UserStatus, user_state::UserState, vless, vmess, Tag,
+    vless, vmess, Tag,
 };
+
+use crate::user::UserStatus;
+use crate::user_state::UserState;
 
 pub async fn sync_state(
     state: Arc<Mutex<UserState>>,
@@ -17,14 +20,14 @@ pub async fn sync_state(
     let state = state.lock().await;
     let users = &state.users;
 
-    for user in users.iter() {
+    for (user_id, user) in users.iter() {
         debug!("Running sync for {:?} {:?}", tag, user);
 
         if user.has_proto_tag(tag.clone()) {
             if let UserStatus::Active = user.status {
                 match tag {
                     Tag::Vmess => {
-                        let user_info = vmess::UserInfo::new(user.user_id.clone());
+                        let user_info = vmess::UserInfo::new(user_id.clone());
                         match vmess::add_user(clients.clone(), user_info).await {
                             Ok(()) => debug!("User sync success {:?}", user),
                             Err(e) => error!("User sync fail {:?} {}", user, e),
@@ -32,7 +35,7 @@ pub async fn sync_state(
                     }
                     Tag::VlessXtls => {
                         let user_info =
-                            vless::UserInfo::new(user.user_id.clone(), vless::UserFlow::Vision);
+                            vless::UserInfo::new(user_id.clone(), vless::UserFlow::Vision);
                         match vless::add_user(clients.clone(), user_info).await {
                             Ok(()) => debug!("User sync success {:?}", user),
                             Err(e) => error!("User sync fail {:?} {}", user, e),
@@ -40,7 +43,7 @@ pub async fn sync_state(
                     }
                     Tag::VlessGrpc => {
                         let user_info =
-                            vless::UserInfo::new(user.user_id.clone(), vless::UserFlow::Direct);
+                            vless::UserInfo::new(user_id.clone(), vless::UserFlow::Direct);
                         match vless::add_user(clients.clone(), user_info).await {
                             Ok(()) => debug!("User sync success {:?}", user),
                             Err(e) => error!("User sync fail {:?} {}", user, e),
@@ -48,7 +51,7 @@ pub async fn sync_state(
                     }
                     Tag::Shadowsocks => {
                         let user_info =
-                            shadowsocks::UserInfo::new(user.user_id.clone(), user.password.clone());
+                            shadowsocks::UserInfo::new(user_id.clone(), user.password.clone());
                         match shadowsocks::add_user(clients.clone(), user_info).await {
                             Ok(()) => debug!("User sync success {:?}", user),
                             Err(e) => error!("User sync fail {:?} {}", user, e),
@@ -64,11 +67,11 @@ pub async fn sync_state(
     Ok(())
 }
 
-pub async fn restore_trial_users(state: Arc<Mutex<UserState>>, clients: XrayClients) {
+pub async fn restore_trial_users(state: Arc<Mutex<UserState>>, clients: XrayClients, debug: bool) {
     let trial_users = state.lock().await.get_all_trial_users(UserStatus::Expired);
     let now = Utc::now();
 
-    for user in trial_users {
+    for (user_id, user) in trial_users {
         let state = state.clone();
         let clients = clients.clone();
 
@@ -84,11 +87,11 @@ pub async fn restore_trial_users(state: Arc<Mutex<UserState>>, clients: XrayClie
             if user_to_restore {
                 debug!(
                     "Restoring user {}: checking expiration, modified_at = {:?}, created_at = {:?}",
-                    user.user_id, user.modified_at, user.created_at
+                    user_id, user.modified_at, user.created_at
                 );
 
                 let vmess_restore = {
-                    let user_info = vmess::UserInfo::new(user.user_id.clone());
+                    let user_info = vmess::UserInfo::new(user_id.clone());
                     vmess::add_user(clients.clone(), user_info.clone())
                         .await
                         .map(|_| debug!("User restored in VMess: {}", user_info.uuid))
@@ -96,8 +99,7 @@ pub async fn restore_trial_users(state: Arc<Mutex<UserState>>, clients: XrayClie
                 };
 
                 let xtls_vless_restore = {
-                    let user_info =
-                        vless::UserInfo::new(user.user_id.clone(), vless::UserFlow::Vision);
+                    let user_info = vless::UserInfo::new(user_id.clone(), vless::UserFlow::Vision);
                     vless::add_user(clients.clone(), user_info.clone())
                         .await
                         .map(|_| debug!("User restored in Vless: {}", user_info.uuid))
@@ -105,8 +107,7 @@ pub async fn restore_trial_users(state: Arc<Mutex<UserState>>, clients: XrayClie
                 };
 
                 let grpc_vless_restore = {
-                    let user_info =
-                        vless::UserInfo::new(user.user_id.clone(), vless::UserFlow::Direct);
+                    let user_info = vless::UserInfo::new(user_id.clone(), vless::UserFlow::Direct);
                     vless::add_user(clients.clone(), user_info.clone())
                         .await
                         .map(|_| debug!("User restored in VLess: {}", user_info.uuid))
@@ -115,24 +116,30 @@ pub async fn restore_trial_users(state: Arc<Mutex<UserState>>, clients: XrayClie
 
                 if vmess_restore.is_ok() && xtls_vless_restore.is_ok() && grpc_vless_restore.is_ok()
                 {
-                    if let Err(e) = state.restore_user(user.user_id.clone()).await {
+                    if let Err(e) = state.restore_user(&user_id.clone()).await {
                         error!("Failed to update user state: {:?}", e);
                     } else {
-                        debug!("Successfully restored user in state: {}", user.user_id);
+                        debug!("Successfully restored user in state: {}", user_id);
                     }
                 }
-                let _ = state.save_to_file_async("Restore job").await;
+                if debug {
+                    let _ = state.save_to_file_async("Restore job").await;
+                }
             }
         });
     }
 }
 
-pub async fn block_trial_users_by_limit(state: Arc<Mutex<UserState>>, clients: XrayClients) {
+pub async fn block_trial_users_by_limit(
+    state: Arc<Mutex<UserState>>,
+    clients: XrayClients,
+    debug: bool,
+) {
     let trial_users = state.lock().await.get_all_trial_users(UserStatus::Active);
 
-    for user in trial_users {
+    for (user_id, user) in trial_users {
         let state = state.clone();
-        let user_id = user.user_id.clone();
+        let user_id = user_id.clone();
         let clients = clients.clone();
 
         tokio::spawn(async move {
@@ -145,18 +152,17 @@ pub async fn block_trial_users_by_limit(state: Arc<Mutex<UserState>>, clients: X
             if user_exceeds_limit {
                 debug!(
                     "User {} exceeds the limit: downlink={} > limit={}",
-                    user.user_id,
+                    user_id,
                     user.downlink.unwrap_or(0),
                     user.limit
                 );
 
-                let vmess_remove = remove_user(clients.clone(), user.user_id.clone(), Tag::Vmess);
-                let ss_remove =
-                    remove_user(clients.clone(), user.user_id.clone(), Tag::Shadowsocks);
+                let vmess_remove = remove_user(clients.clone(), user_id.clone(), Tag::Vmess);
+                let ss_remove = remove_user(clients.clone(), user_id.clone(), Tag::Shadowsocks);
                 let xtls_vless_remove =
-                    remove_user(clients.clone(), user.user_id.clone(), Tag::VlessXtls);
+                    remove_user(clients.clone(), user_id.clone(), Tag::VlessXtls);
                 let grpc_vless_remove =
-                    remove_user(clients.clone(), user.user_id.clone(), Tag::VlessGrpc);
+                    remove_user(clients.clone(), user_id.clone(), Tag::VlessGrpc);
 
                 let results = tokio::try_join!(
                     vmess_remove,
@@ -166,8 +172,8 @@ pub async fn block_trial_users_by_limit(state: Arc<Mutex<UserState>>, clients: X
                 );
 
                 match results {
-                    Ok(_) => debug!("Successfully blocked user: {}", user.user_id),
-                    Err(e) => error!("Failed to block user {}: {:?}", user.user_id, e),
+                    Ok(_) => debug!("Successfully blocked user: {}", user_id),
+                    Err(e) => error!("Failed to block user {}: {:?}", user_id, e),
                 }
 
                 let _ = state.reset_user_stat(&user_id, StatType::Uplink);
@@ -181,8 +187,9 @@ pub async fn block_trial_users_by_limit(state: Arc<Mutex<UserState>>, clients: X
                 if let Err(e) = state.expire_user(&user_id).await {
                     error!("Failed to update status for user {}: {:?}", user_id, e);
                 }
-
-                let _ = state.save_to_file_async("Block by limit job").await;
+                if debug {
+                    let _ = state.save_to_file_async("Block by limit job").await;
+                }
             }
         });
     }

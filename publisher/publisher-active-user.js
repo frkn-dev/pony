@@ -4,6 +4,7 @@ async function runPublisher() {
     const sock = new zmq.Publisher();
 
     await sock.bind("tcp://127.0.0.1:3000");
+
     console.log("Publisher bound to port 3000");
     await new Promise(resolve => setTimeout(resolve, 1000));
 
@@ -13,6 +14,13 @@ async function runPublisher() {
     });
     console.log("Sending create message:", createMessage);
     await sock.send(["dev", createMessage]);
+
+
+    await sock.send(["prod", createMessage]);
+
+    await sock.send(["china", createMessage]);
+
+    await sock.send(["uat", createMessage]);
 
     await new Promise(resolve => setTimeout(resolve, 2000));
 

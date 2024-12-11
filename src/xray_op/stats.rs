@@ -3,7 +3,9 @@ use std::{fmt, sync::Arc};
 use tokio::{sync::Mutex, time::Duration};
 use tonic::{Request, Status};
 
-use super::{client::XrayClients, user, user_state::UserState};
+use super::super::user_state::UserState;
+use super::{client::XrayClients, user};
+
 use crate::xray_api::xray::app::stats::command::{GetStatsRequest, GetStatsResponse};
 
 #[derive(Debug, Clone)]
@@ -21,16 +23,16 @@ impl fmt::Display for StatType {
     }
 }
 
-pub async fn stats_task(clients: XrayClients, state: Arc<Mutex<UserState>>) {
+pub async fn stats_task(clients: XrayClients, state: Arc<Mutex<UserState>>, debug: bool) {
     debug!("Stats task running");
     loop {
         let user_state = state.lock().await;
         let users = user_state.users.clone();
         drop(user_state);
-        for user in users {
+        for user_id in users.keys() {
             match get_traffic_stats(
                 clients.clone(),
-                format!("user>>>{}@pony>>>traffic", user.user_id),
+                format!("user>>>{}@pony>>>traffic", user_id),
                 false,
             )
             .await
@@ -42,15 +44,14 @@ pub async fn stats_task(clients: XrayClients, state: Arc<Mutex<UserState>>) {
 
                     if let Some(downlink) = response.0.stat {
                         let _ = user_state
-                            .update_user_downlink(&user.user_id, downlink.value / (1024 * 1024))
+                            .update_user_downlink(&user_id, downlink.value / (1024 * 1024))
                             .await;
                     }
                     if let Some(uplink) = response.1.stat {
                         let _ = user_state
-                            .update_user_uplink(&user.user_id, uplink.value / (1024 * 1024))
+                            .update_user_uplink(&user_id, uplink.value / (1024 * 1024))
                             .await;
                     }
-                    let _ = user_state.save_to_file_async("Stats task").await;
                 }
                 Err(e) => {
                     warn!("Failed to get stats: {}", e);
@@ -58,60 +59,65 @@ pub async fn stats_task(clients: XrayClients, state: Arc<Mutex<UserState>>) {
             }
         }
 
-        let _ = {
+        if debug {
             let user_state = state.lock().await;
             let node = user_state.node.clone();
             drop(user_state);
-
             for inbound in node.inbounds.keys() {
-                let mut user_state = state.lock().await;
+                match get_traffic_stats(
+                    clients.clone(),
+                    format!("inbound>>>{inbound}>>>traffic"),
+                    false,
+                )
+                .await
+                {
+                    Ok(response) => {
+                        info!("Received node stats: {:?}", response);
 
-                match user::user_count(clients.clone(), inbound.clone()).await {
-                    Ok(count) => {
-                        let _ = user_state
-                            .update_node_user_count(inbound.clone(), count)
-                            .await;
+                        let mut user_state = state.lock().await;
+
+                        if let Some(downlink) = response.0.stat {
+                            let _ = user_state
+                                .update_node_downlink(inbound.clone(), downlink.value)
+                                .await;
+                        }
+                        if let Some(uplink) = response.1.stat {
+                            let _ = user_state
+                                .update_node_uplink(inbound.clone(), uplink.value)
+                                .await;
+                        }
                     }
                     Err(e) => {
-                        warn!("Failed to fetch user count for tag {}: {}", inbound, e);
+                        warn!("Failed to get node stats: {}", e);
                     }
                 }
             }
-        };
 
-        let user_state = state.lock().await;
-        let node = user_state.node.clone();
-        drop(user_state);
-        for inbound in node.inbounds.keys() {
-            match get_traffic_stats(
-                clients.clone(),
-                format!("inbound>>>{inbound}>>>traffic"),
-                false,
-            )
-            .await
-            {
-                Ok(response) => {
-                    info!("Received node stats: {:?}", response);
+            let _ = {
+                let user_state = state.lock().await;
+                let node = user_state.node.clone();
+                drop(user_state);
 
+                for inbound in node.inbounds.keys() {
                     let mut user_state = state.lock().await;
 
-                    if let Some(downlink) = response.0.stat {
-                        let _ = user_state
-                            .update_node_downlink(inbound.clone(), downlink.value)
-                            .await;
+                    match user::user_count(clients.clone(), inbound.clone()).await {
+                        Ok(count) => {
+                            let _ = user_state
+                                .update_node_user_count(inbound.clone(), count)
+                                .await;
+                        }
+                        Err(e) => {
+                            warn!("Failed to fetch user count for tag {}: {}", inbound, e);
+                        }
                     }
-                    if let Some(uplink) = response.1.stat {
-                        let _ = user_state
-                            .update_node_uplink(inbound.clone(), uplink.value)
-                            .await;
-                    }
+                }
+            };
+        }
 
-                    let _ = user_state.save_to_file_async("Stats task").await;
-                }
-                Err(e) => {
-                    warn!("Failed to get node stats: {}", e);
-                }
-            }
+        if debug {
+            let user_state = state.lock().await;
+            let _ = user_state.save_to_file_async("Stats task").await;
         }
         tokio::time::sleep(Duration::from_secs(300)).await;
     }

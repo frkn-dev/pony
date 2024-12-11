@@ -79,6 +79,8 @@ pub struct LoggingConfig {
 
 #[derive(Clone, Debug, Deserialize, Default)]
 pub struct AppConfig {
+    #[serde(default = "default_enabled")]
+    pub debug: bool,
     #[serde(default = "default_env")]
     pub env: String,
     #[serde(default = "default_hostname")]

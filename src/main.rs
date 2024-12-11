@@ -16,13 +16,15 @@ use crate::{
         memory::mem_metrics,
     },
     utils::{current_timestamp, human_readable_date, level_from_settings},
-    xray_op::{config, stats::stats_task, user_state::UserState},
+    xray_op::{config, stats::stats_task},
 };
 
 mod appconfig;
 mod jobs;
 mod message;
 mod metrics;
+mod user;
+mod user_state;
 mod utils;
 mod xray_api;
 mod xray_op;
@@ -73,7 +75,6 @@ async fn main() -> std::io::Result<()> {
     }
 
     let carbon_server = settings.carbon.address.clone();
-
     let mut tasks: Vec<JoinHandle<()>> = vec![];
 
     if settings.app.metrics_mode {
@@ -91,6 +92,7 @@ async fn main() -> std::io::Result<()> {
     }
 
     if settings.app.xray_control_mode {
+        let debug = settings.app.debug;
         let xray_api_clients = match xray_op::client::create_clients(settings.clone()).await {
             Ok(clients) => clients,
             Err(e) => panic!("Can't create clients: {}", e),
@@ -111,17 +113,24 @@ async fn main() -> std::io::Result<()> {
             }
         };
 
-        let user_state =
-            match UserState::load_from_file_async(settings.app.file_state.clone()).await {
-                Ok(state) => Arc::new(Mutex::new(state)),
-                Err(e) => {
-                    debug!("State created from scratch, {}", e);
-                    let user_state =
-                        UserState::new(settings.app.file_state.clone(), xray_config.get_inbounds());
+        let user_state = match user_state::UserState::load_from_file_async(
+            settings.app.file_state.clone(),
+        )
+        .await
+        {
+            Ok(state) => Arc::new(Mutex::new(state)),
+            Err(e) => {
+                debug!("State created from scratch, {}", e);
+                let user_state = user_state::UserState::new(
+                    settings.app.file_state.clone(),
+                    xray_config.get_inbounds(),
+                );
+                if debug {
                     let _ = user_state.save_to_file_async(&user_state.file_path).await;
-                    Arc::new(Mutex::new(user_state))
                 }
-            };
+                Arc::new(Mutex::new(user_state))
+            }
+        };
 
         let inbounds = {
             let state = user_state.lock().await;
@@ -142,7 +151,11 @@ async fn main() -> std::io::Result<()> {
             }
         }
 
-        let stats_task = tokio::spawn(stats_task(xray_api_clients.clone(), user_state.clone()));
+        let stats_task = tokio::spawn(stats_task(
+            xray_api_clients.clone(),
+            user_state.clone(),
+            debug,
+        ));
         tasks.push(stats_task);
 
         let _ = {
@@ -151,6 +164,7 @@ async fn main() -> std::io::Result<()> {
                 xray_api_clients.clone(),
                 settings.clone(),
                 user_state,
+                debug,
             )))
         };
 
@@ -160,7 +174,7 @@ async fn main() -> std::io::Result<()> {
             let clients = xray_api_clients.clone();
             async move {
                 loop {
-                    jobs::restore_trial_users(state.clone(), clients.clone()).await;
+                    jobs::restore_trial_users(state.clone(), clients.clone(), debug).await;
                     sleep(Duration::from_secs(60)).await;
                 }
             }
@@ -174,7 +188,7 @@ async fn main() -> std::io::Result<()> {
             async move {
                 loop {
                     sleep(Duration::from_secs(60)).await;
-                    jobs::block_trial_users_by_limit(state.clone(), clients.clone()).await;
+                    jobs::block_trial_users_by_limit(state.clone(), clients.clone(), debug).await;
                 }
             }
         });

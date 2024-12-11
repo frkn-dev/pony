@@ -9,3 +9,7 @@
 - state to PG - ? Nazim 
 - xray userstat to carbon
 - web for system info?
+
+
+- user_id hashmap
+- psql readonly 

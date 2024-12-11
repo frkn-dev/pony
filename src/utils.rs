@@ -5,18 +5,9 @@ use std::{
 
 use chrono::{TimeZone, Utc};
 use log::{debug, error, warn, LevelFilter};
-use rand::{distributions::Alphanumeric, thread_rng, Rng};
 use tokio::{io::AsyncWriteExt, net::TcpStream};
 
 use crate::metrics::metrics::Metric;
-
-pub fn generate_random_password(length: usize) -> String {
-    thread_rng()
-        .sample_iter(&Alphanumeric)
-        .take(length)
-        .map(char::from)
-        .collect()
-}
 
 pub async fn send_to_carbon<T: ToString>(
     metric: &Metric<T>,

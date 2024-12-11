@@ -1,6 +1,5 @@
 use tonic::{Request, Status};
 
-use crate::utils::generate_random_password;
 use crate::xray_api::xray::{
     app::proxyman::command::{AddUserOperation, AlterInboundRequest},
     common::protocol::User,
@@ -21,12 +20,12 @@ pub struct UserInfo {
 }
 
 impl UserInfo {
-    pub fn new(uuid: String, password: String) -> Self {
+    pub fn new(uuid: String, password: Option<String>) -> Self {
         Self {
             in_tag: Tag::Shadowsocks,
             level: 0,
             email: format!("{}@{}", uuid, "pony"),
-            password: Some(password),
+            password: password,
             cipher_type: "chacha20-ietf-poly1305".to_string(),
         }
     }
@@ -37,7 +36,7 @@ impl Default for UserInfo {
         UserInfo {
             email: String::default(),
             in_tag: Tag::Shadowsocks,
-            password: Some(generate_random_password(10)),
+            password: None,
             level: 0,
             cipher_type: "chacha20-ietf-poly1305".to_string(),
         }

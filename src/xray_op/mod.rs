@@ -13,7 +13,6 @@ pub mod node;
 pub mod shadowsocks;
 pub mod stats;
 pub mod user;
-pub mod user_state;
 pub mod vless;
 pub mod vmess;
 

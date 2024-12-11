@@ -1,5 +1,6 @@
 use log::{debug, error};
 use serde::{Deserialize, Serialize};
+use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::error::Error;
 use tokio::{
@@ -8,64 +9,74 @@ use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
 };
 
-use super::{
+use crate::xray_op::{
     node::{Inbound, Node},
     stats::StatType,
-    user::{User, UserStatus},
     Tag,
 };
+
+use super::user::{User, UserStatus};
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct UserState {
     pub file_path: String,
-    pub users: Vec<User>,
+    pub users: HashMap<String, User>,
     pub node: Node,
 }
 
 impl UserState {
     pub fn new(file_path: String, inbounds: HashMap<Tag, Inbound>) -> Self {
         UserState {
-            users: Vec::new(),
+            users: HashMap::new(),
             file_path: file_path,
             node: Node::new(inbounds),
         }
     }
 
-    pub async fn add_user(&mut self, new_user: User) -> Result<(), Box<dyn Error>> {
+    pub async fn add_user(
+        &mut self,
+        user_id: String,
+        new_user: User,
+    ) -> Result<(), Box<dyn Error>> {
         debug!("Starting add_user for user: {:?}", new_user);
 
-        if let Some(existing_user) = self
-            .users
-            .iter_mut()
-            .find(|user| user.user_id == new_user.user_id)
-        {
-            debug!("User {} already exist", existing_user.user_id);
-        } else {
-            debug!("Adding new user: {:?}", new_user);
-            self.users.push(new_user);
+        match self.users.entry(user_id.clone()) {
+            Entry::Occupied(mut entry) => {
+                debug!("User {} already exists: {:?}", user_id, entry.get());
+                let existing_user = entry.get_mut();
+                existing_user.trial = new_user.trial;
+                existing_user.limit = new_user.limit;
+                existing_user.password = new_user.password;
+                existing_user.status = new_user.status;
+            }
+            Entry::Vacant(entry) => {
+                debug!("Adding new user: {:?}", new_user);
+                entry.insert(new_user);
+            }
         }
 
         Ok(())
     }
 
-    pub async fn restore_user(&mut self, user_id: String) -> Result<(), Box<dyn Error>> {
-        if let Some(existing_user) = self.users.iter_mut().find(|u| u.user_id == user_id) {
+    pub async fn restore_user(&mut self, user_id: &str) -> Result<(), Box<dyn Error>> {
+        if let Some(existing_user) = self.users.get_mut(user_id) {
             debug!("Restoring {}", user_id);
             existing_user.status = UserStatus::Active;
             existing_user.update_modified_at();
+            Ok(())
         } else {
-            error!("User not found {} ", user_id);
-            return Err("User not found".into());
+            error!("User not found: {}", user_id);
+            Err("User not found".into())
         }
-        Ok(())
     }
 
     pub async fn expire_user(&mut self, user_id: &str) -> Result<(), Box<dyn Error>> {
-        if let Some(user) = self.users.iter_mut().find(|user| user.user_id == user_id) {
+        if let Some(user) = self.users.get_mut(user_id) {
             user.status = UserStatus::Expired;
             user.update_modified_at();
+            debug!("User {} marked as expired", user_id);
         } else {
-            error!("User not found: {:?} ", user_id);
+            error!("User not found: {:?}", user_id);
         }
 
         Ok(())
@@ -76,11 +87,12 @@ impl UserState {
         user_id: &str,
         new_limit: i64,
     ) -> Result<(), Box<dyn Error>> {
-        if let Some(user) = self.users.iter_mut().find(|user| user.user_id == user_id) {
+        if let Some(user) = self.users.get_mut(user_id) {
             user.limit = new_limit;
             user.update_modified_at();
+            debug!("User {} limit updated to {}", user_id, new_limit);
         } else {
-            error!("User not found: {:?} ", user_id);
+            error!("User not found: {:?}", user_id);
         }
 
         Ok(())
@@ -91,9 +103,12 @@ impl UserState {
         user_id: &str,
         new_trial: bool,
     ) -> Result<(), Box<dyn Error>> {
-        if let Some(user) = self.users.iter_mut().find(|user| user.user_id == user_id) {
+        if let Some(user) = self.users.get_mut(user_id) {
             user.trial = new_trial;
             user.update_modified_at();
+            debug!("User {} trial status updated to {}", user_id, new_trial);
+        } else {
+            error!("User not found: {}", user_id);
         }
 
         Ok(())
@@ -105,11 +120,25 @@ impl UserState {
         stat: StatType,
         new_value: Option<i64>,
     ) -> Result<(), Box<dyn Error>> {
-        if let Some(user) = self.users.iter_mut().find(|user| user.user_id == user_id) {
+        if let Some(user) = self.users.get_mut(user_id) {
             match stat {
-                StatType::Uplink => user.uplink = new_value,
-                StatType::Downlink => user.downlink = new_value,
+                StatType::Uplink => {
+                    if let Some(value) = new_value {
+                        user.uplink = Some(value);
+                    } else {
+                        return Err("New value for Uplink is None".into());
+                    }
+                }
+                StatType::Downlink => {
+                    if let Some(value) = new_value {
+                        user.downlink = Some(value);
+                    } else {
+                        return Err("New value for Downlink is None".into());
+                    }
+                }
             }
+            user.update_modified_at();
+            debug!("Updated {:?} for user {}", stat, user_id);
             Ok(())
         } else {
             let err_msg = format!("User not found: {}", user_id);
@@ -137,11 +166,12 @@ impl UserState {
     }
 
     pub fn reset_user_stat(&mut self, user_id: &str, stat: StatType) {
-        if let Some(user) = self.users.iter_mut().find(|user| user.user_id == user_id) {
+        if let Some(user) = self.users.get_mut(user_id) {
             match stat {
                 StatType::Uplink => user.reset_uplink(),
                 StatType::Downlink => user.reset_downlink(),
             }
+            debug!("Reset {:?} for user {}", stat, user_id);
         } else {
             error!("User not found: {}", user_id);
         }
@@ -174,23 +204,12 @@ impl UserState {
         Ok(())
     }
 
-    pub fn get_all_trial_users(&self, status: UserStatus) -> Vec<User> {
-        let users = self
-            .users
+    pub fn get_all_trial_users(&self, status: UserStatus) -> HashMap<String, User> {
+        self.users
             .iter()
-            .filter(|user| user.status == status && user.trial)
-            .cloned()
-            .collect();
-        users
-    }
-
-    pub fn get_user_password(&mut self, user_id: &str) -> Option<String> {
-        if let Some(user) = self.users.iter().find(|user| user.user_id == user_id) {
-            Some(user.password.clone())
-        } else {
-            error!("User not found: {}", user_id);
-            None
-        }
+            .filter(|(_, user)| user.status == status && user.trial)
+            .map(|(user_id, user)| (user_id.clone(), user.clone()))
+            .collect()
     }
 
     pub async fn load_from_file_async(file_path: String) -> Result<Self, Box<dyn Error>> {

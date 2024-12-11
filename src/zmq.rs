@@ -7,9 +7,11 @@ use tokio::sync::Mutex;
 use tokio::time::Duration;
 use zmq;
 
+use super::appconfig::Settings;
 use super::message::{process_message, Message};
-use crate::appconfig::Settings;
-use crate::xray_op::{client, user_state};
+
+use crate::user_state::UserState;
+use crate::xray_op::client;
 
 #[derive(Deserialize, Debug, Clone)]
 pub enum Action {
@@ -19,8 +21,6 @@ pub enum Action {
     Delete,
     #[serde(rename = "update")]
     Update,
-    #[serde(rename = "restore")]
-    Restore,
 }
 
 fn try_connect(endpoint: &str) -> zmq::Socket {
@@ -53,7 +53,8 @@ fn try_connect(endpoint: &str) -> zmq::Socket {
 pub async fn subscriber(
     clients: client::XrayClients,
     config: Settings,
-    state: Arc<Mutex<user_state::UserState>>,
+    state: Arc<Mutex<UserState>>,
+    debug: bool,
 ) {
     let subscriber = try_connect(&config.zmq.endpoint);
     subscriber
@@ -82,6 +83,7 @@ pub async fn subscriber(
                         message.clone(),
                         state.clone(),
                         config.xray.xray_daily_limit_mb,
+                        debug,
                     )];
 
                     let _ = join_all(futures).await;

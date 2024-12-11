@@ -3,12 +3,13 @@ use serde::Deserialize;
 use std::{error::Error, sync::Arc};
 use tokio::sync::Mutex;
 
-use crate::{
-    utils::generate_random_password,
-    xray_op::{client, remove_user, shadowsocks, user, user::User, user_state, vless, vmess, Tag},
-};
+use crate::xray_op::{client, remove_user, shadowsocks, vless, vmess, Tag};
 
 use super::zmq::Action;
+
+use crate::user_state::UserState;
+
+use crate::user::User;
 
 #[derive(Deserialize, Clone, Debug)]
 pub struct Message {
@@ -19,11 +20,30 @@ pub struct Message {
     pub password: Option<String>,
 }
 
+impl Message {
+    pub fn new(
+        user_id: String,
+        action: Action,
+        trial: Option<bool>,
+        limit: Option<i64>,
+        password: Option<String>,
+    ) -> Self {
+        Self {
+            user_id: user_id,
+            action: action,
+            trial: trial,
+            limit: limit,
+            password: password,
+        }
+    }
+}
+
 pub async fn process_message(
     clients: client::XrayClients,
     message: Message,
-    state: Arc<Mutex<user_state::UserState>>,
+    state: Arc<Mutex<UserState>>,
     config_daily_limit_mb: i64,
+    debug: bool,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     match message.action {
         Action::Create => {
@@ -32,19 +52,12 @@ pub async fn process_message(
             let daily_limit_mb = message.limit.unwrap_or(config_daily_limit_mb);
             let trial = message.trial.unwrap_or(true);
 
-            let password = match message.password {
-                Some(ref password) => password,
-                None => &generate_random_password(10),
-            };
+            let user = User::new(daily_limit_mb, trial, message.password.clone());
 
-            let user = User::new(
-                message.user_id.clone(),
-                daily_limit_mb,
-                trial,
-                password.clone(),
-            );
-
-            if let Err(e) = user_state.add_user(user.clone()).await {
+            if let Err(e) = user_state
+                .add_user(message.user_id.clone(), user.clone())
+                .await
+            {
                 error!("Create: Fail to add user to State: {:?}", e);
                 return Err(
                     format!("Create: Failed to add user {} to state", message.user_id).into(),
@@ -52,41 +65,17 @@ pub async fn process_message(
             }
 
             let user_info = vmess::UserInfo::new(message.user_id.to_string());
-            match user::get_user(
-                clients.clone(),
-                user_info.in_tag.clone(),
-                user_info.uuid.clone(),
-            )
-            .await
-            {
-                Ok(user) => debug!("---> User Vmess Found {:?}", user),
-                Err(e) => debug!("---> User Vmess not found {}", e),
-            }
             if let Err(e) = vmess::add_user(clients.clone(), user_info.clone()).await {
                 error!("Create: Fail to add Vmess user: {:?}", e);
             } else {
                 debug!("Create: Success to add Vmess user: {:?}", message.user_id);
-                if let Some(existing_user) = user_state
-                    .users
-                    .iter_mut()
-                    .find(|u| u.user_id == message.user_id)
-                {
+                if let Some(existing_user) = user_state.users.get_mut(&message.user_id) {
                     existing_user.add_proto(Tag::Vmess);
                 }
             }
 
             let user_info =
                 vless::UserInfo::new(message.user_id.to_string(), vless::UserFlow::Vision);
-            match user::get_user(
-                clients.clone(),
-                user_info.in_tag.clone(),
-                user_info.uuid.clone(),
-            )
-            .await
-            {
-                Ok(user) => debug!("--->  User VlessXtls Found {:?}", user),
-                Err(e) => debug!("--->  User VlessXtls not found {}", e),
-            }
             if let Err(e) = vless::add_user(clients.clone(), user_info.clone()).await {
                 error!("Create: Fail to add VlessXtls  user: {:?}", e);
             } else {
@@ -94,27 +83,13 @@ pub async fn process_message(
                     "Create: Success to add VlessXtls user: {:?}",
                     message.user_id
                 );
-                if let Some(existing_user) = user_state
-                    .users
-                    .iter_mut()
-                    .find(|u| u.user_id == message.user_id)
-                {
+                if let Some(existing_user) = user_state.users.get_mut(&message.user_id) {
                     existing_user.add_proto(Tag::VlessXtls);
                 }
             }
 
             let user_info =
                 vless::UserInfo::new(message.user_id.to_string(), vless::UserFlow::Direct);
-            match user::get_user(
-                clients.clone(),
-                user_info.in_tag.clone(),
-                user_info.uuid.clone(),
-            )
-            .await
-            {
-                Ok(user) => debug!("--->  User VlessGrpc Found {:?}", user),
-                Err(e) => debug!("--->  User VlessGrpc not found {}", e),
-            }
             if let Err(e) = vless::add_user(clients.clone(), user_info.clone()).await {
                 error!("Create: Fail to add VlessGrpc user: {:?}", e);
             } else {
@@ -122,47 +97,32 @@ pub async fn process_message(
                     "Create: Success to add VlessGrpc user: {:?}",
                     message.user_id
                 );
-                if let Some(existing_user) = user_state
-                    .users
-                    .iter_mut()
-                    .find(|u| u.user_id == message.user_id)
-                {
+                if let Some(existing_user) = user_state.users.get_mut(&message.user_id) {
                     existing_user.add_proto(Tag::VlessGrpc);
                 }
             }
 
-            let user_info =
-                shadowsocks::UserInfo::new(message.user_id.to_string(), password.to_string());
-            match user::get_user(
-                clients.clone(),
-                user_info.in_tag.clone(),
-                message.user_id.clone(),
-            )
-            .await
-            {
-                Ok(user) => debug!("--->  User SS  Found {:?}", user),
-                Err(e) => debug!("---> User SS not found {}", e),
-            }
-            if let Err(e) = shadowsocks::add_user(clients.clone(), user_info.clone()).await {
-                error!("Create: Fail to add Shadowsocks user: {:?}", e);
-            } else {
-                debug!(
-                    "Create: Success to add Shadowsocks user: {:?}",
-                    message.user_id
-                );
-                if let Some(existing_user) = user_state
-                    .users
-                    .iter_mut()
-                    .find(|u| u.user_id == message.user_id)
-                {
-                    existing_user.add_proto(Tag::Shadowsocks);
+            if let Some(password) = message.password {
+                let user_info =
+                    shadowsocks::UserInfo::new(message.user_id.to_string(), Some(password));
+                if let Err(e) = shadowsocks::add_user(clients.clone(), user_info.clone()).await {
+                    error!("Create: Fail to add Shadowsocks user: {:?}", e);
+                } else {
+                    debug!(
+                        "Create: Success to add Shadowsocks user: {:?}",
+                        message.user_id
+                    );
+                    if let Some(existing_user) = user_state.users.get_mut(&message.user_id) {
+                        existing_user.add_proto(Tag::Shadowsocks);
+                    }
                 }
             }
 
             info!("Create: User added: {:?}", message.user_id);
 
-            let _ = user_state.save_to_file_async("Create action").await;
-
+            if debug {
+                let _ = user_state.save_to_file_async("Create action").await;
+            }
             Ok(())
         }
         Action::Delete => {
@@ -172,11 +132,7 @@ pub async fn process_message(
             {
                 error!("Delete: Failed to remove Vmess user: {:?}", e);
             } else {
-                if let Some(existing_user) = user_state
-                    .users
-                    .iter_mut()
-                    .find(|u| u.user_id == message.user_id)
-                {
+                if let Some(existing_user) = user_state.users.get_mut(&message.user_id) {
                     existing_user.remove_proto(Tag::Vmess);
                 }
             }
@@ -186,11 +142,7 @@ pub async fn process_message(
             {
                 error!("Delete: Failed to remove VlessXtls user: {:?}", e);
             } else {
-                if let Some(existing_user) = user_state
-                    .users
-                    .iter_mut()
-                    .find(|u| u.user_id == message.user_id)
-                {
+                if let Some(existing_user) = user_state.users.get_mut(&message.user_id) {
                     existing_user.remove_proto(Tag::VlessXtls);
                 }
             }
@@ -200,12 +152,8 @@ pub async fn process_message(
             {
                 error!("Delete: Failed to remove VlessGrpc user: {:?}", e);
             } else {
-                if let Some(existing_user) = user_state
-                    .users
-                    .iter_mut()
-                    .find(|u| u.user_id == message.user_id)
-                {
-                    existing_user.remove_proto(Tag::VlessXtls);
+                if let Some(existing_user) = user_state.users.get_mut(&message.user_id) {
+                    existing_user.remove_proto(Tag::VlessGrpc);
                 }
             }
 
@@ -214,83 +162,15 @@ pub async fn process_message(
             {
                 error!("Delete: Failed to remove Shadowsocks user: {:?}", e);
             } else {
-                if let Some(existing_user) = user_state
-                    .users
-                    .iter_mut()
-                    .find(|u| u.user_id == message.user_id)
-                {
+                if let Some(existing_user) = user_state.users.get_mut(&message.user_id) {
                     existing_user.remove_proto(Tag::Shadowsocks);
                 }
             }
 
             let _ = user_state.expire_user(&message.user_id).await;
-            let _ = user_state.save_to_file_async("Delete action").await;
-
-            Ok(())
-        }
-        Action::Restore => {
-            let mut user_state = state.lock().await;
-
-            let user_info = vmess::UserInfo::new(message.user_id.to_string());
-            if let Err(e) = vmess::add_user(clients.clone(), user_info.clone()).await {
-                error!("Restore: Failed to restore Vmess user: {:?}", e);
-            } else {
-                if let Some(existing_user) = user_state
-                    .users
-                    .iter_mut()
-                    .find(|u| u.user_id == message.user_id)
-                {
-                    existing_user.add_proto(Tag::Vmess);
-                }
+            if debug {
+                let _ = user_state.save_to_file_async("Delete action").await;
             }
-
-            let user_info =
-                vless::UserInfo::new(message.user_id.to_string(), vless::UserFlow::Vision);
-            if let Err(e) = vless::add_user(clients.clone(), user_info.clone()).await {
-                error!("Failed to restore VlessXtls user: {:?}", e);
-            } else {
-                if let Some(existing_user) = user_state
-                    .users
-                    .iter_mut()
-                    .find(|u| u.user_id == message.user_id)
-                {
-                    existing_user.add_proto(Tag::VlessXtls);
-                }
-            }
-
-            let user_info =
-                vless::UserInfo::new(message.user_id.to_string(), vless::UserFlow::Direct);
-            if let Err(e) = vless::add_user(clients.clone(), user_info.clone()).await {
-                error!("Failed to restore VlessGrpc user: {:?}", e);
-            } else {
-                if let Some(existing_user) = user_state
-                    .users
-                    .iter_mut()
-                    .find(|u| u.user_id == message.user_id)
-                {
-                    existing_user.add_proto(Tag::VlessXtls);
-                }
-            }
-
-            if let Some(password) = user_state.get_user_password(&message.user_id) {
-                let user_info = shadowsocks::UserInfo::new(message.user_id.to_string(), password);
-                if let Err(e) = shadowsocks::add_user(clients.clone(), user_info).await {
-                    error!("Failed to restore Shadowsocks user: {:?}", e);
-                } else {
-                    if let Some(existing_user) = user_state
-                        .users
-                        .iter_mut()
-                        .find(|u| u.user_id == message.user_id)
-                    {
-                        existing_user.add_proto(Tag::Shadowsocks);
-                    }
-                }
-            }
-
-            let _ = user_state.restore_user(message.user_id.clone()).await;
-            info!("Restore: user restored: {:?}", message.user_id);
-            let _ = user_state.save_to_file_async("Restore action").await;
-
             Ok(())
         }
         Action::Update => {

@@ -5,11 +5,19 @@ use tokio::sync::Mutex;
 
 use crate::xray_op::{client, remove_user, shadowsocks, vless, vmess, Tag};
 
-use super::zmq::Action;
-
 use crate::user_state::UserState;
 
 use crate::user::User;
+
+#[derive(Deserialize, Debug, Clone)]
+pub enum Action {
+    #[serde(rename = "create")]
+    Create,
+    #[serde(rename = "delete")]
+    Delete,
+    #[serde(rename = "update")]
+    Update,
+}
 
 #[derive(Deserialize, Clone, Debug)]
 pub struct Message {

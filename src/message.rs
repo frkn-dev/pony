@@ -20,24 +20,6 @@ pub struct Message {
     pub password: Option<String>,
 }
 
-impl Message {
-    pub fn new(
-        user_id: String,
-        action: Action,
-        trial: Option<bool>,
-        limit: Option<i64>,
-        password: Option<String>,
-    ) -> Self {
-        Self {
-            user_id: user_id,
-            action: action,
-            trial: trial,
-            limit: limit,
-            password: password,
-        }
-    }
-}
-
 pub async fn process_message(
     clients: client::XrayClients,
     message: Message,
@@ -175,14 +157,148 @@ pub async fn process_message(
         }
         Action::Update => {
             let mut user_state = state.lock().await;
+
             if let Some(trial) = message.trial {
-                debug!("Update user trial {} {}", message.user_id, trial);
-                let _ = user_state.update_user_trial(&message.user_id, trial).await;
+                if !trial {
+                    debug!("Update user trial {} {}", message.user_id, trial);
+                    let _ = user_state.update_user_trial(&message.user_id, trial).await;
+
+                    if !trial {
+                        debug!(
+                            "Trial is false for user {}. Restoring connections.",
+                            message.user_id
+                        );
+
+                        let user_info = vmess::UserInfo::new(message.user_id.to_string());
+                        if let Err(e) = vmess::add_user(clients.clone(), user_info.clone()).await {
+                            error!("Fail to restore Vmess user: {:?}", e);
+                        } else {
+                            debug!("Success to restore Vmess user: {:?}", message.user_id);
+                            if let Some(existing_user) = user_state.users.get_mut(&message.user_id)
+                            {
+                                existing_user.add_proto(Tag::Vmess);
+                            }
+                        }
+
+                        let user_info = vless::UserInfo::new(
+                            message.user_id.to_string(),
+                            vless::UserFlow::Vision,
+                        );
+                        if let Err(e) = vless::add_user(clients.clone(), user_info.clone()).await {
+                            error!("Fail to restore VlessXtls user: {:?}", e);
+                        } else {
+                            debug!("Success to restore VlessXtls user: {:?}", message.user_id);
+                            if let Some(existing_user) = user_state.users.get_mut(&message.user_id)
+                            {
+                                existing_user.add_proto(Tag::VlessXtls);
+                            }
+                        }
+
+                        let user_info = vless::UserInfo::new(
+                            message.user_id.to_string(),
+                            vless::UserFlow::Direct,
+                        );
+                        if let Err(e) = vless::add_user(clients.clone(), user_info.clone()).await {
+                            error!("Fail to restore VlessGrpc user: {:?}", e);
+                        } else {
+                            debug!("Success to restore VlessGrpc user: {:?}", message.user_id);
+                            if let Some(existing_user) = user_state.users.get_mut(&message.user_id)
+                            {
+                                existing_user.add_proto(Tag::VlessGrpc);
+                            }
+                        }
+
+                        if let Some(password) = message.password {
+                            let user_info = shadowsocks::UserInfo::new(
+                                message.user_id.to_string(),
+                                Some(password),
+                            );
+                            if let Err(e) =
+                                shadowsocks::add_user(clients.clone(), user_info.clone()).await
+                            {
+                                error!("Fail to restore Shadowsocks user: {:?}", e);
+                            } else {
+                                debug!(
+                                    "Success to restore Shadowsocks user: {:?}",
+                                    message.user_id
+                                );
+                                if let Some(existing_user) =
+                                    user_state.users.get_mut(&message.user_id)
+                                {
+                                    existing_user.add_proto(Tag::Shadowsocks);
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
+                {
+                    debug!(
+                        "Trial is true for user {}. Restoring connections.",
+                        message.user_id
+                    );
+
+                    let user_info = vmess::UserInfo::new(message.user_id.to_string());
+                    if let Err(e) =
+                        remove_user(clients.clone(), user_info.uuid, user_info.in_tag).await
+                    {
+                        error!("Fail to remove Vmess user: {:?}", e);
+                    } else {
+                        debug!("Success to remove Vmess user: {:?}", message.user_id);
+                        if let Some(existing_user) = user_state.users.get_mut(&message.user_id) {
+                            existing_user.remove_proto(Tag::Vmess);
+                        }
+                    }
+
+                    let user_info =
+                        vless::UserInfo::new(message.user_id.to_string(), vless::UserFlow::Vision);
+                    if let Err(e) =
+                        remove_user(clients.clone(), user_info.uuid, user_info.in_tag).await
+                    {
+                        error!("Fail to remove VlessXtls user: {:?}", e);
+                    } else {
+                        debug!("Success to remove VlessXtls user: {:?}", message.user_id);
+                        if let Some(existing_user) = user_state.users.get_mut(&message.user_id) {
+                            existing_user.remove_proto(Tag::VlessXtls);
+                        }
+                    }
+
+                    let user_info =
+                        vless::UserInfo::new(message.user_id.to_string(), vless::UserFlow::Direct);
+                    if let Err(e) =
+                        remove_user(clients.clone(), user_info.uuid, user_info.in_tag).await
+                    {
+                        error!("Fail to remove VlessGrpc user: {:?}", e);
+                    } else {
+                        debug!("Success to remove VlessGrpc user: {:?}", message.user_id);
+                        if let Some(existing_user) = user_state.users.get_mut(&message.user_id) {
+                            existing_user.remove_proto(Tag::VlessGrpc);
+                        }
+                    }
+
+                    if let Some(password) = message.password {
+                        let user_info =
+                            shadowsocks::UserInfo::new(message.user_id.to_string(), Some(password));
+                        if let Err(e) =
+                            remove_user(clients.clone(), user_info.uuid, user_info.in_tag).await
+                        {
+                            error!("Fail to remove Shadowsocks user: {:?}", e);
+                        } else {
+                            debug!("Success to remove Shadowsocks user: {:?}", message.user_id);
+                            if let Some(existing_user) = user_state.users.get_mut(&message.user_id)
+                            {
+                                existing_user.remove_proto(Tag::Shadowsocks);
+                            }
+                        }
+                    }
+                }
             }
+
             if let Some(limit) = message.limit {
                 debug!("Update user limit {} {}", message.user_id, limit);
                 let _ = user_state.update_user_limit(&message.user_id, limit).await;
             }
+
             let _ = user_state.save_to_file_async("Restore action").await;
             Ok(())
         }

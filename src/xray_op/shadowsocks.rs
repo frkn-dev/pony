@@ -13,6 +13,7 @@ use super::{client::XrayClients, Tag};
 #[derive(Clone, Debug)]
 pub struct UserInfo {
     pub cipher_type: String,
+    pub uuid: String,
     pub in_tag: Tag,
     pub level: u32,
     pub email: String,
@@ -22,22 +23,11 @@ pub struct UserInfo {
 impl UserInfo {
     pub fn new(uuid: String, password: Option<String>) -> Self {
         Self {
+            uuid: uuid.clone(),
             in_tag: Tag::Shadowsocks,
             level: 0,
             email: format!("{}@{}", uuid, "pony"),
             password: password,
-            cipher_type: "chacha20-ietf-poly1305".to_string(),
-        }
-    }
-}
-
-impl Default for UserInfo {
-    fn default() -> Self {
-        UserInfo {
-            email: String::default(),
-            in_tag: Tag::Shadowsocks,
-            password: None,
-            level: 0,
             cipher_type: "chacha20-ietf-poly1305".to_string(),
         }
     }

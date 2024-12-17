@@ -1,8 +1,7 @@
 use std::fmt;
 use tonic::Request;
 
-use super::client::XrayClients;
-use super::Tag;
+use super::{client::XrayClients, Tag};
 
 use crate::xray_api::xray::{
     app::proxyman::command::{AddUserOperation, AlterInboundRequest},

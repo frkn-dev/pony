@@ -1,7 +1,7 @@
 use crate::fmt;
 use serde::{Deserialize, Serialize};
 
-use crate::appconfig::Settings;
+use crate::settings::Settings;
 
 pub trait AsMetric {
     type Output;

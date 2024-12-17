@@ -1,16 +1,14 @@
 use chrono::{Duration, Utc};
 use log::{debug, error};
-use std::error::Error;
-use std::sync::Arc;
+use std::{error::Error, sync::Arc};
 use tokio::sync::Mutex;
 
-use crate::xray_op::{
+use super::xray_op::{
     client::XrayClients, remove_user, shadowsocks, stats::get_traffic_stats, stats::StatType,
     vless, vmess, Tag,
 };
 
-use crate::user::UserStatus;
-use crate::user_state::UserState;
+use super::{user::UserStatus, user_state::UserState};
 
 pub async fn sync_state(
     state: Arc<Mutex<UserState>>,

@@ -1,8 +1,3 @@
-use crate::xray_api::xray::{
-    app::proxyman::command::{AlterInboundRequest, RemoveUserOperation},
-    common::serial::TypedMessage,
-};
-use crate::xray_op::client::XrayClients;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use tonic::{Request, Status};
@@ -15,6 +10,14 @@ pub mod stats;
 pub mod user;
 pub mod vless;
 pub mod vmess;
+
+use crate::{
+    xray_api::xray::{
+        app::proxyman::command::{AlterInboundRequest, RemoveUserOperation},
+        common::serial::TypedMessage,
+    },
+    xray_op::client::XrayClients,
+};
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Tag {

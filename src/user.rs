@@ -1,7 +1,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use crate::xray_op::Tag;
+use super::xray_op::Tag;
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub enum UserStatus {

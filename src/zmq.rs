@@ -1,16 +1,14 @@
-use std::{sync::Arc, thread};
-
-use futures::future::join_all;
 use log::{debug, error, info};
-use tokio::sync::Mutex;
-use tokio::time::Duration;
+use std::{sync::Arc, thread};
+use tokio::{sync::Mutex, time::Duration};
 use zmq;
 
-use super::appconfig::Settings;
-use super::message::{process_message, Message};
+use super::{
+    message::{process_message, Message},
+    settings::Settings,
+};
 
-use crate::user_state::UserState;
-use crate::xray_op::client;
+use super::{user_state::UserState, xray_op::client};
 
 fn try_connect(endpoint: &str) -> zmq::Socket {
     let context = zmq::Context::new();

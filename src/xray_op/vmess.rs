@@ -7,8 +7,7 @@ use crate::xray_api::xray::{
     proxy::vmess::Account,
 };
 
-use super::client::XrayClients;
-use super::Tag;
+use super::{client::XrayClients, Tag};
 
 #[derive(Clone, Debug)]
 pub struct UserInfo {

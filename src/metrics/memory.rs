@@ -3,9 +3,11 @@ use std::time::Duration;
 use sysinfo::{MemoryRefreshKind, System};
 use tokio::time::sleep;
 
-use crate::appconfig::Settings;
-use crate::metrics::metrics::{AsMetric, Metric};
-use crate::utils::{current_timestamp, send_to_carbon};
+use crate::{
+    metrics::metrics::{AsMetric, Metric},
+    settings::Settings,
+    utils::{current_timestamp, send_to_carbon},
+};
 
 struct MemUsage {
     free: u64,

@@ -3,9 +3,7 @@ use std::{fmt, sync::Arc};
 use tokio::{sync::Mutex, time::Duration};
 use tonic::{Request, Status};
 
-use super::super::user_state::UserState;
-use super::{client::XrayClients, user};
-
+use super::{super::user_state::UserState, client::XrayClients, user};
 use crate::xray_api::xray::app::stats::command::{GetStatsRequest, GetStatsResponse};
 
 #[derive(Debug, Clone)]

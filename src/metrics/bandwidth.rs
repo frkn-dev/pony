@@ -4,9 +4,11 @@ use std::time::Duration;
 use sysinfo::Networks;
 use tokio::time::sleep;
 
-use crate::appconfig::Settings;
-use crate::metrics::metrics::{AsMetric, Metric};
-use crate::utils::{current_timestamp, send_to_carbon};
+use crate::{
+    metrics::metrics::{AsMetric, Metric},
+    settings::Settings,
+    utils::{current_timestamp, send_to_carbon},
+};
 
 #[derive(Debug)]
 struct Bandwidth {

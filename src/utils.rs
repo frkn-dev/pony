@@ -7,7 +7,7 @@ use chrono::{TimeZone, Utc};
 use log::{debug, error, warn, LevelFilter};
 use tokio::{io::AsyncWriteExt, net::TcpStream};
 
-use crate::metrics::metrics::Metric;
+use super::metrics::metrics::Metric;
 
 pub async fn send_to_carbon<T: ToString>(
     metric: &Metric<T>,

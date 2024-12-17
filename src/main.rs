@@ -10,19 +10,19 @@ use tokio::{
 };
 
 use crate::{
-    appconfig::{read_config, Settings},
     metrics::{
         bandwidth::bandwidth_metrics, cpuusage::cpu_metrics, loadavg::loadavg_metrics,
         memory::mem_metrics,
     },
+    settings::{read_config, Settings},
     utils::{current_timestamp, human_readable_date, level_from_settings},
     xray_op::{config, stats::stats_task},
 };
 
-mod appconfig;
 mod jobs;
 mod message;
 mod metrics;
+mod settings;
 mod user;
 mod user_state;
 mod utils;

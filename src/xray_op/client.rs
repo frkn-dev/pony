@@ -5,7 +5,7 @@ use tonic::transport::Channel;
 use log::debug;
 
 use crate::{
-    appconfig::Settings,
+    settings::Settings,
     xray_api::xray::app::{
         proxyman::command::handler_service_client::HandlerServiceClient,
         stats::command::stats_service_client::StatsServiceClient,

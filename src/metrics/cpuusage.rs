@@ -4,9 +4,11 @@ use std::time::Duration;
 use sysinfo::{CpuRefreshKind, RefreshKind, System};
 use tokio::time::sleep;
 
-use crate::appconfig::Settings;
-use crate::metrics::metrics::{AsMetric, Metric};
-use crate::utils::{current_timestamp, round_to_two_decimal_places, send_to_carbon};
+use crate::{
+    metrics::metrics::{AsMetric, Metric},
+    settings::Settings,
+    utils::{current_timestamp, round_to_two_decimal_places, send_to_carbon},
+};
 
 struct CpuUsage<'a> {
     name: &'a str,

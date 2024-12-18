@@ -75,6 +75,8 @@ async fn main() -> std::io::Result<()> {
         info!(">>> Settings: {:?}", settings);
     }
 
+    let debug = settings.app.debug;
+
     let carbon_server = settings.carbon.address.clone();
     let mut tasks: Vec<JoinHandle<()>> = vec![];
 
@@ -90,7 +92,6 @@ async fn main() -> std::io::Result<()> {
         tasks.push(task);
     }
 
-    let debug = settings.app.debug;
     let xray_api_clients = match xray_op::client::create_clients(settings.clone()).await {
         Ok(clients) => clients,
         Err(e) => panic!("Can't create clients: {}", e),

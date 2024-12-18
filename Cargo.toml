@@ -26,6 +26,7 @@ toml = "0.8"
 tokio = { version = "1", features = ["full"] }
 uuid = { version = "1", features = ["v4"] }
 zmq = "0.10"
+default-net = "0.22"
 
 
 [build-dependencies]

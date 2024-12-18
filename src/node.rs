@@ -1,8 +1,9 @@
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+
+use std::{collections::HashMap, net::Ipv4Addr};
 use uuid::Uuid;
 
-use super::Tag;
+use crate::xray_op::Tag;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Inbound {
@@ -33,15 +34,19 @@ impl Inbound {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Node {
-    pub name: String,
+    pub uuid: String,
+    pub hostname: String,
+    pub ipv4: Ipv4Addr,
     pub inbounds: HashMap<Tag, Inbound>,
 }
 
 impl Node {
-    pub fn new(inbounds: HashMap<Tag, Inbound>) -> Self {
+    pub fn new(inbounds: HashMap<Tag, Inbound>, hostname: String, ipv4: Ipv4Addr) -> Self {
         Self {
-            name: Uuid::new_v4().to_string(),
+            uuid: Uuid::new_v4().to_string(),
+            hostname: hostname,
             inbounds: inbounds,
+            ipv4: ipv4,
         }
     }
 
@@ -69,15 +74,6 @@ impl Node {
             Ok(())
         } else {
             Err("Tag not found".to_string())
-        }
-    }
-}
-
-impl Default for Node {
-    fn default() -> Self {
-        Self {
-            name: Uuid::new_v4().to_string(),
-            inbounds: HashMap::new(),
         }
     }
 }

@@ -18,21 +18,24 @@ impl AsMetric for MemUsage {
     type Output = u64;
     fn as_metric(&self, name: &str, settings: Settings) -> Vec<Metric<u64>> {
         let timestamp = current_timestamp();
-        let h = &settings.app.hostname;
-        let env = &settings.app.env;
+        if let Some(hostname) = settings.node.hostname {
+            let env = &settings.node.env;
 
-        vec![
-            Metric {
-                path: format!("{env}.{h}.{name}.total"),
-                value: self.total,
-                timestamp: timestamp,
-            },
-            Metric {
-                path: format!("{env}.{h}.{name}.free"),
-                value: self.free,
-                timestamp: timestamp,
-            },
-        ]
+            vec![
+                Metric {
+                    path: format!("{env}.{hostname}.{name}.total"),
+                    value: self.total,
+                    timestamp: timestamp,
+                },
+                Metric {
+                    path: format!("{env}.{hostname}.{name}.free"),
+                    value: self.free,
+                    timestamp: timestamp,
+                },
+            ]
+        } else {
+            vec![]
+        }
     }
 }
 

@@ -4,7 +4,6 @@ use tonic::{Request, Status};
 
 pub mod client;
 pub mod config;
-pub mod node;
 pub mod shadowsocks;
 pub mod stats;
 pub mod user;

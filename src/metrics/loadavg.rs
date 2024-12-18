@@ -18,26 +18,29 @@ impl AsMetric for LoadAvgWrapper {
 
     fn as_metric(&self, name: &str, settings: Settings) -> Vec<Metric<f64>> {
         let timestamp = current_timestamp();
-        let h = &settings.app.hostname;
-        let env = &settings.app.env;
+        if let Some(hostname) = settings.node.hostname {
+            let env = &settings.node.env;
 
-        vec![
-            Metric {
-                path: format!("{env}.{h}.{name}.1m"),
-                value: self.load_avg.one,
-                timestamp: timestamp,
-            },
-            Metric {
-                path: format!("{env}.{h}.{name}.5m"),
-                value: self.load_avg.five,
-                timestamp: timestamp,
-            },
-            Metric {
-                path: format!("{env}.{h}.{name}.15m"),
-                value: self.load_avg.fifteen,
-                timestamp: timestamp,
-            },
-        ]
+            vec![
+                Metric {
+                    path: format!("{env}.{hostname}.{name}.1m"),
+                    value: self.load_avg.one,
+                    timestamp: timestamp,
+                },
+                Metric {
+                    path: format!("{env}.{hostname}.{name}.5m"),
+                    value: self.load_avg.five,
+                    timestamp: timestamp,
+                },
+                Metric {
+                    path: format!("{env}.{hostname}.{name}.15m"),
+                    value: self.load_avg.fifteen,
+                    timestamp: timestamp,
+                },
+            ]
+        } else {
+            vec![]
+        }
     }
 }
 

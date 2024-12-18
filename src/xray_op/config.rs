@@ -2,7 +2,9 @@ use log::{debug, warn};
 use serde::Deserialize;
 use std::{collections::HashMap, fs::File, io::Read};
 
-use super::{node, Tag};
+use super::Tag;
+
+use crate::node;
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct Inbound {

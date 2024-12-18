@@ -1,5 +1,9 @@
+use default_net::{get_default_interface, get_interfaces};
 use serde::Deserialize;
+use std::env;
+use std::error::Error;
 use std::fs;
+use std::net::Ipv4Addr;
 
 fn default_enabled() -> bool {
     true
@@ -7,14 +11,6 @@ fn default_enabled() -> bool {
 
 fn default_env() -> String {
     "dev".to_string()
-}
-
-fn default_hostname() -> String {
-    "localhost".to_string()
-}
-
-fn default_interface() -> String {
-    "ens3".to_string()
 }
 
 fn default_metrics_delay() -> u64 {
@@ -78,23 +74,66 @@ pub struct LoggingConfig {
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]
-pub struct AppConfig {
-    #[serde(default = "default_enabled")]
-    pub debug: bool,
+pub struct NodeConfig {
     #[serde(default = "default_env")]
     pub env: String,
-    #[serde(default = "default_hostname")]
-    pub hostname: String,
-    #[serde(default = "default_interface")]
-    pub iface: String,
+    pub hostname: Option<String>,
+    pub default_interface: Option<String>,
+    pub ipv4: Option<Ipv4Addr>,
+}
+
+impl NodeConfig {
+    pub fn validate(&mut self) -> Result<(), Box<dyn Error>> {
+        if self.hostname.is_none() {
+            match env::var("HOSTNAME") {
+                Ok(hostname) => {
+                    self.hostname = Some(hostname);
+                }
+                Err(_) => {
+                    return Err("Error -> Define $HOSTNAME env or hostname in config".into());
+                }
+            }
+        }
+
+        if self.default_interface.is_none() && self.ipv4.is_none() {
+            match get_default_interface() {
+                Ok(interface) => {
+                    self.default_interface = Some(interface.name);
+                    if interface.ipv4.is_empty() {
+                        return Err("Cannot get ipv4 addr of interface: {}".into());
+                    } else {
+                        self.ipv4 = Some(interface.ipv4[0].addr);
+                    }
+                }
+                Err(e) => return Err(format!("Cannot get default interface: {}", e).into()),
+            }
+        } else {
+            let interface_name = &self.default_interface.clone().expect("interface");
+            let interfaces = get_interfaces();
+            let interface = interfaces
+                .iter()
+                .find(|interface| &interface.name == interface_name);
+
+            if let Some(interface) = interface.clone() {
+                match interface.ipv4.first() {
+                    Some(network) => self.ipv4 = Some(network.addr),
+                    None => return Err("Cannot get interface addr".into()),
+                }
+            }
+        }
+
+        Ok(())
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Default)]
+pub struct AppConfig {
     #[serde(default = "default_metrics_delay")]
     pub metrics_delay: u64,
-    #[serde(default = "default_enabled")]
-    pub metrics_mode: bool,
-    #[serde(default = "default_enabled")]
-    pub xray_control_mode: bool,
     #[serde(default = "default_file_state")]
     pub file_state: String,
+    #[serde(default = "default_enabled")]
+    pub debug: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]
@@ -115,6 +154,15 @@ pub struct ZmqConfig {
     pub topic: String,
 }
 
+impl ZmqConfig {
+    pub fn validate(self) -> Result<(), Box<dyn Error>> {
+        if !self.endpoint.starts_with("tcp://") {
+            return Err("ZMQ endpoint should start with tcp://".into());
+        }
+        Ok(())
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, Default)]
 pub struct Settings {
     #[serde(default)]
@@ -127,13 +175,21 @@ pub struct Settings {
     pub xray: XrayConfig,
     #[serde(default)]
     pub zmq: ZmqConfig,
+    #[serde(default)]
+    pub node: NodeConfig,
 }
 
 impl Settings {
-    pub fn validate(&self) -> Result<(), String> {
-        if !self.zmq.endpoint.starts_with("tcp://") {
-            return Err("ZMQ endpoint should starts with tcp://".into());
-        }
+    pub fn validate(&mut self) -> Result<(), String> {
+        self.node
+            .validate()
+            .map_err(|e| format!("Node configuration validation error: {}", e))?;
+
+        self.zmq
+            .clone()
+            .validate()
+            .map_err(|e| format!("Zmq configuration validation error: {}", e))?;
+
         Ok(())
     }
 }

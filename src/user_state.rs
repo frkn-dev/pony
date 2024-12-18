@@ -10,13 +10,13 @@ use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
 };
 
-use super::xray_op::{
-    node::{Inbound, Node},
-    stats::StatType,
-    Tag,
-};
+use crate::xray_op::{stats::StatType, Tag};
 
-use super::user::{User, UserStatus};
+use super::{
+    node::{Inbound, Node},
+    settings::Settings,
+    user::{User, UserStatus},
+};
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct UserState {
@@ -26,11 +26,15 @@ pub struct UserState {
 }
 
 impl UserState {
-    pub fn new(file_path: String, inbounds: HashMap<Tag, Inbound>) -> Self {
+    pub fn new(settings: Settings, inbounds: HashMap<Tag, Inbound>) -> Self {
         UserState {
             users: HashMap::new(),
-            file_path: file_path,
-            node: Node::new(inbounds),
+            file_path: settings.app.file_state,
+            node: Node::new(
+                inbounds,
+                settings.node.hostname.expect("hostname"),
+                settings.node.ipv4.expect("ipv4addr"),
+            ),
         }
     }
 

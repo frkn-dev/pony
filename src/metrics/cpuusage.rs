@@ -39,14 +39,17 @@ impl AsMetric for CpuUsage<'_> {
 
     fn as_metric(&self, name: &str, settings: Settings) -> Vec<Metric<f32>> {
         let timestamp = current_timestamp();
-        let h = &settings.app.hostname;
-        let env = &settings.app.env;
+        if let Some(hostname) = settings.node.hostname {
+            let env = &settings.node.env;
 
-        vec![Metric {
-            path: format!("{env}.{h}.cpu_usage.{name}.percentage"),
-            value: self.usage,
-            timestamp,
-        }]
+            vec![Metric {
+                path: format!("{env}.{hostname}.cpu_usage.{name}.percentage"),
+                value: self.usage,
+                timestamp,
+            }]
+        } else {
+            vec![]
+        }
     }
 }
 

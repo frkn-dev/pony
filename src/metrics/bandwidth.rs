@@ -44,31 +44,34 @@ impl AsMetric for Bandwidth {
 
     fn as_metric(&self, interface: &str, settings: Settings) -> Vec<Metric<u64>> {
         let timestamp = current_timestamp();
-        let h = &settings.app.hostname;
-        let env = &settings.app.env;
+        if let Some(hostname) = settings.node.hostname {
+            let env = &settings.node.env;
 
-        vec![
-            Metric {
-                path: format!("{env}.{h}.network.{interface}.rx_bps"),
-                value: self.rx_bps,
-                timestamp,
-            },
-            Metric {
-                path: format!("{env}.{h}.network.{interface}.tx_bps"),
-                value: self.tx_bps,
-                timestamp,
-            },
-            Metric {
-                path: format!("{env}.{h}.network.{interface}.rx_err"),
-                value: self.rx_err,
-                timestamp,
-            },
-            Metric {
-                path: format!("{env}.{h}.network.{interface}.tx_err"),
-                value: self.tx_err,
-                timestamp,
-            },
-        ]
+            vec![
+                Metric {
+                    path: format!("{env}.{hostname}.network.{interface}.rx_bps"),
+                    value: self.rx_bps,
+                    timestamp,
+                },
+                Metric {
+                    path: format!("{env}.{hostname}.network.{interface}.tx_bps"),
+                    value: self.tx_bps,
+                    timestamp,
+                },
+                Metric {
+                    path: format!("{env}.{hostname}.network.{interface}.rx_err"),
+                    value: self.rx_err,
+                    timestamp,
+                },
+                Metric {
+                    path: format!("{env}.{hostname}.network.{interface}.tx_err"),
+                    value: self.tx_err,
+                    timestamp,
+                },
+            ]
+        } else {
+            vec![]
+        }
     }
 }
 
@@ -76,28 +79,30 @@ pub async fn bandwidth_metrics(server: String, settings: Settings) {
     info!("Starting bandwidth metric loop");
     let mut networks = Networks::new_with_refreshed_list();
 
-    loop {
-        let _ = networks.refresh(true);
-        let res = networks
-            .iter()
-            .find(|&(interface, _)| interface == &settings.app.iface);
+    if let Some(ref interface) = settings.node.default_interface {
+        loop {
+            let _ = networks.refresh(true);
+            let res = networks
+                .iter()
+                .find(|&(interface, _)| interface == interface);
 
-        match res {
-            Some((interface, data)) => {
-                let bandwidth = Bandwidth {
-                    rx_bps: data.packets_received(),
-                    tx_bps: data.packets_transmitted(),
-                    rx_err: data.errors_on_received(),
-                    tx_err: data.errors_on_transmitted(),
-                };
+            match res {
+                Some((interface, data)) => {
+                    let bandwidth = Bandwidth {
+                        rx_bps: data.packets_received(),
+                        tx_bps: data.packets_transmitted(),
+                        rx_err: data.errors_on_received(),
+                        tx_err: data.errors_on_transmitted(),
+                    };
 
-                let metrics = bandwidth.as_metric(interface, settings.clone());
-                for metric in metrics {
-                    let _ = send_to_carbon(&metric, &server).await;
+                    let metrics = bandwidth.as_metric(interface, settings.clone());
+                    for metric in metrics {
+                        let _ = send_to_carbon(&metric, &server).await;
+                    }
                 }
+                None => println!("Interface '{}' not found.", interface),
             }
-            None => println!("Interface '{}' not found.", &settings.app.iface),
+            sleep(Duration::from_secs(settings.app.metrics_delay)).await;
         }
-        sleep(Duration::from_secs(settings.app.metrics_delay)).await;
     }
 }

@@ -22,6 +22,7 @@ use crate::{
 mod jobs;
 mod message;
 mod metrics;
+mod node;
 mod settings;
 mod user;
 mod user_state;
@@ -43,7 +44,7 @@ async fn main() -> std::io::Result<()> {
 
     println!("Config file {:?}", args.config);
 
-    let settings: Settings = match read_config(&args.config) {
+    let mut settings: Settings = match read_config(&args.config) {
         Ok(settings) => settings,
         Err(err) => {
             println!("Wrong config file: {}", err);
@@ -68,7 +69,7 @@ async fn main() -> std::io::Result<()> {
         .unwrap();
 
     if let Err(e) = settings.validate() {
-        eprintln!("Error in settings: {}", e);
+        error!("Error in settings: {}", e);
         std::process::exit(1);
     } else {
         info!(">>> Settings: {:?}", settings);
@@ -77,54 +78,46 @@ async fn main() -> std::io::Result<()> {
     let carbon_server = settings.carbon.address.clone();
     let mut tasks: Vec<JoinHandle<()>> = vec![];
 
-    if settings.app.metrics_mode {
-        info!(">>> Running metric collector sends to {:?}", carbon_server);
-        let metrics_tasks: Vec<JoinHandle<()>> = vec![
-            tokio::spawn(bandwidth_metrics(carbon_server.clone(), settings.clone())),
-            tokio::spawn(cpu_metrics(carbon_server.clone(), settings.clone())),
-            tokio::spawn(loadavg_metrics(carbon_server.clone(), settings.clone())),
-            tokio::spawn(mem_metrics(carbon_server.clone(), settings.clone())),
-        ];
+    info!(">>> Running metric collector sends to {:?}", carbon_server);
+    let metrics_tasks: Vec<JoinHandle<()>> = vec![
+        tokio::spawn(bandwidth_metrics(carbon_server.clone(), settings.clone())),
+        tokio::spawn(cpu_metrics(carbon_server.clone(), settings.clone())),
+        tokio::spawn(loadavg_metrics(carbon_server.clone(), settings.clone())),
+        tokio::spawn(mem_metrics(carbon_server.clone(), settings.clone())),
+    ];
 
-        for task in metrics_tasks {
-            tasks.push(task);
-        }
+    for task in metrics_tasks {
+        tasks.push(task);
     }
 
-    if settings.app.xray_control_mode {
-        let debug = settings.app.debug;
-        let xray_api_clients = match xray_op::client::create_clients(settings.clone()).await {
-            Ok(clients) => clients,
-            Err(e) => panic!("Can't create clients: {}", e),
-        };
+    let debug = settings.app.debug;
+    let xray_api_clients = match xray_op::client::create_clients(settings.clone()).await {
+        Ok(clients) => clients,
+        Err(e) => panic!("Can't create clients: {}", e),
+    };
 
-        let xray_config = match config::read_xray_config(&settings.xray.xray_config_path) {
-            Ok(config) => {
-                debug!(
-                    "Xray Config: Successfully read Xray config file: {:?}",
-                    config
-                );
-
-                config.validate();
+    let xray_config = match config::read_xray_config(&settings.xray.xray_config_path) {
+        Ok(config) => {
+            debug!(
+                "Xray Config: Successfully read Xray config file: {:?}",
                 config
-            }
-            Err(e) => {
-                panic!("Xray Config:: Error reading JSON file: {}", e);
-            }
-        };
+            );
 
-        let user_state = match user_state::UserState::load_from_file_async(
-            settings.app.file_state.clone(),
-        )
-        .await
-        {
+            config.validate();
+            config
+        }
+        Err(e) => {
+            panic!("Xray Config:: Error reading JSON file: {}", e);
+        }
+    };
+
+    let user_state =
+        match user_state::UserState::load_from_file_async(settings.app.file_state.clone()).await {
             Ok(state) => Arc::new(Mutex::new(state)),
             Err(e) => {
                 debug!("State created from scratch, {}", e);
-                let user_state = user_state::UserState::new(
-                    settings.app.file_state.clone(),
-                    xray_config.get_inbounds(),
-                );
+                let user_state =
+                    user_state::UserState::new(settings.clone(), xray_config.get_inbounds());
                 if debug {
                     let _ = user_state.save_to_file_async(&user_state.file_path).await;
                 }
@@ -132,68 +125,67 @@ async fn main() -> std::io::Result<()> {
             }
         };
 
-        let inbounds = {
-            let state = user_state.lock().await;
+    let inbounds = {
+        let state = user_state.lock().await;
 
-            state.node.inbounds.clone()
-        };
+        state.node.inbounds.clone()
+    };
 
-        let sync_state_futures: Vec<_> = inbounds
-            .keys()
-            .map(|tag| jobs::sync_state(user_state.clone(), xray_api_clients.clone(), tag.clone()))
-            .collect();
+    let sync_state_futures: Vec<_> = inbounds
+        .keys()
+        .map(|tag| jobs::sync_state(user_state.clone(), xray_api_clients.clone(), tag.clone()))
+        .collect();
 
-        let results = join_all(sync_state_futures).await;
+    let results = join_all(sync_state_futures).await;
 
-        for result in results {
-            if let Err(e) = result {
-                error!("Error during sync: {:?}", e);
+    for result in results {
+        if let Err(e) = result {
+            error!("Error during sync: {:?}", e);
+        }
+    }
+
+    let stats_task = tokio::spawn(stats_task(
+        xray_api_clients.clone(),
+        user_state.clone(),
+        debug,
+    ));
+    tasks.push(stats_task);
+
+    let _ = {
+        let user_state = user_state.clone();
+        tasks.push(tokio::spawn(zmq::subscriber(
+            xray_api_clients.clone(),
+            settings.clone(),
+            user_state,
+            debug,
+        )))
+    };
+
+    let restore_trial_users_handle = tokio::spawn({
+        debug!("Running restoring trial users job");
+        let state = user_state.clone();
+        let clients = xray_api_clients.clone();
+        async move {
+            loop {
+                jobs::restore_trial_users(state.clone(), clients.clone(), debug).await;
+                sleep(Duration::from_secs(60)).await;
             }
         }
+    });
+    tasks.push(restore_trial_users_handle);
 
-        let stats_task = tokio::spawn(stats_task(
-            xray_api_clients.clone(),
-            user_state.clone(),
-            debug,
-        ));
-        tasks.push(stats_task);
-
-        let _ = {
-            let user_state = user_state.clone();
-            tasks.push(tokio::spawn(zmq::subscriber(
-                xray_api_clients.clone(),
-                settings.clone(),
-                user_state,
-                debug,
-            )))
-        };
-
-        let restore_trial_users_handle = tokio::spawn({
-            debug!("Running restoring trial users job");
-            let state = user_state.clone();
-            let clients = xray_api_clients.clone();
-            async move {
-                loop {
-                    jobs::restore_trial_users(state.clone(), clients.clone(), debug).await;
-                    sleep(Duration::from_secs(60)).await;
-                }
+    let block_trial_users_by_limit_handle = tokio::spawn({
+        debug!("Running block trial users job");
+        let state = user_state.clone();
+        let clients = xray_api_clients.clone();
+        async move {
+            loop {
+                sleep(Duration::from_secs(60)).await;
+                jobs::block_trial_users_by_limit(state.clone(), clients.clone(), debug).await;
             }
-        });
-        tasks.push(restore_trial_users_handle);
-
-        let block_trial_users_by_limit_handle = tokio::spawn({
-            debug!("Running block trial users job");
-            let state = user_state.clone();
-            let clients = xray_api_clients.clone();
-            async move {
-                loop {
-                    sleep(Duration::from_secs(60)).await;
-                    jobs::block_trial_users_by_limit(state.clone(), clients.clone(), debug).await;
-                }
-            }
-        });
-        tasks.push(block_trial_users_by_limit_handle);
-    }
+        }
+    });
+    tasks.push(block_trial_users_by_limit_handle);
 
     let _ = futures::future::try_join_all(tasks).await;
     Ok(())

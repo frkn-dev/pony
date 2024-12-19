@@ -53,6 +53,26 @@ fn default_xray_config_path() -> String {
     "xray-config.json".to_string()
 }
 
+fn default_pg_address() -> String {
+    "localhost".to_string()
+}
+
+fn default_pg_port() -> i16 {
+    5432
+}
+
+fn default_pg_db() -> String {
+    "postgres".to_string()
+}
+
+fn default_pg_username() -> String {
+    "postgres".to_string()
+}
+
+fn default_pg_password() -> String {
+    "password".to_string()
+}
+
 pub fn read_config(config_file: &str) -> Result<Settings, Box<dyn std::error::Error>> {
     let config_str = fs::read_to_string(config_file)?;
     let settings: Settings = toml::from_str(&config_str)?;
@@ -63,6 +83,20 @@ pub fn read_config(config_file: &str) -> Result<Settings, Box<dyn std::error::Er
 pub struct CarbonConfig {
     #[serde(default = "default_carbon_server")]
     pub address: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Default)]
+pub struct PostgresConfig {
+    #[serde(default = "default_pg_address")]
+    pub host: String,
+    #[serde(default = "default_pg_port")]
+    pub port: i16,
+    #[serde(default = "default_pg_db")]
+    pub db: String,
+    #[serde(default = "default_pg_username")]
+    pub username: String,
+    #[serde(default = "default_pg_password")]
+    pub password: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]
@@ -177,6 +211,8 @@ pub struct Settings {
     pub zmq: ZmqConfig,
     #[serde(default)]
     pub node: NodeConfig,
+    #[serde(default)]
+    pub pg: PostgresConfig,
 }
 
 impl Settings {

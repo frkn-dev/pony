@@ -13,3 +13,4 @@ node_modules
 users.json
 xray-config-mk2nl.json
 connection-lines.txt
+dev/data

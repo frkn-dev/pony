@@ -1,4 +1,5 @@
 use tonic::Request;
+use uuid::Uuid;
 
 use crate::xray_api::xray::{
     app::proxyman::command::{AddUserOperation, AlterInboundRequest},
@@ -14,11 +15,11 @@ pub struct UserInfo {
     pub in_tag: Tag,
     pub level: u32,
     pub email: String,
-    pub uuid: String,
+    pub uuid: Uuid,
 }
 
 impl UserInfo {
-    pub fn new(uuid: String) -> Self {
+    pub fn new(uuid: Uuid) -> Self {
         Self {
             in_tag: Tag::Vmess,
             level: 0,
@@ -30,7 +31,7 @@ impl UserInfo {
 
 pub async fn add_user(clients: XrayClients, user_info: UserInfo) -> Result<(), tonic::Status> {
     let vmess_account = Account {
-        id: user_info.uuid.clone(),
+        id: user_info.uuid.to_string(),
         security_settings: None,
         tests_enabled: String::new(),
     };

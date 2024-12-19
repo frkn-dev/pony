@@ -3,7 +3,7 @@ use std::{fmt, sync::Arc};
 use tokio::{sync::Mutex, time::Duration};
 use tonic::{Request, Status};
 
-use super::{super::user_state::UserState, client::XrayClients, user};
+use super::{super::state::State, client::XrayClients, user};
 use crate::xray_api::xray::app::stats::command::{GetStatsRequest, GetStatsResponse};
 
 #[derive(Debug, Clone)]
@@ -21,7 +21,7 @@ impl fmt::Display for StatType {
     }
 }
 
-pub async fn stats_task(clients: XrayClients, state: Arc<Mutex<UserState>>, debug: bool) {
+pub async fn stats_task(clients: XrayClients, state: Arc<Mutex<State>>, debug: bool) {
     debug!("Stats task running");
     loop {
         let user_state = state.lock().await;
@@ -42,12 +42,12 @@ pub async fn stats_task(clients: XrayClients, state: Arc<Mutex<UserState>>, debu
 
                     if let Some(downlink) = response.0.stat {
                         let _ = user_state
-                            .update_user_downlink(&user_id, downlink.value / (1024 * 1024))
+                            .update_user_downlink(*user_id, downlink.value / (1024 * 1024))
                             .await;
                     }
                     if let Some(uplink) = response.1.stat {
                         let _ = user_state
-                            .update_user_uplink(&user_id, uplink.value / (1024 * 1024))
+                            .update_user_uplink(*user_id, uplink.value / (1024 * 1024))
                             .await;
                     }
                 }

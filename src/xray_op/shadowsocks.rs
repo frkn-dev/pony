@@ -1,4 +1,5 @@
 use tonic::{Request, Status};
+use uuid::Uuid;
 
 use crate::xray_api::xray::{
     app::proxyman::command::{AddUserOperation, AlterInboundRequest},
@@ -13,7 +14,6 @@ use super::{client::XrayClients, Tag};
 #[derive(Clone, Debug)]
 pub struct UserInfo {
     pub cipher_type: String,
-    pub uuid: String,
     pub in_tag: Tag,
     pub level: u32,
     pub email: String,
@@ -21,9 +21,8 @@ pub struct UserInfo {
 }
 
 impl UserInfo {
-    pub fn new(uuid: String, password: Option<String>) -> Self {
+    pub fn new(uuid: Uuid, password: Option<String>) -> Self {
         Self {
-            uuid: uuid.clone(),
             in_tag: Tag::Shadowsocks,
             level: 0,
             email: format!("{}@{}", uuid, "pony"),

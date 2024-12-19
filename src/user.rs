@@ -23,11 +23,11 @@ pub struct User {
 }
 
 impl User {
-    pub fn new(limit: i64, trial: bool, password: Option<String>) -> Self {
+    pub fn new(trial: bool, limit: i64, password: Option<String>) -> Self {
         let now = Utc::now();
         Self {
-            limit,
             trial,
+            limit,
             status: UserStatus::Active,
             uplink: None,
             downlink: None,

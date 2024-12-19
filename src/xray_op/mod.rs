@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use tonic::{Request, Status};
+use uuid::Uuid;
 
 pub mod client;
 pub mod config;
@@ -55,7 +56,7 @@ impl std::str::FromStr for Tag {
     }
 }
 
-pub async fn remove_user<Tag>(clients: XrayClients, user_id: String, tag: Tag) -> Result<(), Status>
+pub async fn remove_user<Tag>(clients: XrayClients, user_id: Uuid, tag: Tag) -> Result<(), Status>
 where
     Tag: ToString,
 {

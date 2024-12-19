@@ -9,7 +9,7 @@ async function runPublisher() {
 
     const createMessage = JSON.stringify({
         action: "create",
-        user_id: "b0637128-1da5-41e8-a732-0892a76c6ce3",
+        user_id: "ff9aafb1-1102-417b-874c-42418f414c1b",
         password: "TEST",
 });
     console.log("Sending create message:", createMessage);

@@ -8,7 +8,7 @@ use super::{
     settings::Settings,
 };
 
-use super::{user_state::UserState, xray_op::client};
+use super::{state::State, xray_op::client};
 
 fn try_connect(endpoint: &str) -> zmq::Socket {
     let context = zmq::Context::new();
@@ -36,7 +36,7 @@ fn try_connect(endpoint: &str) -> zmq::Socket {
 pub async fn subscriber(
     clients: client::XrayClients,
     settings: Settings,
-    state: Arc<Mutex<UserState>>,
+    state: Arc<Mutex<State>>,
     debug: bool,
 ) {
     let subscriber = try_connect(&settings.zmq.endpoint);
@@ -67,8 +67,8 @@ pub async fn subscriber(
                         let state = state.clone();
                         if let Err(err) = process_message(
                             clients.clone(),
-                            message,
-                            state,
+                            message.clone(),
+                            state.clone(),
                             settings.xray.xray_daily_limit_mb,
                             debug,
                         )

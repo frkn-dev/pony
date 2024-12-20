@@ -68,11 +68,4 @@ impl User {
             }
         }
     }
-
-    pub fn has_proto_tag(&self, tag: Tag) -> bool {
-        if let Some(proto_tags) = &self.proto {
-            return proto_tags.contains(&tag);
-        }
-        false
-    }
 }

@@ -1,9 +1,22 @@
+use chrono::NaiveDateTime;
+use serde::Deserialize;
+use serde::Serialize;
 use std::error::Error;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio_postgres::{Client, NoTls};
+use uuid::Uuid;
 
 use crate::settings::Settings;
+
+#[derive(Deserialize, Serialize, Debug, Clone)]
+pub struct UserRow {
+    pub user_id: Uuid,
+    pub trial: bool,
+    pub password: String,
+    pub cluster: String,
+    pub created: NaiveDateTime,
+}
 
 pub async fn postgres_client(settings: Settings) -> Result<Arc<Mutex<Client>>, Box<dyn Error>> {
     let pg_settings = settings.pg.clone();
@@ -26,4 +39,36 @@ pub async fn postgres_client(settings: Settings) -> Result<Arc<Mutex<Client>>, B
     });
 
     Ok(Arc::new(Mutex::new(client)))
+}
+
+pub async fn users_db_request(client: Arc<Mutex<Client>>) -> Result<Vec<UserRow>, Box<dyn Error>> {
+    let client = client.lock().await;
+
+    let rows = client
+        .query(
+            "SELECT id, trial, password, cluster, created  FROM users where cluster = 'mk2' limit 10",
+            &[],
+        )
+        .await?;
+
+    let users: Vec<UserRow> = rows
+        .into_iter()
+        .map(|row| {
+            let user_id: Uuid = row.get(0);
+            let trial: bool = row.get(1);
+            let password: String = row.get(2);
+            let cluster: String = row.get(3);
+            let created: NaiveDateTime = row.get(4);
+
+            UserRow {
+                user_id,
+                trial,
+                password,
+                cluster,
+                created,
+            }
+        })
+        .collect();
+
+    Ok(users)
 }

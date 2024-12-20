@@ -9,7 +9,7 @@ use crate::node;
 #[derive(Debug, Deserialize, Clone)]
 pub struct Inbound {
     pub tag: String,
-    pub port: i16,
+    pub port: u16,
 }
 
 #[derive(Debug, Deserialize)]

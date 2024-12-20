@@ -21,9 +21,10 @@ impl fmt::Display for StatType {
     }
 }
 
-pub async fn stats_task(clients: XrayClients, state: Arc<Mutex<State>>, debug: bool) {
+pub async fn stats_task(clients: XrayClients, state: Arc<Mutex<State>>) {
     debug!("Stats task running");
     loop {
+        // User traffic uplink/downlink
         let user_state = state.lock().await;
         let users = user_state.users.clone();
         drop(user_state);
@@ -57,7 +58,8 @@ pub async fn stats_task(clients: XrayClients, state: Arc<Mutex<State>>, debug: b
             }
         }
 
-        if debug {
+        // Node traffic uplink/downnlink
+        let _ = {
             let user_state = state.lock().await;
             let node = user_state.node.clone();
             drop(user_state);
@@ -90,33 +92,30 @@ pub async fn stats_task(clients: XrayClients, state: Arc<Mutex<State>>, debug: b
                     }
                 }
             }
+        };
 
-            let _ = {
-                let user_state = state.lock().await;
-                let node = user_state.node.clone();
-                drop(user_state);
+        // User count per a node inbound
+        let _ = {
+            let user_state = state.lock().await;
+            let node = user_state.node.clone();
+            drop(user_state);
 
-                for inbound in node.inbounds.keys() {
-                    let mut user_state = state.lock().await;
+            for inbound in node.inbounds.keys() {
+                let mut user_state = state.lock().await;
 
-                    match user::user_count(clients.clone(), inbound.clone()).await {
-                        Ok(count) => {
-                            let _ = user_state
-                                .update_node_user_count(inbound.clone(), count)
-                                .await;
-                        }
-                        Err(e) => {
-                            warn!("Failed to fetch user count for tag {}: {}", inbound, e);
-                        }
+                match user::user_count(clients.clone(), inbound.clone()).await {
+                    Ok(count) => {
+                        let _ = user_state
+                            .update_node_user_count(inbound.clone(), count)
+                            .await;
+                    }
+                    Err(e) => {
+                        warn!("Failed to fetch user count for tag {}: {}", inbound, e);
                     }
                 }
-            };
-        }
+            }
+        };
 
-        if debug {
-            let user_state = state.lock().await;
-            let _ = user_state.save_to_file_async("Stats task").await;
-        }
         tokio::time::sleep(Duration::from_secs(300)).await;
     }
 }

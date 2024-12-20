@@ -35,6 +35,8 @@ impl State {
                 inbounds,
                 settings.node.hostname.expect("hostname"),
                 settings.node.ipv4.expect("ipv4addr"),
+                settings.node.env,
+                settings.node.uuid,
             ),
         }
     }
@@ -237,7 +239,7 @@ impl State {
     pub async fn save_to_file_async(&self, msg: &str) -> Result<(), Box<dyn Error>> {
         let file_content = match serde_json::to_string_pretty(&self) {
             Ok(content) => {
-                debug!("CONTENT {}", content);
+                debug!("content len to save {}", content.len());
                 content
             }
             Err(e) => {

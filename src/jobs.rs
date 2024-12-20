@@ -1,17 +1,15 @@
-use chrono::NaiveDateTime;
+use crate::postgres::UserRow;
 use chrono::{Duration, Utc};
-use log::info;
-use log::{debug, error};
-use serde::Deserialize;
-use serde::Serialize;
+use log::{debug, error, info};
 use std::{error::Error, sync::Arc};
 use tokio::sync::Mutex;
-use tokio_postgres::Client;
-use uuid::Uuid;
+use tokio::time::{sleep, Duration as TokioDuration};
 
-use crate::actions;
-use crate::settings::Settings;
-use crate::user::User;
+use reqwest::Client;
+use serde::{Deserialize, Serialize};
+use serde_json::json;
+
+use crate::{actions, settings::Settings, user::User};
 
 use super::xray_op::{
     client::XrayClients, remove_user, stats::get_traffic_stats, stats::StatType, vless, vmess, Tag,
@@ -19,58 +17,48 @@ use super::xray_op::{
 
 use super::{state::State, user::UserStatus};
 
-#[derive(Deserialize, Serialize, Debug, Clone)]
-pub struct UserRow {
-    pub user_id: Uuid,
-    pub trial: bool,
-    pub password: String,
-    pub cluster: String,
-    pub created: NaiveDateTime,
+pub async fn register_node(
+    state: Arc<Mutex<State>>,
+    settings: Settings,
+) -> Result<(), Box<dyn Error>> {
+    let node_state = state.lock().await;
+    let node = node_state.node.clone();
+    //drop(state);
+
+    debug!("node {:?} ", node.uuid);
+    let client = Client::new();
+
+    let endpoint = format!("{}/node/register", settings.api.endpoint_address);
+    let res = client.post(endpoint).json(&node).send().await?;
+
+    if res.status().is_success() {
+        debug!("Req success!");
+    } else {
+        error!("Req error: {}", res.status());
+    }
+
+    Ok(())
 }
 
-pub async fn users_db_request(client: Arc<Mutex<Client>>) -> Result<Vec<UserRow>, Box<dyn Error>> {
-    let client = client.lock().await;
+pub async fn run_save_state_to_file(state: Arc<Mutex<State>>, interval_secs: u64) {
+    loop {
+        sleep(TokioDuration::from_secs(interval_secs)).await;
 
-    let rows = client
-        .query(
-            "SELECT id, trial, password, cluster, created  FROM users where cluster = 'mk2'",
-            &[],
-        )
-        .await?;
-
-    let users: Vec<UserRow> = rows
-        .into_iter()
-        .map(|row| {
-            let user_id: Uuid = row.get(0);
-            let trial: bool = row.get(1);
-            let password: String = row.get(2);
-            let cluster: String = row.get(3);
-            let created: NaiveDateTime = row.get(4);
-
-            UserRow {
-                user_id,
-                trial,
-                password,
-                cluster,
-                created,
-            }
-        })
-        .collect();
-
-    Ok(users)
+        let state = state.lock().await;
+        if let Err(e) = state.save_to_file_async("DEBUG").await {
+            error!("Cannot save state file: {}", e);
+        } else {
+            debug!("State file saved to file");
+        }
+    }
 }
 
-pub async fn init(
+pub async fn init_state(
     state: Arc<Mutex<State>>,
     settings: Settings,
     clients: XrayClients,
     db_user: UserRow,
-    debug: bool,
 ) -> Result<(), Box<dyn Error>> {
-    // let mut user_state = state_lock.clone();
-    //
-    // drop(state_lock);
-
     debug!("Running sync for {:?} {:?}", db_user.user_id, db_user.trial);
 
     let user = User::new(
@@ -105,24 +93,17 @@ pub async fn init(
     {
         Ok(_) => {
             info!("Create: User added: {:?}", db_user.user_id);
-            //if debug {
-            //    let _ = user_state.save_to_file_async("Create action").await;
-            //}
-
             return Ok(());
         }
         Err(_e) => {
             let mut user_state = state.lock().await;
             let _ = user_state.remove_user(db_user.user_id).await;
-            //if debug {
-            //    let _ = user_state.save_to_file_async("Create action").await;
-            //}
             return Err(format!("Create: Failed to add user {} to state", db_user.user_id).into());
         }
     }
 }
 
-pub async fn restore_trial_users(state: Arc<Mutex<State>>, clients: XrayClients, debug: bool) {
+pub async fn restore_trial_users(state: Arc<Mutex<State>>, clients: XrayClients) {
     let trial_users = state.lock().await.get_all_trial_users(UserStatus::Expired);
     let now = Utc::now();
 
@@ -177,19 +158,12 @@ pub async fn restore_trial_users(state: Arc<Mutex<State>>, clients: XrayClients,
                         debug!("Successfully restored user in state: {}", user_id);
                     }
                 }
-                if debug {
-                    let _ = state.save_to_file_async("Restore job").await;
-                }
             }
         });
     }
 }
 
-pub async fn block_trial_users_by_limit(
-    state: Arc<Mutex<State>>,
-    clients: XrayClients,
-    debug: bool,
-) {
+pub async fn block_trial_users_by_limit(state: Arc<Mutex<State>>, clients: XrayClients) {
     let trial_users = state.lock().await.get_all_trial_users(UserStatus::Active);
 
     for (user_id, user) in trial_users {
@@ -240,9 +214,6 @@ pub async fn block_trial_users_by_limit(
 
                 if let Err(e) = state.expire_user(user_id).await {
                     error!("Failed to update status for user {}: {:?}", user_id, e);
-                }
-                if debug {
-                    let _ = state.save_to_file_async("Block by limit job").await;
                 }
             }
         });

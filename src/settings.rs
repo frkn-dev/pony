@@ -4,6 +4,13 @@ use std::env;
 use std::error::Error;
 use std::fs;
 use std::net::Ipv4Addr;
+use uuid::Uuid;
+
+pub fn read_config(config_file: &str) -> Result<Settings, Box<dyn std::error::Error>> {
+    let config_str = fs::read_to_string(config_file)?;
+    let settings: Settings = toml::from_str(&config_str)?;
+    Ok(settings)
+}
 
 fn default_enabled() -> bool {
     true
@@ -26,6 +33,7 @@ fn default_carbon_server() -> String {
 }
 
 fn default_xray_api_endpoint() -> String {
+    // ToDo - parse xray-config.yaml
     "http://localhost:23456".to_string()
 }
 
@@ -38,6 +46,7 @@ fn default_logfile() -> String {
 }
 
 fn default_zmq_endpoint() -> String {
+    // ToDo - address port separate fields
     "tcp://localhost:3000".to_string()
 }
 
@@ -57,7 +66,7 @@ fn default_pg_address() -> String {
     "localhost".to_string()
 }
 
-fn default_pg_port() -> i16 {
+fn default_pg_port() -> u16 {
     5432
 }
 
@@ -73,30 +82,46 @@ fn default_pg_password() -> String {
     "password".to_string()
 }
 
-pub fn read_config(config_file: &str) -> Result<Settings, Box<dyn std::error::Error>> {
-    let config_str = fs::read_to_string(config_file)?;
-    let settings: Settings = toml::from_str(&config_str)?;
-    Ok(settings)
+fn default_trial_users_jobs_timeout_sec() -> u64 {
+    60
+}
+
+fn default_api_endpoint_address() -> String {
+    "https://localhost:5006".to_string()
+}
+
+fn default_uuid() -> Uuid {
+    Uuid::parse_str("9557b391-01cb-4031-a3f5-6cbdd749bcff").unwrap()
+}
+
+#[derive(Clone, Debug, Deserialize, Default)]
+pub struct ApiConfig {
+    #[serde(default = "default_api_endpoint_address")]
+    pub endpoint_address: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Default)]
+pub struct AppConfig {
+    #[serde(default = "default_metrics_delay")]
+    pub metrics_delay: u64,
+    #[serde(default = "default_file_state")]
+    pub file_state: String,
+    #[serde(default = "default_enabled")]
+    pub debug: bool,
+    #[serde(default = "default_enabled")]
+    pub trial_users_enabled: bool,
+    #[serde(default = "default_enabled")]
+    pub stat_enabled: bool,
+    #[serde(default = "default_enabled")]
+    pub metrics_enabled: bool,
+    #[serde(default = "default_trial_users_jobs_timeout_sec")]
+    pub trial_jobs_timeout: u64,
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]
 pub struct CarbonConfig {
     #[serde(default = "default_carbon_server")]
     pub address: String,
-}
-
-#[derive(Clone, Debug, Deserialize, Default)]
-pub struct PostgresConfig {
-    #[serde(default = "default_pg_address")]
-    pub host: String,
-    #[serde(default = "default_pg_port")]
-    pub port: i16,
-    #[serde(default = "default_pg_db")]
-    pub db: String,
-    #[serde(default = "default_pg_username")]
-    pub username: String,
-    #[serde(default = "default_pg_password")]
-    pub password: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]
@@ -114,6 +139,9 @@ pub struct NodeConfig {
     pub hostname: Option<String>,
     pub default_interface: Option<String>,
     pub ipv4: Option<Ipv4Addr>,
+    //todo uuid from PG table
+    #[serde(default = "default_uuid")]
+    pub uuid: Uuid,
 }
 
 impl NodeConfig {
@@ -161,13 +189,17 @@ impl NodeConfig {
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]
-pub struct AppConfig {
-    #[serde(default = "default_metrics_delay")]
-    pub metrics_delay: u64,
-    #[serde(default = "default_file_state")]
-    pub file_state: String,
-    #[serde(default = "default_enabled")]
-    pub debug: bool,
+pub struct PostgresConfig {
+    #[serde(default = "default_pg_address")]
+    pub host: String,
+    #[serde(default = "default_pg_port")]
+    pub port: u16,
+    #[serde(default = "default_pg_db")]
+    pub db: String,
+    #[serde(default = "default_pg_username")]
+    pub username: String,
+    #[serde(default = "default_pg_password")]
+    pub password: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]
@@ -213,6 +245,8 @@ pub struct Settings {
     pub node: NodeConfig,
     #[serde(default)]
     pub pg: PostgresConfig,
+    #[serde(default)]
+    pub api: ApiConfig,
 }
 
 impl Settings {

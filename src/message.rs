@@ -34,7 +34,6 @@ pub async fn process_message(
     message: Message,
     state: Arc<Mutex<State>>,
     config_daily_limit_mb: i64,
-    debug: bool,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     match message.action {
         Action::Create => {
@@ -68,17 +67,10 @@ pub async fn process_message(
             {
                 Ok(_) => {
                     info!("Create: User added: {:?}", message.user_id);
-                    if debug {
-                        let _ = user_state.save_to_file_async("Create action").await;
-                    }
-
                     Ok(())
                 }
                 Err(_e) => {
                     let _ = user_state.remove_user(user_id).await;
-                    //if debug {
-                    //    let _ = user_state.save_to_file_async("Create action").await;
-                    //}
                     return Err(
                         format!("Create: Failed to add user {} to state", message.user_id).into(),
                     );
@@ -94,10 +86,7 @@ pub async fn process_message(
                 let mut state = state.lock().await;
                 let _ = state.expire_user(message.user_id).await;
             }
-            if debug {
-                let state = state.lock().await;
-                let _ = state.save_to_file_async("Delete action").await;
-            }
+
             Ok(())
         }
         Action::Update => {
@@ -130,8 +119,6 @@ pub async fn process_message(
             if let Some(limit) = message.limit {
                 let _ = state_lock.update_user_limit(message.user_id, limit).await;
             }
-
-            let _ = state_lock.save_to_file_async("Restore action").await;
             Ok(())
         }
     }

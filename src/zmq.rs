@@ -37,7 +37,6 @@ pub async fn subscriber(
     clients: client::XrayClients,
     settings: Settings,
     state: Arc<Mutex<State>>,
-    debug: bool,
 ) {
     let subscriber = try_connect(&settings.zmq.endpoint);
     assert!(subscriber
@@ -70,7 +69,6 @@ pub async fn subscriber(
                             message.clone(),
                             state.clone(),
                             settings.xray.xray_daily_limit_mb,
-                            debug,
                         )
                         .await
                         {

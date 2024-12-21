@@ -1,0 +1,19 @@
+[Unit]
+Description=Run Xray and Pony Together
+After=network.target
+
+[Service]
+Type=simple
+ExecStartPre=/bin/bash -c '/root/xray/xray --config /root/xray-config-mk2nl.json & echo $! > /run/xray.pid'
+ExecStart=/root/pony/target/release/pony --config /root/pony/config-metrics2.toml
+Restart=on-failure
+RestartSec=5
+KillMode=mixed
+KillSignal=SIGTERM
+ExecStop=/bin/bash -c 'kill $(cat /run/xray.pid)'
+
+StandardOutput=append:/var/log/xray-pony.log
+StandardError=append:/var/log/xray-pony.log
+
+[Install]
+WantedBy=multi-user.target

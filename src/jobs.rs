@@ -3,7 +3,7 @@ use crate::metrics::metrics::MetricType;
 use crate::postgres::UserRow;
 use crate::utils::send_to_carbon;
 use chrono::{Duration, Utc};
-use log::{debug, error, info};
+use log::{debug, error};
 use std::{error::Error, sync::Arc};
 use tokio::sync::Mutex;
 use tokio::time::{sleep, Duration as TokioDuration};

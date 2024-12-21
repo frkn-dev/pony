@@ -41,6 +41,7 @@ pub async fn process_message(
             let state_lock = state.lock().await;
 
             let mut user_state = state_lock.clone();
+            drop(state_lock);
 
             let user_id = message.user_id;
 

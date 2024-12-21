@@ -6,7 +6,7 @@ use std::{
 };
 
 use chrono::{TimeZone, Utc};
-use log::{debug, error, warn, LevelFilter};
+use log::{error, warn, LevelFilter};
 use tokio::{io::AsyncWriteExt, net::TcpStream};
 
 use super::metrics::metrics::Metric;

@@ -1,8 +1,8 @@
 use clap::Parser;
 use fern::Dispatch;
 use futures::future::join_all;
+use log::error;
 use log::info;
-use log::{debug, error};
 use metrics::metrics::MetricType;
 use std::sync::Arc;
 use tokio::{

@@ -116,7 +116,7 @@ async fn main() -> std::io::Result<()> {
             xray_config.get_inbounds(),
         )));
         // Init and sync users
-        let users = users_db_request(pg_client.clone()).await;
+        let users = users_db_request(pg_client.clone(), settings.node.env.clone()).await;
         if let Ok(users) = users {
             let futures: Vec<_> = users
                 .into_iter()
@@ -202,7 +202,7 @@ async fn main() -> std::io::Result<()> {
 
     // debug mode
     if debug {
-        tokio::spawn(jobs::run_save_state_to_file(state.clone(), 10));
+        tokio::spawn(jobs::save_state_to_file_job(state.clone(), 10));
     }
 
     // METRICS TASKS

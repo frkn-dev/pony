@@ -41,13 +41,16 @@ pub async fn postgres_client(settings: Settings) -> Result<Arc<Mutex<Client>>, B
     Ok(Arc::new(Mutex::new(client)))
 }
 
-pub async fn users_db_request(client: Arc<Mutex<Client>>) -> Result<Vec<UserRow>, Box<dyn Error>> {
+pub async fn users_db_request(
+    client: Arc<Mutex<Client>>,
+    cluster: String,
+) -> Result<Vec<UserRow>, Box<dyn Error>> {
     let client = client.lock().await;
 
     let rows = client
         .query(
-            "SELECT id, trial, password, cluster, created  FROM users where cluster = 'mk2' limit 10",
-            &[],
+            "SELECT id, trial, password, cluster, created  FROM users where cluster = $1",
+            &[&cluster],
         )
         .await?;
 

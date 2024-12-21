@@ -30,7 +30,7 @@ pub async fn send_metrics_job<T>(
     let metrics =
         collect_metrics::<T>(state.clone(), &settings.node.env, &hostname, &interface).await;
 
-    debug!("METRICS");
+    debug!("Metrics job run");
     for metric in metrics {
         match metric {
             MetricType::F32(m) => send_to_carbon(&m, &settings.carbon.address).await?,
@@ -49,7 +49,6 @@ pub async fn register_node(
 ) -> Result<(), Box<dyn Error>> {
     let node_state = state.lock().await;
     let node = node_state.node.clone();
-    //drop(state);
 
     debug!("node {:?} ", node.uuid);
     let client = Client::new();
@@ -66,12 +65,12 @@ pub async fn register_node(
     Ok(())
 }
 
-pub async fn run_save_state_to_file(state: Arc<Mutex<State>>, interval_secs: u64) {
+pub async fn save_state_to_file_job(state: Arc<Mutex<State>>, interval_secs: u64) {
     loop {
         sleep(TokioDuration::from_secs(interval_secs)).await;
 
         let state = state.lock().await;
-        if let Err(e) = state.save_to_file_async("DEBUG").await {
+        if let Err(e) = state.save_to_file_async("save job").await {
             error!("Cannot save state file: {}", e);
         } else {
             debug!("State file saved to file");

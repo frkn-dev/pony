@@ -41,7 +41,12 @@ impl State {
         }
     }
 
-    pub async fn add_user(&mut self, user_id: Uuid, new_user: User) -> Result<(), Box<dyn Error>> {
+    pub async fn add_user(
+        &mut self,
+        user_id: Uuid,
+        new_user: User,
+        debug: bool,
+    ) -> Result<(), Box<dyn Error>> {
         match self.users.entry(user_id) {
             Entry::Occupied(mut entry) => {
                 debug!(
@@ -59,6 +64,9 @@ impl State {
             Entry::Vacant(entry) => {
                 debug!("Adding new user: {:?}", new_user);
                 entry.insert(new_user.clone());
+                if debug {
+                    let _ = self.save_to_file_async("ADD_USER").await;
+                }
                 Ok(())
             }
         }

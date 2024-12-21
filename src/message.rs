@@ -35,14 +35,10 @@ pub async fn process_message(
     message: Message,
     state: Arc<Mutex<State>>,
     config_daily_limit_mb: i64,
+    debug: bool,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     match message.action {
         Action::Create => {
-            let state_lock = state.lock().await;
-
-            let mut user_state = state_lock.clone();
-            drop(state_lock);
-
             let user_id = message.user_id;
 
             let daily_limit_mb = message.limit.unwrap_or(config_daily_limit_mb);
@@ -58,10 +54,15 @@ pub async fn process_message(
             )
             .await
             {
-                Ok(_) => user_state
-                    .add_user(user_id.clone(), user.clone())
-                    .await
-                    .map_err(|_| format!("Failed to add user {}", message.user_id).into()),
+                Ok(_) => {
+                    let state_lock = state.lock().await;
+                    let mut user_state = state_lock.clone();
+
+                    user_state
+                        .add_user(user_id.clone(), user.clone(), debug)
+                        .await
+                        .map_err(|_| format!("Failed to add user {}", message.user_id).into())
+                }
                 Err(_) => Err(format!("Failed to create user {}", message.user_id).into()),
             }
         }

@@ -83,6 +83,7 @@ pub async fn init_state(
     settings: Settings,
     clients: XrayClients,
     db_user: UserRow,
+    debug: bool,
 ) -> Result<(), Box<dyn Error>> {
     debug!("Running sync for {:?} {:?}", db_user.user_id, db_user.trial);
 
@@ -94,7 +95,10 @@ pub async fn init_state(
 
     let _ = {
         let mut user_state = state.lock().await;
-        match user_state.add_user(db_user.user_id, user.clone()).await {
+        match user_state
+            .add_user(db_user.user_id, user.clone(), debug)
+            .await
+        {
             Ok(user) => {
                 debug!("User added to State {:?}", user);
             }

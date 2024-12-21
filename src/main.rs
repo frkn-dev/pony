@@ -133,6 +133,7 @@ async fn main() -> std::io::Result<()> {
                         settings.clone(),
                         xray_api_clients.clone(),
                         user,
+                        debug,
                     )
                 })
                 .collect();
@@ -205,13 +206,14 @@ async fn main() -> std::io::Result<()> {
             xray_api_clients.clone(),
             settings.clone(),
             user_state,
+            debug,
         )))
     };
 
     // debug mode
-    if debug {
-        tokio::spawn(jobs::save_state_to_file_job(state.clone(), 10));
-    }
+    //if debug {
+    //    tokio::spawn(jobs::save_state_to_file_job(state.clone(), 10000));
+    //}
 
     // METRICS TASKS
     if settings.app.metrics_enabled {

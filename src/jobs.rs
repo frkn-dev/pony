@@ -1,4 +1,7 @@
+use crate::metrics::metrics::collect_metrics;
+use crate::metrics::metrics::MetricType;
 use crate::postgres::UserRow;
+use crate::utils::send_to_carbon;
 use chrono::{Duration, Utc};
 use log::{debug, error, info};
 use std::{error::Error, sync::Arc};
@@ -6,8 +9,6 @@ use tokio::sync::Mutex;
 use tokio::time::{sleep, Duration as TokioDuration};
 
 use reqwest::Client;
-use serde::{Deserialize, Serialize};
-use serde_json::json;
 
 use crate::{actions, settings::Settings, user::User};
 
@@ -16,6 +17,31 @@ use super::xray_op::{
 };
 
 use super::{state::State, user::UserStatus};
+
+pub async fn send_metrics_job<T>(
+    state: Arc<Mutex<State>>,
+    settings: Settings,
+) -> Result<(), Box<dyn Error>> {
+    let hostname = settings.node.hostname.unwrap_or("localhost".to_string());
+    let interface = settings
+        .node
+        .default_interface
+        .unwrap_or("eth0".to_string());
+    let metrics =
+        collect_metrics::<T>(state.clone(), &settings.node.env, &hostname, &interface).await;
+
+    debug!("METRICS");
+    for metric in metrics {
+        match metric {
+            MetricType::F32(m) => send_to_carbon(&m, &settings.carbon.address).await?,
+            MetricType::F64(m) => send_to_carbon(&m, &settings.carbon.address).await?,
+            MetricType::I64(m) => send_to_carbon(&m, &settings.carbon.address).await?,
+            MetricType::U64(m) => send_to_carbon(&m, &settings.carbon.address).await?,
+            MetricType::U8(m) => send_to_carbon(&m, &settings.carbon.address).await?,
+        }
+    }
+    Ok(())
+}
 
 pub async fn register_node(
     state: Arc<Mutex<State>>,

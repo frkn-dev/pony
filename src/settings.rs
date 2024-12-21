@@ -20,7 +20,7 @@ fn default_env() -> String {
     "dev".to_string()
 }
 
-fn default_metrics_delay() -> u64 {
+fn default_metrics_timeout() -> u64 {
     1
 }
 
@@ -102,8 +102,8 @@ pub struct ApiConfig {
 
 #[derive(Clone, Debug, Deserialize, Default)]
 pub struct AppConfig {
-    #[serde(default = "default_metrics_delay")]
-    pub metrics_delay: u64,
+    #[serde(default = "default_metrics_timeout")]
+    pub metrics_timeout: u64,
     #[serde(default = "default_file_state")]
     pub file_state: String,
     #[serde(default = "default_enabled")]

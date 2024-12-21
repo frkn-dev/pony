@@ -1,5 +1,4 @@
 use log::debug;
-use log::info;
 use serde::Deserialize;
 use std::{error::Error, sync::Arc};
 use tokio::sync::Mutex;
@@ -7,8 +6,8 @@ use uuid::Uuid;
 
 use crate::actions;
 
-use super::xray_op::client;
-use super::{state::State, user::User};
+use crate::xray_op::client;
+use crate::{state::State, user::User};
 
 #[derive(Deserialize, Debug, Clone)]
 pub enum Action {
@@ -18,6 +17,8 @@ pub enum Action {
     Delete,
     #[serde(rename = "update")]
     Update,
+    #[serde(rename = "init")]
+    Init,
 }
 
 #[derive(Deserialize, Clone, Debug)]
@@ -40,7 +41,6 @@ pub async fn process_message(
             let state_lock = state.lock().await;
 
             let mut user_state = state_lock.clone();
-            drop(state_lock);
 
             let user_id = message.user_id;
 
@@ -49,32 +49,19 @@ pub async fn process_message(
 
             let user = User::new(trial, daily_limit_mb, message.password.clone());
 
-            match user_state.add_user(user_id, user.clone()).await {
-                Ok(user) => {
-                    debug!("User added {:?}", user)
-                }
-                Err(e) => {
-                    return Err(format!(
-                        "Create: Failed to add user {} to state: {}",
-                        message.user_id, e
-                    )
-                    .into());
-                }
-            }
-
-            match actions::create_users(message.user_id, message.password, clients, state.clone())
-                .await
+            match actions::create_users(
+                message.user_id.clone(),
+                message.password.clone(),
+                clients,
+                state.clone(),
+            )
+            .await
             {
-                Ok(_) => {
-                    info!("Create: User added: {:?}", message.user_id);
-                    Ok(())
-                }
-                Err(_e) => {
-                    let _ = user_state.remove_user(user_id).await;
-                    return Err(
-                        format!("Create: Failed to add user {} to state", message.user_id).into(),
-                    );
-                }
+                Ok(_) => user_state
+                    .add_user(user_id.clone(), user.clone())
+                    .await
+                    .map_err(|_| format!("Failed to add user {}", message.user_id).into()),
+                Err(_) => Err(format!("Failed to create user {}", message.user_id).into()),
             }
         }
         Action::Delete => {
@@ -119,6 +106,10 @@ pub async fn process_message(
             if let Some(limit) = message.limit {
                 let _ = state_lock.update_user_limit(message.user_id, limit).await;
             }
+            Ok(())
+        }
+        Action::Init => {
+            debug!("This action needs to initiate TCP handshake and recieve next messages");
             Ok(())
         }
     }

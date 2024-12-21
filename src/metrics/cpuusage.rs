@@ -1,13 +1,9 @@
-use log::info;
 use std::fmt;
-use std::time::Duration;
 use sysinfo::{CpuRefreshKind, RefreshKind, System};
-use tokio::time::sleep;
 
 use crate::{
-    metrics::metrics::{AsMetric, Metric},
-    settings::Settings,
-    utils::{current_timestamp, round_to_two_decimal_places, send_to_carbon},
+    metrics::metrics::{AsMetric, Metric, MetricType},
+    utils::{current_timestamp, round_to_two_decimal_places},
 };
 
 struct CpuUsage<'a> {
@@ -37,41 +33,38 @@ impl fmt::Display for CpuUsage<'_> {
 impl AsMetric for CpuUsage<'_> {
     type Output = f32;
 
-    fn as_metric(&self, name: &str, settings: Settings) -> Vec<Metric<f32>> {
+    fn as_metric(&self, name: &str, env: &str, hostname: &str) -> Vec<Metric<f32>> {
         let timestamp = current_timestamp();
-        if let Some(hostname) = settings.node.hostname {
-            let env = &settings.node.env;
 
-            vec![Metric {
-                path: format!("{env}.{hostname}.cpu_usage.{name}.percentage"),
-                value: self.usage,
-                timestamp,
-            }]
-        } else {
-            vec![]
-        }
+        vec![Metric {
+            //dev.localhost.cpu.processor1.percentage
+            path: format!("{env}.{hostname}.cpu.{name}.percentage"),
+            value: self.usage,
+            timestamp,
+        }]
     }
 }
 
-pub async fn cpu_metrics(server: String, settings: Settings) {
-    info!("Starting cpu metric loop");
+pub async fn cpu_metrics(env: &str, hostname: &str) -> Vec<MetricType> {
+    let mut s =
+        System::new_with_specifics(RefreshKind::nothing().with_cpu(CpuRefreshKind::everything()));
 
-    loop {
-        let mut s = System::new_with_specifics(
-            RefreshKind::nothing().with_cpu(CpuRefreshKind::everything()),
-        );
+    let _ = s.refresh_cpu_all();
 
-        sleep(Duration::from_secs(settings.app.metrics_delay)).await;
+    let cpu_metrics: Vec<_> = s
+        .cpus()
+        .iter()
+        .map(|cpu| CpuUsage {
+            name: cpu.name(),
+            usage: round_to_two_decimal_places(cpu.cpu_usage()),
+        })
+        .into_iter()
+        .map(|cpu| cpu.as_metric(cpu.name, env, hostname))
+        .flatten()
+        .collect();
 
-        let _ = s.refresh_cpu_all();
-        for cpu in s.cpus() {
-            let metric = CpuUsage {
-                name: cpu.name(),
-                usage: round_to_two_decimal_places(cpu.cpu_usage()),
-            };
-
-            let _ =
-                send_to_carbon(&metric.as_metric(cpu.name(), settings.clone())[0], &server).await;
-        }
-    }
+    cpu_metrics
+        .iter()
+        .map(|metric| MetricType::F32(metric.clone()))
+        .collect()
 }

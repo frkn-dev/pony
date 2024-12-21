@@ -1,3 +1,4 @@
+use crate::metrics::xray::InboundStat;
 use serde::{Deserialize, Serialize};
 
 use std::{collections::HashMap, net::Ipv4Addr};
@@ -76,6 +77,15 @@ impl Inbound {
             user_count: Some(0),
         }
     }
+
+    pub fn as_inbound_stat(&self) -> InboundStat {
+        InboundStat {
+            uplink: self.uplink.unwrap_or(0),
+            downlink: self.downlink.unwrap_or(0),
+            user_count: self.user_count.unwrap_or(0),
+        }
+    }
+
     pub fn update_uplink(&mut self, new_uplink: i64) {
         self.uplink = Some(new_uplink);
     }

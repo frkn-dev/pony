@@ -1,60 +1,58 @@
-use log::info;
-use std::time::Duration;
 use sysinfo::{MemoryRefreshKind, System};
-use tokio::time::sleep;
 
 use crate::{
-    metrics::metrics::{AsMetric, Metric},
-    settings::Settings,
-    utils::{current_timestamp, send_to_carbon},
+    metrics::metrics::{AsMetric, Metric, MetricType},
+    utils::current_timestamp,
 };
 
 struct MemUsage {
     free: u64,
     total: u64,
+    used: u64,
 }
 
 impl AsMetric for MemUsage {
     type Output = u64;
-    fn as_metric(&self, name: &str, settings: Settings) -> Vec<Metric<u64>> {
+    fn as_metric(&self, name: &str, env: &str, hostname: &str) -> Vec<Metric<u64>> {
         let timestamp = current_timestamp();
-        if let Some(hostname) = settings.node.hostname {
-            let env = &settings.node.env;
 
-            vec![
-                Metric {
-                    path: format!("{env}.{hostname}.{name}.total"),
-                    value: self.total,
-                    timestamp: timestamp,
-                },
-                Metric {
-                    path: format!("{env}.{hostname}.{name}.free"),
-                    value: self.free,
-                    timestamp: timestamp,
-                },
-            ]
-        } else {
-            vec![]
-        }
+        vec![
+            Metric {
+                //dev.localhost.mem.total
+                path: format!("{env}.{hostname}.{name}.total"),
+                value: self.total,
+                timestamp: timestamp,
+            },
+            Metric {
+                //dev.localhost.mem.free
+                path: format!("{env}.{hostname}.{name}.free"),
+                value: self.free,
+                timestamp: timestamp,
+            },
+            Metric {
+                //dev.localhost.mem.used
+                path: format!("{env}.{hostname}.{name}.used"),
+                value: self.used,
+                timestamp: timestamp,
+            },
+        ]
     }
 }
 
-pub async fn mem_metrics(server: String, settings: Settings) {
-    info!("Starting memory metric loop");
+pub async fn mem_metrics(env: &str, hostname: &str) -> Vec<MetricType> {
+    let mut system = System::new();
 
-    loop {
-        let mut system = System::new();
+    let _ = system.refresh_memory_specifics(MemoryRefreshKind::nothing().with_ram());
+    let mem = MemUsage {
+        free: system.free_memory(),
+        total: system.total_memory(),
+        used: system.used_memory(),
+    };
 
-        let _ = system.refresh_memory_specifics(MemoryRefreshKind::nothing().with_ram());
-        let mem_metrics = MemUsage {
-            free: system.free_memory(),
-            total: system.total_memory(),
-        };
+    let mem_metrics = mem.as_metric("mem", env, hostname);
 
-        for metric in mem_metrics.as_metric("mem", settings.clone()) {
-            let _ = send_to_carbon(&metric, &server).await;
-        }
-
-        sleep(Duration::from_secs(settings.app.metrics_delay)).await;
-    }
+    mem_metrics
+        .iter()
+        .map(|metric| MetricType::U64(metric.clone()))
+        .collect()
 }

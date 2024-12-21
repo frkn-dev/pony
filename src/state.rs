@@ -41,11 +41,7 @@ impl State {
         }
     }
 
-    pub async fn add_user(
-        &mut self,
-        user_id: Uuid,
-        new_user: User,
-    ) -> Result<User, Box<dyn Error>> {
+    pub async fn add_user(&mut self, user_id: Uuid, new_user: User) -> Result<(), Box<dyn Error>> {
         match self.users.entry(user_id) {
             Entry::Occupied(mut entry) => {
                 debug!(
@@ -58,12 +54,12 @@ impl State {
                 existing_user.limit = new_user.limit;
                 existing_user.password = new_user.password;
                 existing_user.status = new_user.status;
-                return Ok(existing_user.clone());
+                Ok(())
             }
             Entry::Vacant(entry) => {
                 debug!("Adding new user: {:?}", new_user);
                 entry.insert(new_user.clone());
-                return Ok(new_user);
+                Ok(())
             }
         }
     }

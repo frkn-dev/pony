@@ -3,6 +3,8 @@ use std::{sync::Arc, thread};
 use tokio::{sync::Mutex, time::Duration};
 use zmq;
 
+use crate::utils::measure_time;
+
 use super::{
     message::{process_message, Message},
     settings::Settings,
@@ -10,7 +12,7 @@ use super::{
 
 use super::{state::State, xray_op::client};
 
-fn try_connect(endpoint: &str) -> zmq::Socket {
+fn try_connect(endpoint: &str, topic: &str) -> zmq::Socket {
     let context = zmq::Context::new();
     let subscriber = context.socket(zmq::SUB).expect("Failed to create socket");
 
@@ -30,6 +32,7 @@ fn try_connect(endpoint: &str) -> zmq::Socket {
         }
     }
 
+    assert!(subscriber.set_subscribe(topic.as_bytes()).is_ok());
     subscriber
 }
 
@@ -38,10 +41,7 @@ pub async fn subscriber(
     settings: Settings,
     state: Arc<Mutex<State>>,
 ) {
-    let subscriber = try_connect(&settings.zmq.endpoint);
-    assert!(subscriber
-        .set_subscribe(settings.zmq.topic.as_bytes())
-        .is_ok());
+    let subscriber = try_connect(&settings.zmq.endpoint, &settings.node.env);
 
     info!(
         "Subscriber connected to {}:{}",
@@ -51,34 +51,45 @@ pub async fn subscriber(
     loop {
         match subscriber.recv_string(0) {
             Ok(Ok(data)) => {
-                let mut parts = data.splitn(2, ' ');
-                let topic = parts.next().unwrap_or("");
-                let payload = parts.next().unwrap_or("");
+                let data = data.to_string();
+                tokio::spawn({
+                    let clients = clients.clone();
+                    let state = state.clone();
+                    let settings = settings.clone();
 
-                if topic != settings.zmq.topic {
-                    continue;
-                }
+                    async move {
+                        let mut parts = data.splitn(2, ' ');
+                        let topic = parts.next().unwrap_or("");
+                        let payload = parts.next().unwrap_or("");
 
-                match serde_json::from_str::<Message>(payload) {
-                    Ok(message) => {
-                        debug!("SUB: Message received: {:?}", message);
+                        if topic != settings.node.env {
+                            return;
+                        }
 
-                        let state = state.clone();
-                        if let Err(err) = process_message(
-                            clients.clone(),
-                            message.clone(),
-                            state.clone(),
-                            settings.xray.xray_daily_limit_mb,
-                        )
-                        .await
-                        {
-                            error!("SUB: Error processing message: {:?}", err);
+                        match serde_json::from_str::<Message>(payload) {
+                            Ok(message) => {
+                                debug!("SUB: Message received: {:?}", message);
+
+                                if let Err(err) = measure_time(
+                                    process_message(
+                                        clients,
+                                        message.clone(),
+                                        state,
+                                        settings.xray.xray_daily_limit_mb,
+                                    ),
+                                    "process_message".to_string(),
+                                )
+                                .await
+                                {
+                                    error!("SUB: Error processing message: {:?}", err);
+                                }
+                            }
+                            Err(e) => {
+                                error!("SUB: Error parsing JSON: {}. Data: {}", e, payload);
+                            }
                         }
                     }
-                    Err(e) => {
-                        error!("SUB: Error parsing JSON: {}. Data: {}", e, payload);
-                    }
-                }
+                });
             }
             Ok(Err(e)) => {
                 error!("SUB: Failed to decode message: {:?}", e);

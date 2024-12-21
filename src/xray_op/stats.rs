@@ -1,4 +1,4 @@
-use log::{debug, info, warn};
+use log::{debug, warn};
 use std::{fmt, sync::Arc};
 use tokio::{sync::Mutex, time::Duration};
 use tonic::{Request, Status};
@@ -37,7 +37,7 @@ pub async fn stats_task(clients: XrayClients, state: Arc<Mutex<State>>) {
             .await
             {
                 Ok(response) => {
-                    info!("Received stats: {:?}", response);
+                    debug!("Received stats: {:?}", response);
 
                     let mut user_state = state.lock().await;
 
@@ -72,7 +72,7 @@ pub async fn stats_task(clients: XrayClients, state: Arc<Mutex<State>>) {
                 .await
                 {
                     Ok(response) => {
-                        info!("Received node stats: {:?}", response);
+                        debug!("Received node stats: {:?}", response);
 
                         let mut user_state = state.lock().await;
 
@@ -116,7 +116,7 @@ pub async fn stats_task(clients: XrayClients, state: Arc<Mutex<State>>) {
             }
         };
 
-        tokio::time::sleep(Duration::from_secs(300)).await;
+        tokio::time::sleep(Duration::from_secs(2)).await;
     }
 }
 

@@ -1,5 +1,6 @@
 use std::{
     io,
+    time::Instant,
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -22,8 +23,6 @@ pub async fn send_to_carbon<T: ToString>(
                 return Err(e);
             }
 
-            debug!("Sent metric to Carbon: {}", metric_string);
-
             if let Err(e) = stream.flush().await {
                 warn!("Failed to flush stream: {}", e);
                 return Err(e);
@@ -36,6 +35,17 @@ pub async fn send_to_carbon<T: ToString>(
             Err(e)
         }
     }
+}
+
+pub async fn measure_time<T, F>(task: F, name: String) -> T
+where
+    F: std::future::Future<Output = T>,
+{
+    let start_time = Instant::now();
+    let result = task.await;
+    let duration = start_time.elapsed();
+    debug!("Task {} completed in {:?}", name, duration);
+    result
 }
 
 pub fn current_timestamp() -> u64 {

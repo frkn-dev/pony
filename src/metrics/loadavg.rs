@@ -1,13 +1,11 @@
-use log::info;
-use std::time::Duration;
 use sysinfo::{LoadAvg, System};
-use tokio::time::sleep;
 
 use crate::{
     metrics::metrics::{AsMetric, Metric},
-    settings::Settings,
-    utils::{current_timestamp, send_to_carbon},
+    utils::current_timestamp,
 };
+
+use super::metrics::MetricType;
 
 struct LoadAvgWrapper {
     load_avg: LoadAvg,
@@ -16,43 +14,39 @@ struct LoadAvgWrapper {
 impl AsMetric for LoadAvgWrapper {
     type Output = f64;
 
-    fn as_metric(&self, name: &str, settings: Settings) -> Vec<Metric<f64>> {
+    fn as_metric(&self, name: &str, env: &str, hostname: &str) -> Vec<Metric<f64>> {
         let timestamp = current_timestamp();
-        if let Some(hostname) = settings.node.hostname {
-            let env = &settings.node.env;
-
-            vec![
-                Metric {
-                    path: format!("{env}.{hostname}.{name}.1m"),
-                    value: self.load_avg.one,
-                    timestamp: timestamp,
-                },
-                Metric {
-                    path: format!("{env}.{hostname}.{name}.5m"),
-                    value: self.load_avg.five,
-                    timestamp: timestamp,
-                },
-                Metric {
-                    path: format!("{env}.{hostname}.{name}.15m"),
-                    value: self.load_avg.fifteen,
-                    timestamp: timestamp,
-                },
-            ]
-        } else {
-            vec![]
-        }
+        vec![
+            Metric {
+                //dev.localhost.loadavg.1m
+                path: format!("{env}.{hostname}.{name}.1m"),
+                value: self.load_avg.one,
+                timestamp: timestamp,
+            },
+            Metric {
+                //dev.localhost.loadavg.5m
+                path: format!("{env}.{hostname}.{name}.5m"),
+                value: self.load_avg.five,
+                timestamp: timestamp,
+            },
+            Metric {
+                //dev.localhost.loadavg.15m
+                path: format!("{env}.{hostname}.{name}.15m"),
+                value: self.load_avg.fifteen,
+                timestamp: timestamp,
+            },
+        ]
     }
 }
 
-pub async fn loadavg_metrics(server: String, settings: Settings) {
-    info!("Starting loadavg metric loop");
+pub async fn loadavg_metrics(env: &str, hostname: &str) -> Vec<MetricType> {
+    let load_avg = System::load_average();
+    let wrapper = LoadAvgWrapper { load_avg };
 
-    loop {
-        let load_avg = System::load_average();
-        let wrapper = LoadAvgWrapper { load_avg };
-        for metric in wrapper.as_metric("loadavg", settings.clone()) {
-            let _ = send_to_carbon(&metric, &server).await;
-        }
-        sleep(Duration::from_secs(settings.app.metrics_delay)).await;
-    }
+    let load_metrics = wrapper.as_metric("loadavg", env, hostname);
+
+    load_metrics
+        .iter()
+        .map(|metric| MetricType::F64(metric.clone()))
+        .collect()
 }

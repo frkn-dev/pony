@@ -1,8 +1,9 @@
 use clap::Parser;
 use fern::Dispatch;
 use futures::future::join_all;
-use log::{debug, error, info};
-use std::{fmt, sync::Arc};
+use log::{debug, error};
+use metrics::metrics::MetricType;
+use std::sync::Arc;
 use tokio::{
     sync::Mutex,
     task::JoinHandle,
@@ -10,10 +11,6 @@ use tokio::{
 };
 
 use crate::{
-    metrics::{
-        bandwidth::bandwidth_metrics, cpuusage::cpu_metrics, loadavg::loadavg_metrics,
-        memory::mem_metrics,
-    },
     postgres::{postgres_client, users_db_request},
     settings::{read_config, Settings},
     utils::{current_timestamp, human_readable_date, level_from_settings},
@@ -60,7 +57,7 @@ async fn main() -> std::io::Result<()> {
         eprintln!("Error in settings: {}", e);
         std::process::exit(1);
     } else {
-        println!(">>> Settings: {:?}", settings);
+        println!(">>> Settings: {:?}", settings.clone());
     }
 
     // Logs handler init
@@ -139,8 +136,13 @@ async fn main() -> std::io::Result<()> {
                     error!("Error processing user: {:?}", e);
                 }
             }
-            if let Ok(_) = jobs::register_node(user_state.clone(), settings.clone()).await {
-                debug!("NODE REG");
+            if let Err(e) = jobs::register_node(user_state.clone(), settings.clone()).await {
+                error!(
+                    "Failed to register node on API {} {}",
+                    e, settings.api.endpoint_address
+                );
+            } else {
+                debug!("Node is registered");
             }
         }
         if debug {
@@ -156,16 +158,6 @@ async fn main() -> std::io::Result<()> {
         let stats_task = tokio::spawn(stats_task(xray_api_clients.clone(), state.clone()));
         tasks.push(stats_task);
     }
-
-    // zeromq SUB messages listener
-    let _ = {
-        let user_state = state.clone();
-        tasks.push(tokio::spawn(zmq::subscriber(
-            xray_api_clients.clone(),
-            settings.clone(),
-            user_state,
-        )))
-    };
 
     if settings.app.trial_users_enabled {
         // Block trial users by traffic limit
@@ -197,26 +189,39 @@ async fn main() -> std::io::Result<()> {
         tasks.push(restore_trial_users_handle);
     }
 
+    // zeromq SUB messages listener
+    let _ = {
+        let settings = settings.clone();
+        let user_state = state.clone();
+        tasks.push(tokio::spawn(zmq::subscriber(
+            xray_api_clients.clone(),
+            settings.clone(),
+            user_state,
+        )))
+    };
+
     // debug mode
     if debug {
-        tokio::spawn(jobs::run_save_state_to_file(state, 10));
+        tokio::spawn(jobs::run_save_state_to_file(state.clone(), 10));
     }
 
     // METRICS TASKS
     if settings.app.metrics_enabled {
-        let carbon_server = settings.carbon.address.clone();
+        let metrics_handle = tokio::spawn({
+            debug!("Running metrics send job");
 
-        info!(">>> Running metric collector sends to {:?}", carbon_server);
-        let metrics_tasks: Vec<JoinHandle<()>> = vec![
-            tokio::spawn(bandwidth_metrics(carbon_server.clone(), settings.clone())),
-            tokio::spawn(cpu_metrics(carbon_server.clone(), settings.clone())),
-            tokio::spawn(loadavg_metrics(carbon_server.clone(), settings.clone())),
-            tokio::spawn(mem_metrics(carbon_server.clone(), settings.clone())),
-        ];
+            let state = state.clone();
+            let settings = settings.clone();
 
-        for task in metrics_tasks {
-            tasks.push(task);
-        }
+            async move {
+                loop {
+                    sleep(Duration::from_secs(settings.app.metrics_timeout)).await;
+                    let _ =
+                        jobs::send_metrics_job::<MetricType>(state.clone(), settings.clone()).await;
+                }
+            }
+        });
+        tasks.push(metrics_handle);
     }
 
     // Run all tasks

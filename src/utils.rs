@@ -12,7 +12,7 @@ use tokio::{io::AsyncWriteExt, net::TcpStream};
 
 use super::metrics::metrics::Metric;
 
-pub async fn send_to_carbon<T: ToString>(
+pub async fn send_to_carbon<T: ToString + std::fmt::Debug>(
     metric: &Metric<T>,
     server: &str,
 ) -> Result<(), io::Error> {

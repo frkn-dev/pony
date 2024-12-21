@@ -17,6 +17,8 @@ pub async fn send_to_carbon<T: ToString>(
 ) -> Result<(), io::Error> {
     let metric_string = metric.to_string();
 
+    debug!("Send metric to carbon: {:?}", metric);
+
     match TcpStream::connect(server).await {
         Ok(mut stream) => {
             if let Err(e) = stream.write_all(metric_string.as_bytes()).await {

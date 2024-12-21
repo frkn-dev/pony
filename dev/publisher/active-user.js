@@ -11,7 +11,7 @@ async function runPublisher() {
 
      const createMessage = JSON.stringify({
         action: "create",
-        user_id: "dc79e5c9-4b10-48b3-b7b8-534821ce48c7",
+        user_id: "96f1de53-472f-4b6d-8b79-4f477e765264",
     });
     const msg = `mk3 ${createMessage}`;
     console.log("Sending create message:", msg);

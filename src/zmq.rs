@@ -45,7 +45,7 @@ pub async fn subscriber(
 
     info!(
         "Subscriber connected to {}:{}",
-        settings.zmq.endpoint, settings.zmq.topic
+        settings.zmq.endpoint, settings.node.env
     );
 
     loop {
@@ -68,7 +68,7 @@ pub async fn subscriber(
 
                         match serde_json::from_str::<Message>(payload) {
                             Ok(message) => {
-                                debug!("SUB: Message received: {:?}", message);
+                                info!("SUB: Message received: {:?}", message);
 
                                 if let Err(err) = measure_time(
                                     process_message(

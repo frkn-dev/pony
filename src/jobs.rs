@@ -96,7 +96,7 @@ pub async fn init_state(
         let mut user_state = state.lock().await;
         match user_state.add_user(db_user.user_id, user.clone()).await {
             Ok(user) => {
-                debug!("STATE User added {:?}", user);
+                debug!("User added to State {:?}", user);
             }
             Err(e) => {
                 return Err(format!(
@@ -117,7 +117,7 @@ pub async fn init_state(
     .await
     {
         Ok(_) => {
-            info!("Create: User added: {:?}", db_user.user_id);
+            debug!("Create: User added: {:?}", db_user.user_id);
             return Ok(());
         }
         Err(_e) => {

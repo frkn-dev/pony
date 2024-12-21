@@ -50,10 +50,6 @@ fn default_zmq_endpoint() -> String {
     "tcp://localhost:3000".to_string()
 }
 
-fn default_zmq_topic() -> String {
-    "dev".to_string()
-}
-
 fn default_file_state() -> String {
     "users.json".to_string()
 }
@@ -216,8 +212,6 @@ pub struct XrayConfig {
 pub struct ZmqConfig {
     #[serde(default = "default_zmq_endpoint")]
     pub endpoint: String,
-    #[serde(default = "default_zmq_topic")]
-    pub topic: String,
 }
 
 impl ZmqConfig {

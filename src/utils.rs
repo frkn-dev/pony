@@ -1,3 +1,4 @@
+use log::info;
 use std::{
     io,
     time::Instant,
@@ -44,7 +45,7 @@ where
     let start_time = Instant::now();
     let result = task.await;
     let duration = start_time.elapsed();
-    debug!("Task {} completed in {:?}", name, duration);
+    info!("Task {} completed in {:?}", name, duration);
     result
 }
 

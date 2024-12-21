@@ -13,7 +13,7 @@ async function runPublisher() {
         action: "create",
         user_id: "dc79e5c9-4b10-48b3-b7b8-534821ce48c7",
     });
-    const msg = `dev ${createMessage}`;
+    const msg = `mk3 ${createMessage}`;
     console.log("Sending create message:", msg);
 
     await sock.send(msg);
@@ -26,7 +26,7 @@ async function runPublisher() {
         action: "init",
         user_id: "23bd6e06-e98d-4081-a603-571eb266354d",
     });
-    const initMsg = `dev ${initMessage}`;
+    const initMsg = `mk3 ${initMessage}`;
     console.log("Sending create message:", initMsg);
 
     await sock.send(initMsg);

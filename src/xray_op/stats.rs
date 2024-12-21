@@ -116,7 +116,7 @@ pub async fn stats_task(clients: XrayClients, state: Arc<Mutex<State>>) {
             }
         };
 
-        tokio::time::sleep(Duration::from_secs(2)).await;
+        tokio::time::sleep(Duration::from_secs(2000)).await;
     }
 }
 

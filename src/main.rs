@@ -1,6 +1,7 @@
 use clap::Parser;
 use fern::Dispatch;
 use futures::future::join_all;
+use log::info;
 use log::{debug, error};
 use metrics::metrics::MetricType;
 use std::sync::Arc;
@@ -9,6 +10,7 @@ use tokio::{
     task::JoinHandle,
     time::{sleep, Duration},
 };
+use utils::measure_time;
 
 use crate::{
     postgres::{postgres_client, users_db_request},
@@ -96,7 +98,7 @@ async fn main() -> std::io::Result<()> {
     // Xray-core Config Validation
     let xray_config = match config::read_xray_config(&settings.xray.xray_config_path) {
         Ok(config) => {
-            debug!(
+            info!(
                 "Xray Config: Successfully read Xray config file: {:?}",
                 config
             );
@@ -111,12 +113,17 @@ async fn main() -> std::io::Result<()> {
 
     // User State
     let state = {
+        info!("Running User State Sync");
         let user_state = Arc::new(Mutex::new(state::State::new(
             settings.clone(),
             xray_config.get_inbounds(),
         )));
         // Init and sync users
-        let users = users_db_request(pg_client.clone(), settings.node.env.clone()).await;
+        let users = measure_time(
+            users_db_request(pg_client.clone(), settings.node.env.clone()),
+            "db query".to_string(),
+        )
+        .await;
         if let Ok(users) = users {
             let futures: Vec<_> = users
                 .into_iter()
@@ -129,7 +136,7 @@ async fn main() -> std::io::Result<()> {
                     )
                 })
                 .collect();
-            let results = join_all(futures).await;
+            let results = measure_time(join_all(futures), "Init state".to_string()).await;
 
             for result in results {
                 if let Err(e) = result {
@@ -138,11 +145,11 @@ async fn main() -> std::io::Result<()> {
             }
             if let Err(e) = jobs::register_node(user_state.clone(), settings.clone()).await {
                 error!(
-                    "Failed to register node on API {} {}",
-                    e, settings.api.endpoint_address
+                    "Failed to register node on API {}: {}",
+                    settings.api.endpoint_address, e,
                 );
             } else {
-                debug!("Node is registered");
+                info!("Node {:?} is registered", settings.node.hostname);
             }
         }
         if debug {
@@ -155,14 +162,15 @@ async fn main() -> std::io::Result<()> {
     // ++ Recurent Jobs ++
     if settings.app.stat_enabled {
         // Statistics
+        info!("Running Stat job");
         let stats_task = tokio::spawn(stats_task(xray_api_clients.clone(), state.clone()));
         tasks.push(stats_task);
     }
 
     if settings.app.trial_users_enabled {
         // Block trial users by traffic limit
+        info!("Running trial users limit by traffic job");
         let block_trial_users_by_limit_handle = tokio::spawn({
-            debug!("Running block trial users job");
             let state = state.clone();
             let clients = xray_api_clients.clone();
             async move {
@@ -175,8 +183,8 @@ async fn main() -> std::io::Result<()> {
         tasks.push(block_trial_users_by_limit_handle);
 
         // Restore trial user
+        info!("Running restoring trial users job");
         let restore_trial_users_handle = tokio::spawn({
-            debug!("Running restoring trial users job");
             let state = state.clone();
             let clients = xray_api_clients.clone();
             async move {
@@ -207,9 +215,8 @@ async fn main() -> std::io::Result<()> {
 
     // METRICS TASKS
     if settings.app.metrics_enabled {
+        info!("Running metrics send job");
         let metrics_handle = tokio::spawn({
-            debug!("Running metrics send job");
-
             let state = state.clone();
             let settings = settings.clone();
 

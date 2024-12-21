@@ -1,42 +1,40 @@
-use ::clickhouse::Client;
-use actix_web::middleware::Logger;
-use actix_web::web::to;
-use actix_web::web::Data;
-use actix_web::{App, HttpServer};
 use clap::Parser;
 use fern::Dispatch;
-use log::{error, info};
-use std::fmt;
+use futures::future::join_all;
+use log::info;
+use log::{debug, error};
+use metrics::metrics::MetricType;
 use std::sync::Arc;
-use tokio::task::JoinHandle;
+use tokio::{
+    sync::Mutex,
+    task::JoinHandle,
+    time::{sleep, Duration},
+};
+use utils::measure_time;
 
-mod bandwidth;
-mod clickhouse;
-mod config2;
-mod connections;
-mod cpuusage;
-mod geoip;
-mod loadavg;
-mod memory;
+use crate::{
+    postgres::{postgres_client, users_db_request},
+    settings::{read_config, Settings},
+    utils::{current_timestamp, human_readable_date, level_from_settings},
+    xray_op::{config, stats::stats_task},
+};
+
+mod actions;
+mod jobs;
+mod message;
 mod metrics;
+mod node;
+mod postgres;
+mod settings;
+mod state;
+mod user;
 mod utils;
-mod web;
-mod webhook;
-
-use crate::bandwidth::bandwidth_metrics;
-use crate::config2::{read_config, Settings};
-use crate::connections::connections_metric;
-use crate::cpuusage::cpu_metrics;
-use crate::loadavg::loadavg_metrics;
-use crate::memory::mem_metrics;
-use crate::utils::{current_timestamp, human_readable_date, level_from_settings};
-use crate::web::not_found;
+mod xray_api;
+mod xray_op;
+mod zmq;
 
 #[derive(Parser)]
-#[command(
-    version = "0.0.23",
-    about = "Pony - montiroing tool for Xray/Wireguard"
-)]
+#[command(version = "0.1.0", about = "Pony - control tool for Xray/Wireguard")]
 struct Cli {
     #[arg(short, long, default_value = "config.toml")]
     config: String,
@@ -48,7 +46,8 @@ async fn main() -> std::io::Result<()> {
 
     println!("Config file {:?}", args.config);
 
-    let settings: Settings = match read_config(&args.config) {
+    // Settings
+    let mut settings: Settings = match read_config(&args.config) {
         Ok(settings) => settings,
         Err(err) => {
             println!("Wrong config file: {}", err);
@@ -56,6 +55,14 @@ async fn main() -> std::io::Result<()> {
         }
     };
 
+    if let Err(e) = settings.validate() {
+        eprintln!("Error in settings: {}", e);
+        std::process::exit(1);
+    } else {
+        println!(">>> Settings: {:?}", settings.clone());
+    }
+
+    // Logs handler init
     Dispatch::new()
         .format(|out, message, record| {
             out.finish(format_args!(
@@ -72,77 +79,159 @@ async fn main() -> std::io::Result<()> {
         .apply()
         .unwrap();
 
-    if let Err(e) = settings.validate() {
-        eprintln!("Error in settings: {}", e);
-        std::process::exit(1);
-    } else {
-        info!(">>> Settings: {:?}", settings);
-        info!(">>> Version: 0.0.23");
-    }
+    let debug = settings.app.debug;
 
-    let carbon_server = settings.carbon.address.clone();
-
-    if settings.app.metrics_mode && settings.app.api_mode
-        || !settings.app.metrics_mode && !settings.app.api_mode
-    {
-        error!("Api and metrics mode enabled in the same time, choose mode");
-        std::process::exit(1);
-    }
-
+    // For store all tasks
     let mut tasks: Vec<JoinHandle<()>> = vec![];
 
-    if settings.app.metrics_mode {
-        info!(
-            ">>> Running metric collector pony sends to {:?}",
-            carbon_server
-        );
-        let mut metrics_tasks: Vec<JoinHandle<()>> = vec![
-            tokio::spawn(bandwidth_metrics(carbon_server.clone(), settings.clone())),
-            tokio::spawn(cpu_metrics(carbon_server.clone(), settings.clone())),
-            tokio::spawn(loadavg_metrics(carbon_server.clone(), settings.clone())),
-            tokio::spawn(mem_metrics(carbon_server.clone(), settings.clone())),
-        ];
+    // Clients
+    let pg_client = match postgres_client(settings.clone()).await {
+        Ok(client) => client,
+        Err(e) => panic!("PG not available, {}", e),
+    };
 
-        if settings.wg.enabled || settings.xray.enabled {
-            metrics_tasks.push(tokio::spawn(connections_metric(
-                carbon_server.clone(),
-                settings.clone(),
-            )));
+    let xray_api_clients = match xray_op::client::create_clients(settings.clone()).await {
+        Ok(clients) => clients,
+        Err(e) => panic!("Can't create clients: {}", e),
+    };
+
+    // Xray-core Config Validation
+    let xray_config = match config::read_xray_config(&settings.xray.xray_config_path) {
+        Ok(config) => {
+            info!(
+                "Xray Config: Successfully read Xray config file: {:?}",
+                config
+            );
+
+            config.validate();
+            config
         }
-
-        for task in metrics_tasks {
-            tasks.push(task);
+        Err(e) => {
+            panic!("Xray Config:: Error reading JSON file: {}", e);
         }
-    }
+    };
 
-    if settings.app.api_mode {
-        let ch_client = Arc::new(Client::default().with_url(&settings.clickhouse.address));
-        let settings_arc = Arc::new(settings.clone());
+    // User State
+    let state = {
+        info!("Running User State Sync");
+        let user_state = Arc::new(Mutex::new(state::State::new(
+            settings.clone(),
+            xray_config.get_inbounds(),
+        )));
+        // Init and sync users
+        let users = measure_time(
+            users_db_request(pg_client.clone(), settings.node.env.clone()),
+            "db query".to_string(),
+        )
+        .await;
+        if let Ok(users) = users {
+            let futures: Vec<_> = users
+                .into_iter()
+                .map(|user| {
+                    jobs::init_state(
+                        user_state.clone(),
+                        settings.clone(),
+                        xray_api_clients.clone(),
+                        user,
+                    )
+                })
+                .collect();
+            let results = measure_time(join_all(futures), "Init state".to_string()).await;
 
-        HttpServer::new(move || {
-            let mut app = App::new()
-                .app_data(Data::new(ch_client.clone()))
-                .app_data(Data::new(settings_arc.clone()))
-                .wrap(Logger::default())
-                .service(web::hello)
-                .service(web::status_ch)
-                .service(web::status)
-                .default_service(to(not_found));
-
-            if settings.app.api_webhook_enabled {
-                app = app.service(webhook::webhook_handler);
+            for result in results {
+                if let Err(e) = result {
+                    error!("Error processing user: {:?}", e);
+                }
             }
-            app
-        })
-        .bind((
-            settings.app.api_bind_addr.as_str(),
-            settings.app.api_bind_port,
-        ))?
-        .run()
-        .await
-        .expect("Run web server")
+            if let Err(e) = jobs::register_node(user_state.clone(), settings.clone()).await {
+                error!(
+                    "Failed to register node on API {}: {}",
+                    settings.api.endpoint_address, e,
+                );
+            } else {
+                info!("Node {:?} is registered", settings.node.hostname);
+            }
+        }
+        if debug {
+            let user_state = user_state.lock().await;
+            let _ = user_state.save_to_file_async(&user_state.file_path).await;
+        }
+        user_state
+    };
+
+    // ++ Recurent Jobs ++
+    if settings.app.stat_enabled {
+        // Statistics
+        info!("Running Stat job");
+        let stats_task = tokio::spawn(stats_task(xray_api_clients.clone(), state.clone()));
+        tasks.push(stats_task);
     }
 
+    if settings.app.trial_users_enabled {
+        // Block trial users by traffic limit
+        info!("Running trial users limit by traffic job");
+        let block_trial_users_by_limit_handle = tokio::spawn({
+            let state = state.clone();
+            let clients = xray_api_clients.clone();
+            async move {
+                loop {
+                    sleep(Duration::from_secs(settings.app.trial_jobs_timeout)).await;
+                    jobs::block_trial_users_by_limit(state.clone(), clients.clone()).await;
+                }
+            }
+        });
+        tasks.push(block_trial_users_by_limit_handle);
+
+        // Restore trial user
+        info!("Running restoring trial users job");
+        let restore_trial_users_handle = tokio::spawn({
+            let state = state.clone();
+            let clients = xray_api_clients.clone();
+            async move {
+                loop {
+                    jobs::restore_trial_users(state.clone(), clients.clone()).await;
+                    sleep(Duration::from_secs(settings.app.trial_jobs_timeout)).await;
+                }
+            }
+        });
+        tasks.push(restore_trial_users_handle);
+    }
+
+    // zeromq SUB messages listener
+    let _ = {
+        let settings = settings.clone();
+        let user_state = state.clone();
+        tasks.push(tokio::spawn(zmq::subscriber(
+            xray_api_clients.clone(),
+            settings.clone(),
+            user_state,
+        )))
+    };
+
+    // debug mode
+    if debug {
+        tokio::spawn(jobs::save_state_to_file_job(state.clone(), 10));
+    }
+
+    // METRICS TASKS
+    if settings.app.metrics_enabled {
+        info!("Running metrics send job");
+        let metrics_handle = tokio::spawn({
+            let state = state.clone();
+            let settings = settings.clone();
+
+            async move {
+                loop {
+                    sleep(Duration::from_secs(settings.app.metrics_timeout)).await;
+                    let _ =
+                        jobs::send_metrics_job::<MetricType>(state.clone(), settings.clone()).await;
+                }
+            }
+        });
+        tasks.push(metrics_handle);
+    }
+
+    // Run all tasks
     let _ = futures::future::try_join_all(tasks).await;
     Ok(())
 }

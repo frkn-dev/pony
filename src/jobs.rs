@@ -39,11 +39,20 @@ pub async fn collect_stats_job(
                 if let Ok(user_stat) =
                     stats::get_user_stats(clients.clone(), Prefix::UserPrefix(user_id)).await
                 {
-                    let _ = state
-                        .update_user_downlink(user_id, user_stat.downlink)
-                        .await;
-                    let _ = state.update_user_uplink(user_id, user_stat.uplink).await;
-                    let _ = state.update_user_online(user_id, user_stat.online).await;
+                    let _ = {
+                        debug!(
+                            "User {} downlink {} uplink {} online {}",
+                            user_id,
+                            user_stat.downlink.clone(),
+                            user_stat.uplink.clone(),
+                            user_stat.online.clone()
+                        );
+                        let _ = state
+                            .update_user_downlink(user_id, user_stat.downlink)
+                            .await;
+                        let _ = state.update_user_uplink(user_id, user_stat.uplink).await;
+                        let _ = state.update_user_online(user_id, user_stat.online).await;
+                    };
                 }
             })
         })
@@ -68,12 +77,20 @@ pub async fn collect_stats_job(
                     )
                     .await
                     {
-                        let _ = state
-                            .update_node_downlink(inbound.clone(), node_stats.downlink)
-                            .await;
-                        let _ = state
-                            .update_node_uplink(inbound.clone(), node_stats.uplink)
-                            .await;
+                        let _ = {
+                            debug!(
+                                "Node downlink {} uplink {}",
+                                node_stats.downlink.clone(),
+                                node_stats.uplink.clone()
+                            );
+
+                            let _ = state
+                                .update_node_downlink(inbound.clone(), node_stats.downlink)
+                                .await;
+                            let _ = state
+                                .update_node_uplink(inbound.clone(), node_stats.uplink)
+                                .await;
+                        };
                     }
 
                     // user_count

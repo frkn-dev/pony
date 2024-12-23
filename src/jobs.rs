@@ -339,7 +339,8 @@ pub async fn block_trial_users_by_limit(state: Arc<Mutex<State>>, clients: XrayC
                     error!("Failed to update status for user {}: {:?}", user_id, e);
                 }
             } else {
-                debug!("Left free mb {}", user.limit - user.downlink.unwrap())
+                let limit_in_bytes = user.limit * 1_048_576;
+                debug!("Left free mb {}", limit_in_bytes - user.downlink.unwrap())
             }
         });
     }

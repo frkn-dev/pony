@@ -117,109 +117,6 @@ pub async fn collect_stats_job(
     Ok(())
 }
 
-pub async fn collect_stats_job2(
-    clients: XrayClients,
-    state: Arc<Mutex<State>>,
-) -> Result<(), Box<dyn Error>> {
-    let state = state.lock().await;
-
-    debug!("Stat job");
-
-    // Getting user stat: downlink, uplink, online
-    let users_tasks: Vec<_> = state
-        .users
-        .keys()
-        .map(|user_id| {
-            let clients = clients.clone();
-            let mut state = state.clone();
-            let user_id = *user_id;
-
-            tokio::spawn(async move {
-                if let Ok(user_stat) =
-                    stats::get_user_stats(clients.clone(), Prefix::UserPrefix(user_id)).await
-                {
-                    let _ = {
-                        debug!(
-                            "User {} downlink {} uplink {} online {}",
-                            user_id,
-                            user_stat.downlink.clone(),
-                            user_stat.uplink.clone(),
-                            user_stat.online.clone()
-                        );
-                        let _ = state
-                            .update_user_downlink(user_id, user_stat.downlink)
-                            .await;
-                        let _ = state.update_user_uplink(user_id, user_stat.uplink).await;
-                        let _ = state.update_user_online(user_id, user_stat.online).await;
-                    };
-                }
-            })
-        })
-        .collect();
-
-    // Getting node stat
-    let inbound_tasks: Vec<_> = state
-        .node
-        .inbounds
-        .keys()
-        .map(|inbound| {
-            let clients = clients.clone();
-            let mut state = state.clone();
-            let inbound = inbound.clone();
-
-            tokio::spawn({
-                async move {
-                    // downlink, uplink
-                    if let Ok(node_stats) = stats::get_inbound_stats(
-                        clients.clone(),
-                        Prefix::InboundPrefix(inbound.clone()),
-                    )
-                    .await
-                    {
-                        let _ = {
-                            debug!(
-                                "Node downlink {} uplink {}",
-                                node_stats.downlink.clone(),
-                                node_stats.uplink.clone()
-                            );
-
-                            let _ = state
-                                .update_node_downlink(inbound.clone(), node_stats.downlink)
-                                .await;
-                            let _ = state
-                                .update_node_uplink(inbound.clone(), node_stats.uplink)
-                                .await;
-                        };
-                    } else {
-                        error!("Cannot get inbound stats");
-                    }
-
-                    // user_count
-                    if let Ok(user_count) =
-                        stats::get_user_count(clients.clone(), inbound.clone()).await
-                    {
-                        let _ = state.update_node_user_count(inbound.clone(), user_count);
-                    }
-                }
-            })
-        })
-        .collect();
-
-    let mut tasks = vec![];
-    tasks.extend(users_tasks);
-    tasks.extend(inbound_tasks);
-
-    let results = futures::future::join_all(tasks).await;
-
-    for result in results {
-        if let Err(e) = result {
-            error!("Task panicked: {:?}", e);
-        }
-    }
-
-    Ok(())
-}
-
 pub async fn send_metrics_job<T>(
     state: Arc<Mutex<State>>,
     settings: Settings,
@@ -382,7 +279,10 @@ pub async fn restore_trial_users(state: Arc<Mutex<State>>, clients: XrayClients)
 }
 
 pub async fn block_trial_users_by_limit(state: Arc<Mutex<State>>, clients: XrayClients) {
-    let trial_users = state.lock().await.get_all_trial_users(UserStatus::Active);
+    let trial_users = {
+        let state_guard = state.lock().await;
+        state_guard.get_all_trial_users(UserStatus::Active)
+    };
 
     for (user_id, user) in trial_users {
         let state = state.clone();
@@ -390,11 +290,10 @@ pub async fn block_trial_users_by_limit(state: Arc<Mutex<State>>, clients: XrayC
         let clients = clients.clone();
 
         tokio::spawn(async move {
-            let mut state = state.lock().await;
-
-            let user_exceeds_limit = user
-                .downlink
-                .map_or(false, |downlink| downlink > user.limit);
+            let user_exceeds_limit = {
+                user.downlink
+                    .map_or(false, |downlink| downlink > user.limit)
+            };
 
             if user_exceeds_limit {
                 debug!(
@@ -404,30 +303,42 @@ pub async fn block_trial_users_by_limit(state: Arc<Mutex<State>>, clients: XrayC
                     user.limit
                 );
 
-                let vmess_remove = remove_user(clients.clone(), user_id.clone(), Tag::Vmess);
-                let ss_remove = remove_user(clients.clone(), user_id.clone(), Tag::Shadowsocks);
-                let xtls_vless_remove =
-                    remove_user(clients.clone(), user_id.clone(), Tag::VlessXtls);
-                let grpc_vless_remove =
-                    remove_user(clients.clone(), user_id.clone(), Tag::VlessGrpc);
+                let inbounds = {
+                    let state_guard = state.lock().await;
+                    state_guard
+                        .node
+                        .inbounds
+                        .keys()
+                        .cloned()
+                        .collect::<Vec<_>>()
+                };
 
-                let results = tokio::try_join!(
-                    vmess_remove,
-                    xtls_vless_remove,
-                    grpc_vless_remove,
-                    ss_remove
-                );
+                let remove_tasks: Vec<_> = inbounds
+                    .into_iter()
+                    .map(|inbound| remove_user(clients.clone(), user_id.clone(), inbound))
+                    .collect();
 
-                match results {
-                    Ok(_) => debug!("Successfully blocked user: {}", user_id),
-                    Err(e) => error!("Failed to block user {}: {:?}", user_id, e),
+                if let Some(_) = futures::future::join_all(remove_tasks)
+                    .await
+                    .into_iter()
+                    .find(|r| r.is_err())
+                {
+                    debug!("Successfully blocked user: {}", user_id);
+                } else {
+                    error!("Failed to block user: {:?}", user_id);
                 }
 
-                let _ = state.reset_user_stat(user_id, StatType::Downlink);
+                let mut state_guard = state.lock().await;
+                state_guard.reset_user_stat(user_id, StatType::Downlink);
 
-                if let Err(e) = state.expire_user(user_id).await {
+                if let Err(e) = {
+                    let mut state_guard = state.lock().await;
+                    state_guard.expire_user(user_id).await
+                } {
                     error!("Failed to update status for user {}: {:?}", user_id, e);
                 }
+            } else {
+                debug!("Left free mb {}", user.limit - user.downlink.unwrap())
             }
         });
     }

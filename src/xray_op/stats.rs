@@ -71,7 +71,7 @@ async fn get_stat(
         let mut client = clients.stats_client.lock().await;
 
         let stat_name = match prefix {
-            Prefix::InboundPrefix(tag) => format!("inbound>>>{}>>>traffic", tag),
+            Prefix::InboundPrefix(tag) => format!("inbound>>>{}", tag),
             Prefix::UserPrefix(uuid) => format!("user>>>{}@pony", uuid),
         };
 

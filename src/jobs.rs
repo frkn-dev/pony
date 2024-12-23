@@ -91,6 +91,8 @@ pub async fn collect_stats_job(
                                 .update_node_uplink(inbound.clone(), node_stats.uplink)
                                 .await;
                         };
+                    } else {
+                        error!("Cannot get inbound stats");
                     }
 
                     // user_count

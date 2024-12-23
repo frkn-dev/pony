@@ -1,5 +1,6 @@
 use super::Tag;
 use log::debug;
+use log::error;
 use std::fmt;
 use tonic::{Request, Status};
 use uuid::Uuid;
@@ -168,40 +169,65 @@ pub async fn get_user_stats(clients: XrayClients, user_id: Prefix) -> Result<Use
 pub async fn get_inbound_stats(clients: XrayClients, inbound: Prefix) -> Result<NodeStats, Status> {
     debug!("get_inbound_stats {:?}", inbound);
 
-    match (
-        get_stat(
-            clients.clone(),
-            inbound.clone(),
-            Stat::Inbound(StatType::Downlink),
-            false,
-        )
-        .await,
-        get_stat(
-            clients.clone(),
-            inbound.clone(),
-            Stat::Inbound(StatType::Uplink),
-            false,
-        )
-        .await,
-    ) {
+    // Запрашиваем downlink и uplink с использованием get_stat
+    let downlink_result = get_stat(
+        clients.clone(),
+        inbound.clone(),
+        Stat::Inbound(StatType::Downlink),
+        false,
+    )
+    .await;
+
+    let uplink_result = get_stat(
+        clients.clone(),
+        inbound.clone(),
+        Stat::Inbound(StatType::Uplink),
+        false,
+    )
+    .await;
+
+    // Обрабатываем оба результата
+    match (downlink_result, uplink_result) {
         (Ok(downlink), Ok(uplink)) => {
-            if let (Some(downlink), Some(uplink)) = (downlink.stat, uplink.stat) {
-                debug!("Node Stats {:?} {:?} {:?}", inbound, downlink, uplink);
+            // Проверяем наличие значений внутри stat
+            if let (Some(downlink), Some(uplink)) = (downlink.stat.clone(), uplink.stat.clone()) {
+                debug!(
+                    "Node Stats successfully fetched: inbound={:?}, downlink={:?}, uplink={:?}",
+                    inbound, downlink, uplink
+                );
                 Ok(NodeStats {
                     downlink: downlink.value,
                     uplink: uplink.value,
                 })
             } else {
-                Err(Status::internal(format!(
-                    "Cannot get inbound stats for {:?}",
-                    inbound.clone()
-                )))
+                // Ошибка, если один из stat отсутствует
+                let error_msg = format!(
+                    "Incomplete stats for inbound {:?}: downlink={:?}, uplink={:?}",
+                    inbound,
+                    downlink.stat.clone(),
+                    uplink.stat.clone()
+                );
+                error!("{}", error_msg);
+                Err(Status::internal(error_msg))
             }
         }
-        (_, _) => Err(Status::internal(format!(
-            "Cannot get inbound stats for {:?}",
-            inbound
-        ))),
+        // Обработка ошибок для случаев, когда запросы завершились неудачей
+        (Err(e1), Err(e2)) => {
+            let error_msg = format!(
+                "Both requests failed for inbound {:?}: downlink error: {:?}, uplink error: {:?}",
+                inbound, e1, e2
+            );
+            error!("{}", error_msg);
+            Err(Status::internal(error_msg))
+        }
+        (Err(e), _) | (_, Err(e)) => {
+            let error_msg = format!(
+                "One of the requests failed for inbound {:?}: {:?}",
+                inbound, e
+            );
+            error!("{}", error_msg);
+            Err(Status::internal(error_msg))
+        }
     }
 }
 

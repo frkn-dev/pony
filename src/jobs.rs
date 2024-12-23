@@ -98,7 +98,9 @@ pub async fn collect_stats_job(
                 }
                 if let Ok(user_count) = stats::get_user_count(clients.clone(), tag.clone()).await {
                     let mut state_guard = state.lock().await;
-                    let _ = state_guard.update_node_user_count(tag.clone(), user_count);
+                    let _ = state_guard
+                        .update_node_user_count(tag.clone(), user_count)
+                        .await;
                 }
             }))
         }

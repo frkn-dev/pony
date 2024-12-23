@@ -22,6 +22,103 @@ pub async fn collect_stats_job(
     clients: XrayClients,
     state: Arc<Mutex<State>>,
 ) -> Result<(), Box<dyn Error>> {
+    debug!("Stat job");
+
+    let mut tasks = vec![];
+
+    {
+        let state_guard = state.lock().await;
+        let user_ids: Vec<_> = state_guard.users.keys().cloned().collect();
+
+        for user_id in user_ids {
+            let clients = clients.clone();
+            let state = state.clone();
+
+            tasks.push(tokio::spawn(async move {
+                if let Ok(user_stat) =
+                    stats::get_user_stats(clients.clone(), Prefix::UserPrefix(user_id)).await
+                {
+                    debug!(
+                        "User {} downlink {} uplink {} online {}",
+                        user_id, user_stat.downlink, user_stat.uplink, user_stat.online
+                    );
+
+                    let mut state_guard = state.lock().await;
+                    if let Err(e) = state_guard
+                        .update_user_downlink(user_id, user_stat.downlink)
+                        .await
+                    {
+                        error!("Failed to update user downlink: {}", e);
+                    }
+                    if let Err(e) = state_guard
+                        .update_user_uplink(user_id, user_stat.uplink)
+                        .await
+                    {
+                        error!("Failed to update user uplink: {}", e);
+                    }
+                    if let Err(e) = state_guard
+                        .update_user_online(user_id, user_stat.online)
+                        .await
+                    {
+                        error!("Failed to update user online: {}", e);
+                    }
+                } else {
+                    error!("Failed to fetch user stats for {}", user_id);
+                }
+            }));
+        }
+
+        let tags: Vec<_> = state_guard.node.inbounds.keys().cloned().collect();
+        for tag in tags {
+            let clients = clients.clone();
+            let state = state.clone();
+
+            tasks.push(tokio::spawn(async move {
+                if let Ok(inbound_stat) =
+                    stats::get_inbound_stats(clients.clone(), Prefix::InboundPrefix(tag.clone()))
+                        .await
+                {
+                    debug!(
+                        "Node {} downlink {} uplink {}",
+                        tag, inbound_stat.downlink, inbound_stat.uplink
+                    );
+                    let mut state_guard = state.lock().await;
+                    if let Err(e) = state_guard
+                        .update_node_downlink(tag.clone(), inbound_stat.downlink)
+                        .await
+                    {
+                        error!("Failed to update inbound downlink: {}", e);
+                    }
+                    if let Err(e) = state_guard
+                        .update_node_uplink(tag.clone(), inbound_stat.uplink)
+                        .await
+                    {
+                        error!("Failed to update inbound uplink: {}", e);
+                    }
+                }
+                if let Ok(user_count) = stats::get_user_count(clients.clone(), tag.clone()).await {
+                    let mut state_guard = state.lock().await;
+                    let _ = state_guard.update_node_user_count(tag.clone(), user_count);
+                }
+            }))
+        }
+    }
+
+    let results = futures::future::join_all(tasks).await;
+
+    for result in results {
+        if let Err(e) = result {
+            error!("Task panicked: {:?}", e);
+        }
+    }
+
+    Ok(())
+}
+
+pub async fn collect_stats_job2(
+    clients: XrayClients,
+    state: Arc<Mutex<State>>,
+) -> Result<(), Box<dyn Error>> {
     let state = state.lock().await;
 
     debug!("Stat job");

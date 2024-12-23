@@ -1,13 +1,8 @@
 use log::error;
-use std::error::Error;
-use tonic::Request;
-use uuid::Uuid;
+use tonic::{Request, Status};
 
-use crate::xray_api::xray::app::{
-    proxyman::command::{
-        GetInboundUserRequest, GetInboundUserResponse, GetInboundUsersCountResponse,
-    },
-    stats::command::GetStatsRequest,
+use crate::xray_api::xray::app::proxyman::command::{
+    GetInboundUserRequest, GetInboundUserResponse, GetInboundUsersCountResponse,
 };
 
 use super::{client::XrayClients, Tag};
@@ -16,7 +11,7 @@ pub async fn get_user(
     clients: XrayClients,
     tag: Tag,
     user_id: String,
-) -> Result<GetInboundUserResponse, tonic::Status> {
+) -> Result<GetInboundUserResponse, Status> {
     let request = GetInboundUserRequest {
         tag: tag.to_string(),
         email: format!("{}@pony", user_id).to_string(),
@@ -34,10 +29,7 @@ pub async fn get_user(
         })
 }
 
-pub async fn user_count(
-    clients: XrayClients,
-    tag: Tag,
-) -> Result<i64, Box<dyn Error + Send + Sync>> {
+pub async fn user_count(clients: XrayClients, tag: Tag) -> Result<i64, Status> {
     let request = GetInboundUserRequest {
         tag: tag.to_string(),
         email: "".to_string(),
@@ -54,8 +46,8 @@ pub async fn user_count(
             Ok(res.count)
         }
         Err(e) => {
-            error!("Failed to fetch users for tag {}: {}", tag, e);
-            Err(Box::new(e))
+            let error = format!("Failed to fetch users for tag {}: {}", tag, e);
+            Err(Status::internal(error))
         }
     }
 }

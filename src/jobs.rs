@@ -2,21 +2,105 @@ use crate::metrics::metrics::collect_metrics;
 use crate::metrics::metrics::MetricType;
 use crate::postgres::UserRow;
 use crate::utils::send_to_carbon;
+use crate::xray_op::stats;
 use chrono::{Duration, Utc};
 use log::{debug, error};
 use std::{error::Error, sync::Arc};
 use tokio::sync::Mutex;
-use tokio::time::{sleep, Duration as TokioDuration};
 
 use reqwest::Client;
 
 use crate::{actions, settings::Settings, user::User};
 
 use super::xray_op::{
-    client::XrayClients, remove_user, stats::get_traffic_stats, stats::StatType, vless, vmess, Tag,
+    client::XrayClients, remove_user, stats::Prefix, stats::StatType, vless, vmess, Tag,
 };
 
 use super::{state::State, user::UserStatus};
+
+pub async fn collect_stats_job(
+    clients: XrayClients,
+    state: Arc<Mutex<State>>,
+) -> Result<(), Box<dyn Error>> {
+    let state = state.lock().await;
+
+    debug!("Stat job");
+
+    // Getting user stat: downlink, uplink, online
+    let users_tasks: Vec<_> = state
+        .users
+        .keys()
+        .map(|user_id| {
+            let clients = clients.clone();
+            let mut state = state.clone();
+            let user_id = *user_id;
+
+            tokio::spawn(async move {
+                if let Ok(user_stat) =
+                    stats::get_user_stats(clients.clone(), Prefix::UserPrefix(user_id)).await
+                {
+                    let _ = state
+                        .update_user_downlink(user_id, user_stat.downlink)
+                        .await;
+                    let _ = state.update_user_uplink(user_id, user_stat.uplink).await;
+                    let _ = state.update_user_online(user_id, user_stat.online).await;
+                }
+            })
+        })
+        .collect();
+
+    // Getting node stat
+    let inbound_tasks: Vec<_> = state
+        .node
+        .inbounds
+        .keys()
+        .map(|inbound| {
+            let clients = clients.clone();
+            let mut state = state.clone();
+            let inbound = inbound.clone();
+
+            tokio::spawn({
+                async move {
+                    // downlink, uplink
+                    if let Ok(node_stats) = stats::get_inbound_stats(
+                        clients.clone(),
+                        Prefix::InboundPrefix(inbound.clone()),
+                    )
+                    .await
+                    {
+                        let _ = state
+                            .update_node_downlink(inbound.clone(), node_stats.downlink)
+                            .await;
+                        let _ = state
+                            .update_node_uplink(inbound.clone(), node_stats.uplink)
+                            .await;
+                    }
+
+                    // user_count
+                    if let Ok(user_count) =
+                        stats::get_user_count(clients.clone(), inbound.clone()).await
+                    {
+                        let _ = state.update_node_user_count(inbound.clone(), user_count);
+                    }
+                }
+            })
+        })
+        .collect();
+
+    let mut tasks = vec![];
+    tasks.extend(users_tasks);
+    tasks.extend(inbound_tasks);
+
+    let results = futures::future::join_all(tasks).await;
+
+    for result in results {
+        if let Err(e) = result {
+            error!("Task panicked: {:?}", e);
+        }
+    }
+
+    Ok(())
+}
 
 pub async fn send_metrics_job<T>(
     state: Arc<Mutex<State>>,
@@ -63,19 +147,6 @@ pub async fn register_node(
     }
 
     Ok(())
-}
-
-pub async fn save_state_to_file_job(state: Arc<Mutex<State>>, interval_secs: u64) {
-    loop {
-        sleep(TokioDuration::from_secs(interval_secs)).await;
-
-        let state = state.lock().await;
-        if let Err(e) = state.save_to_file_async("save job").await {
-            error!("Cannot save state file: {}", e);
-        } else {
-            debug!("State file saved to file");
-        }
-    }
 }
 
 pub async fn init_state(
@@ -235,11 +306,6 @@ pub async fn block_trial_users_by_limit(state: Arc<Mutex<State>>, clients: XrayC
                 }
 
                 let _ = state.reset_user_stat(user_id, StatType::Downlink);
-                let _ = get_traffic_stats(
-                    clients.clone(),
-                    format!("user>>>{}@pony>>>traffic", user_id),
-                    true,
-                );
 
                 if let Err(e) = state.expire_user(user_id).await {
                     error!("Failed to update status for user {}: {:?}", user_id, e);

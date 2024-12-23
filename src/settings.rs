@@ -82,8 +82,12 @@ fn default_trial_users_jobs_timeout_sec() -> u64 {
     60
 }
 
+fn default_stat_jobs_timeout_sec() -> u64 {
+    60
+}
+
 fn default_api_endpoint_address() -> String {
-    "https://localhost:5006".to_string()
+    "http://localhost:5006".to_string()
 }
 
 fn default_uuid() -> Uuid {
@@ -112,6 +116,8 @@ pub struct AppConfig {
     pub metrics_enabled: bool,
     #[serde(default = "default_trial_users_jobs_timeout_sec")]
     pub trial_jobs_timeout: u64,
+    #[serde(default = "default_stat_jobs_timeout_sec")]
+    pub stat_jobs_timeout: u64,
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]

@@ -1,13 +1,30 @@
 use super::Tag;
-use log::error;
-use log::{debug, warn};
-use std::error::Error;
-use std::{fmt, sync::Arc};
-use tokio::{sync::Mutex, time::Duration};
+use log::debug;
+use std::fmt;
 use tonic::{Request, Status};
+use uuid::Uuid;
 
-use super::{super::state::State, client::XrayClients, user};
+use super::{client::XrayClients, user};
 use crate::xray_api::xray::app::stats::command::{GetStatsRequest, GetStatsResponse};
+
+#[derive(Debug, Clone)]
+pub enum Stat {
+    User(StatType),
+    Inbound(StatType),
+}
+
+impl fmt::Display for Stat {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Stat::User(StatType::Uplink) => write!(f, "uplink"),
+            Stat::User(StatType::Downlink) => write!(f, "downlink"),
+            Stat::User(StatType::Online) => write!(f, "online"),
+            Stat::Inbound(StatType::Uplink) => write!(f, "uplink"),
+            Stat::Inbound(StatType::Downlink) => write!(f, "downlink"),
+            Stat::Inbound(StatType::Online) => write!(f, "Not implemented"),
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 pub enum StatType {
@@ -26,164 +43,174 @@ impl fmt::Display for StatType {
     }
 }
 
-pub async fn stats_task(clients: XrayClients, state: Arc<Mutex<State>>) {
-    debug!("Stats task running");
-    loop {
-        // User traffic uplink/downlink
-        let user_state = state.lock().await;
-        let users = user_state.users.clone();
-        drop(user_state);
-        for user_id in users.keys() {
-            match get_traffic_stats(clients.clone(), format!("user>>>{}@pony", user_id), false)
-                .await
-            {
-                Ok(response) => {
-                    debug!("Received stats: {:?}", response);
+pub struct UserStats {
+    pub downlink: i64,
+    pub uplink: i64,
+    pub online: i64,
+}
 
-                    let mut user_state = state.lock().await;
+pub struct NodeStats {
+    pub downlink: i64,
+    pub uplink: i64,
+}
 
-                    if let Some(downlink) = response.0.stat {
-                        let _ = user_state
-                            .update_user_downlink(*user_id, downlink.value / (1024 * 1024))
-                            .await;
-                    }
-                    if let Some(uplink) = response.1.stat {
-                        let _ = user_state
-                            .update_user_uplink(*user_id, uplink.value / (1024 * 1024))
-                            .await;
-                    }
+#[derive(Debug, Clone)]
+pub enum Prefix {
+    UserPrefix(Uuid),
+    InboundPrefix(Tag),
+}
 
-                    if let Some(online) = response.2.stat {
-                        let _ = user_state.update_user_online(*user_id, online.value).await;
-                    }
-                }
-                Err(e) => {
-                    warn!("Failed to get stats: {}", e);
-                }
+async fn get_stat(
+    clients: XrayClients,
+    prefix: Prefix,
+    stat_type: Stat,
+    reset: bool,
+) -> Result<GetStatsResponse, Status> {
+    let response = {
+        let mut client = clients.stats_client.lock().await;
+
+        let stat_name = match prefix {
+            Prefix::InboundPrefix(tag) => format!("inbound>>>{}>>>traffic>>>", tag),
+            Prefix::UserPrefix(uuid) => format!("user>>>{}@pony>>>traffic>>>", uuid),
+        };
+
+        match stat_type {
+            Stat::User(StatType::Downlink) | Stat::User(StatType::Uplink) => {
+                let stat_name = format!("{}>>>{}", stat_name, stat_type);
+
+                let request = Request::new(GetStatsRequest {
+                    name: stat_name,
+                    reset: reset,
+                });
+                client.get_stats(request).await
+            }
+            Stat::User(StatType::Online) => {
+                let stat_name = format!("{}>>>{}", stat_name, stat_type);
+                let request = Request::new(GetStatsRequest {
+                    name: stat_name,
+                    reset: reset,
+                });
+                client.get_stats_online(request).await
+            }
+            Stat::Inbound(StatType::Downlink) | Stat::Inbound(StatType::Uplink) => {
+                let stat_name = format!("{}>>>{}", stat_name, stat_type);
+
+                let request = Request::new(GetStatsRequest {
+                    name: stat_name,
+                    reset: reset,
+                });
+                client.get_stats(request).await
+            }
+            Stat::Inbound(StatType::Online) => {
+                Err(Status::internal("Online is not supported for inbound"))
             }
         }
+    };
 
-        // Node traffic uplink/downlink
-        let _ = {
-            let user_state = state.lock().await;
-            let node = user_state.node.clone();
-            drop(user_state);
-            for inbound in node.inbounds.keys() {
-                match get_traffic_stats(
-                    clients.clone(),
-                    format!("inbound>>>{inbound}>>>traffic"),
-                    false,
-                )
-                .await
-                {
-                    Ok(response) => {
-                        debug!("Received node stats: {:?}", response);
-
-                        let mut user_state = state.lock().await;
-
-                        if let Some(downlink) = response.0.stat {
-                            let _ = user_state
-                                .update_node_downlink(inbound.clone(), downlink.value)
-                                .await;
-                        }
-                        if let Some(uplink) = response.1.stat {
-                            let _ = user_state
-                                .update_node_uplink(inbound.clone(), uplink.value)
-                                .await;
-                        }
-                    }
-                    Err(e) => {
-                        warn!("Failed to get node stats: {}", e);
-                    }
-                }
-            }
-        };
-
-        // User count per a node inbound
-        let _ = {
-            let user_state = state.lock().await;
-            let node = user_state.node.clone();
-            drop(user_state);
-
-            for inbound in node.inbounds.keys() {
-                let mut user_state = state.lock().await;
-
-                match user::user_count(clients.clone(), inbound.clone()).await {
-                    Ok(count) => {
-                        let _ = user_state
-                            .update_node_user_count(inbound.clone(), count)
-                            .await;
-                    }
-                    Err(e) => {
-                        warn!("Failed to fetch user count for tag {}: {}", inbound, e);
-                    }
-                }
-            }
-        };
-
-        tokio::time::sleep(Duration::from_secs(2000)).await;
+    match response {
+        Ok(stat) => Ok(stat.into_inner()),
+        Err(e) => Err(Status::internal(format!(
+            "Stat request failed {:?} {}",
+            stat_type, e
+        ))),
     }
 }
 
-pub async fn get_traffic_stats(
-    clients: XrayClients,
-    stat: String,
-    reset: bool,
-) -> Result<(GetStatsResponse, GetStatsResponse, GetStatsResponse), Status> {
-    let client = clients.stats_client.lock().await;
-
-    let downlink_stat_name = format!("{stat}>>>traffic>>>{}", StatType::Downlink);
-    let uplink_stat_name = format!("{stat}>>>traffic>>>{}", StatType::Uplink);
-    let online_stat_name = format!("{stat}>>>{}", StatType::Online);
-
-    let downlink_request = Request::new(GetStatsRequest {
-        name: downlink_stat_name,
-        reset: reset,
-    });
-
-    let uplink_request = Request::new(GetStatsRequest {
-        name: uplink_stat_name,
-        reset: reset,
-    });
-
-    let online_request = Request::new(GetStatsRequest {
-        name: online_stat_name,
-        reset: reset,
-    });
-
-    let downlink_response = tokio::spawn({
-        let mut client = client.clone();
-        async move { client.get_stats(downlink_request).await }
-    });
-
-    let uplink_response = tokio::spawn({
-        let mut client = client.clone();
-        async move { client.get_stats(uplink_request).await }
-    });
-
-    let online_response = tokio::spawn({
-        let mut client = client.clone();
-        async move { client.get_stats_online(online_request).await }
-    });
-
-    let (downlink_result, uplink_result, online_result) =
-        tokio::try_join!(downlink_response, uplink_response, online_response)
-            .map_err(|e| Status::internal(format!("Join error: {}", e)))?;
-
-    match (downlink_result, uplink_result, online_result) {
+pub async fn get_user_stats(clients: XrayClients, user_id: Prefix) -> Result<UserStats, Status> {
+    debug!("get_user_stats {:?}", user_id);
+    match (
+        get_stat(
+            clients.clone(),
+            user_id.clone(),
+            Stat::User(StatType::Downlink),
+            false,
+        )
+        .await,
+        get_stat(
+            clients.clone(),
+            user_id.clone(),
+            Stat::User(StatType::Uplink),
+            false,
+        )
+        .await,
+        get_stat(
+            clients,
+            user_id.clone(),
+            Stat::User(StatType::Online),
+            false,
+        )
+        .await,
+    ) {
         (Ok(downlink), Ok(uplink), Ok(online)) => {
-            debug!("Downlink stat: {:?}", downlink);
-            debug!("Uplink stat: {:?}", uplink);
-            debug!("Online stat: {:?}", online);
+            if let (Some(downlink), Some(uplink), Some(online)) =
+                (downlink.stat, uplink.stat, online.stat)
+            {
+                Ok(UserStats {
+                    downlink: downlink.value,
+                    uplink: uplink.value,
+                    online: online.value,
+                })
+            } else {
+                Err(Status::internal(format!(
+                    "Fail to get user stat for {:?}",
+                    user_id.clone()
+                )))
+            }
+        }
+        (Err(e), _, _) | (_, Err(e), _) | (_, _, Err(e)) => Err(Status::internal(format!(
+            "Faile to get user stat for {:?} - {}",
+            user_id, e
+        ))),
+    }
+}
 
-            Ok((
-                downlink.into_inner(),
-                uplink.into_inner(),
-                online.into_inner(),
-            ))
+pub async fn get_inbound_stats(clients: XrayClients, inbound: Prefix) -> Result<NodeStats, Status> {
+    debug!("get_inbound_stats {:?}", inbound);
+
+    match (
+        get_stat(
+            clients.clone(),
+            inbound.clone(),
+            Stat::Inbound(StatType::Downlink),
+            false,
+        )
+        .await,
+        get_stat(
+            clients.clone(),
+            inbound.clone(),
+            Stat::Inbound(StatType::Uplink),
+            false,
+        )
+        .await,
+    ) {
+        (Ok(downlink), Ok(uplink)) => {
+            if let (Some(downlink), Some(uplink)) = (downlink.stat, uplink.stat) {
+                Ok(NodeStats {
+                    downlink: downlink.value,
+                    uplink: uplink.value,
+                })
+            } else {
+                Err(Status::internal(format!(
+                    "Cannot get inbound stats for {:?}",
+                    inbound.clone()
+                )))
+            }
         }
-        (Err(e), _, _) | (_, Err(e), _) | (_, _, Err(e)) => {
-            Err(Status::internal(format!("Stat request failed: {}", e)))
-        }
+        (_, _) => Err(Status::internal(format!(
+            "Cannot get inbound stats for {:?}",
+            inbound
+        ))),
+    }
+}
+
+pub async fn get_user_count(clients: XrayClients, inbound: Tag) -> Result<i64, Status> {
+    debug!("get_user_count {:?}", inbound);
+
+    match user::user_count(clients, inbound.clone()).await {
+        Ok(count) => Ok(count),
+        Err(e) => Err(Status::internal(format!(
+            "Failed to fetch user count for inbound {}: {}",
+            inbound, e
+        ))),
     }
 }

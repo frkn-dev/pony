@@ -37,7 +37,6 @@ impl State {
                 settings.node.ipv4.expect("ipv4addr"),
                 settings.node.env,
                 settings.node.uuid,
-                0,
             ),
         }
     }

@@ -16,7 +16,7 @@ use crate::{
     postgres::{postgres_client, users_db_request},
     settings::{read_config, Settings},
     utils::{current_timestamp, human_readable_date, level_from_settings},
-    xray_op::{config, stats::stats_task},
+    xray_op::config,
 };
 
 mod actions;
@@ -164,7 +164,16 @@ async fn main() -> std::io::Result<()> {
     if settings.app.stat_enabled {
         // Statistics
         info!("Running Stat job");
-        let stats_task = tokio::spawn(stats_task(xray_api_clients.clone(), state.clone()));
+        let stats_task = tokio::spawn({
+            let state = state.clone();
+            let clients = xray_api_clients.clone();
+            async move {
+                loop {
+                    sleep(Duration::from_secs(settings.app.stat_jobs_timeout)).await;
+                    let _ = jobs::collect_stats_job(clients.clone(), state.clone()).await;
+                }
+            }
+        });
         tasks.push(stats_task);
     }
 
@@ -209,11 +218,6 @@ async fn main() -> std::io::Result<()> {
             debug,
         )))
     };
-
-    // debug mode
-    //if debug {
-    //    tokio::spawn(jobs::save_state_to_file_job(state.clone(), 10000));
-    //}
 
     // METRICS TASKS
     if settings.app.metrics_enabled {

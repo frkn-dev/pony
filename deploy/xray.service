@@ -1,0 +1,15 @@
+[Unit]
+Description=Xray Service
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/root/xray/xray --config /root/xray-config-mk2nl.json
+Restart=on-failure
+RestartSec=5
+
+StandardOutput=append:/var/log/xray.log
+StandardError=append:/var/log/xray.log
+
+[Install]
+WantedBy=multi-user.target

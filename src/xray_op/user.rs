@@ -1,9 +1,13 @@
 use log::error;
 use std::error::Error;
 use tonic::Request;
+use uuid::Uuid;
 
-use crate::xray_api::xray::app::proxyman::command::{
-    GetInboundUserRequest, GetInboundUserResponse, GetInboundUsersCountResponse,
+use crate::xray_api::xray::app::{
+    proxyman::command::{
+        GetInboundUserRequest, GetInboundUserResponse, GetInboundUsersCountResponse,
+    },
+    stats::command::GetStatsRequest,
 };
 
 use super::{client::XrayClients, Tag};

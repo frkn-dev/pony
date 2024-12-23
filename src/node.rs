@@ -13,6 +13,7 @@ pub struct Node {
     pub ipv4: Ipv4Addr,
     pub inbounds: HashMap<Tag, Inbound>,
     env: String,
+    online: i32,
 }
 
 impl Node {
@@ -22,6 +23,7 @@ impl Node {
         ipv4: Ipv4Addr,
         env: String,
         uuid: Uuid,
+        online: i64,
     ) -> Self {
         Self {
             hostname: hostname,
@@ -29,6 +31,7 @@ impl Node {
             ipv4: ipv4,
             env: env,
             uuid: uuid,
+            online: 0,
         }
     }
 

@@ -37,6 +37,7 @@ impl State {
                 settings.node.ipv4.expect("ipv4addr"),
                 settings.node.env,
                 settings.node.uuid,
+                0,
             ),
         }
     }
@@ -156,6 +157,13 @@ impl State {
                         return Err("New value for Downlink is None".into());
                     }
                 }
+                StatType::Online => {
+                    if let Some(value) = new_value {
+                        user.online = Some(value);
+                    } else {
+                        return Err("New value for Online is None".into());
+                    }
+                }
             }
             user.update_modified_at();
             Ok(())
@@ -163,6 +171,15 @@ impl State {
             let err_msg = format!("User not found: {}", user_id);
             Err(err_msg.into())
         }
+    }
+
+    pub async fn update_user_online(
+        &mut self,
+        user_id: Uuid,
+        new_online: i64,
+    ) -> Result<(), Box<dyn Error>> {
+        self.update_user_stat(user_id, StatType::Online, Some(new_online))
+            .await
     }
 
     pub async fn update_user_uplink(
@@ -188,6 +205,7 @@ impl State {
             match stat {
                 StatType::Uplink => user.reset_uplink(),
                 StatType::Downlink => user.reset_downlink(),
+                StatType::Online => {}
             }
         } else {
             error!("User not found: {}", user_id);

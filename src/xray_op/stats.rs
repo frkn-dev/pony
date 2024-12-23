@@ -1,4 +1,7 @@
+use super::Tag;
+use log::error;
 use log::{debug, warn};
+use std::error::Error;
 use std::{fmt, sync::Arc};
 use tokio::{sync::Mutex, time::Duration};
 use tonic::{Request, Status};
@@ -10,6 +13,7 @@ use crate::xray_api::xray::app::stats::command::{GetStatsRequest, GetStatsRespon
 pub enum StatType {
     Uplink,
     Downlink,
+    Online,
 }
 
 impl fmt::Display for StatType {
@@ -17,6 +21,7 @@ impl fmt::Display for StatType {
         match self {
             StatType::Uplink => write!(f, "uplink"),
             StatType::Downlink => write!(f, "downlink"),
+            StatType::Online => write!(f, "online"),
         }
     }
 }
@@ -29,12 +34,8 @@ pub async fn stats_task(clients: XrayClients, state: Arc<Mutex<State>>) {
         let users = user_state.users.clone();
         drop(user_state);
         for user_id in users.keys() {
-            match get_traffic_stats(
-                clients.clone(),
-                format!("user>>>{}@pony>>>traffic", user_id),
-                false,
-            )
-            .await
+            match get_traffic_stats(clients.clone(), format!("user>>>{}@pony", user_id), false)
+                .await
             {
                 Ok(response) => {
                     debug!("Received stats: {:?}", response);
@@ -51,6 +52,10 @@ pub async fn stats_task(clients: XrayClients, state: Arc<Mutex<State>>) {
                             .update_user_uplink(*user_id, uplink.value / (1024 * 1024))
                             .await;
                     }
+
+                    if let Some(online) = response.2.stat {
+                        let _ = user_state.update_user_online(*user_id, online.value).await;
+                    }
                 }
                 Err(e) => {
                     warn!("Failed to get stats: {}", e);
@@ -58,7 +63,7 @@ pub async fn stats_task(clients: XrayClients, state: Arc<Mutex<State>>) {
             }
         }
 
-        // Node traffic uplink/downnlink
+        // Node traffic uplink/downlink
         let _ = {
             let user_state = state.lock().await;
             let node = user_state.node.clone();
@@ -124,11 +129,12 @@ pub async fn get_traffic_stats(
     clients: XrayClients,
     stat: String,
     reset: bool,
-) -> Result<(GetStatsResponse, GetStatsResponse), Status> {
+) -> Result<(GetStatsResponse, GetStatsResponse, GetStatsResponse), Status> {
     let client = clients.stats_client.lock().await;
 
-    let downlink_stat_name = format!("{stat}>>>{}", StatType::Downlink);
-    let uplink_stat_name = format!("{stat}>>>{}", StatType::Uplink);
+    let downlink_stat_name = format!("{stat}>>>traffic>>>{}", StatType::Downlink);
+    let uplink_stat_name = format!("{stat}>>>traffic>>>{}", StatType::Uplink);
+    let online_stat_name = format!("{stat}>>>{}", StatType::Online);
 
     let downlink_request = Request::new(GetStatsRequest {
         name: downlink_stat_name,
@@ -137,6 +143,11 @@ pub async fn get_traffic_stats(
 
     let uplink_request = Request::new(GetStatsRequest {
         name: uplink_stat_name,
+        reset: reset,
+    });
+
+    let online_request = Request::new(GetStatsRequest {
+        name: online_stat_name,
         reset: reset,
     });
 
@@ -150,16 +161,29 @@ pub async fn get_traffic_stats(
         async move { client.get_stats(uplink_request).await }
     });
 
-    let (downlink_result, uplink_result) = tokio::try_join!(downlink_response, uplink_response)
-        .map_err(|e| Status::internal(format!("Join error: {}", e)))?;
+    let online_response = tokio::spawn({
+        let mut client = client.clone();
+        async move { client.get_stats_online(online_request).await }
+    });
 
-    match (downlink_result, uplink_result) {
-        (Ok(downlink), Ok(uplink)) => {
+    let (downlink_result, uplink_result, online_result) =
+        tokio::try_join!(downlink_response, uplink_response, online_response)
+            .map_err(|e| Status::internal(format!("Join error: {}", e)))?;
+
+    match (downlink_result, uplink_result, online_result) {
+        (Ok(downlink), Ok(uplink), Ok(online)) => {
             debug!("Downlink stat: {:?}", downlink);
             debug!("Uplink stat: {:?}", uplink);
+            debug!("Online stat: {:?}", online);
 
-            Ok((downlink.into_inner(), uplink.into_inner()))
+            Ok((
+                downlink.into_inner(),
+                uplink.into_inner(),
+                online.into_inner(),
+            ))
         }
-        (Err(e), _) | (_, Err(e)) => Err(Status::internal(format!("Stat request failed: {}", e))),
+        (Err(e), _, _) | (_, Err(e), _) | (_, _, Err(e)) => {
+            Err(Status::internal(format!("Stat request failed: {}", e)))
+        }
     }
 }

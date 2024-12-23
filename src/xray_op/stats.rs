@@ -72,12 +72,12 @@ async fn get_stat(
 
         let stat_name = match prefix {
             Prefix::InboundPrefix(tag) => format!("inbound>>>{}>>>traffic", tag),
-            Prefix::UserPrefix(uuid) => format!("user>>>{}@pony>>>traffic", uuid),
+            Prefix::UserPrefix(uuid) => format!("user>>>{}@pony", uuid),
         };
 
         match stat_type {
             Stat::User(StatType::Downlink) | Stat::User(StatType::Uplink) => {
-                let stat_name = format!("{}>>>{}", stat_name, stat_type);
+                let stat_name = format!("{}>>>traffic>>>{}", stat_name, stat_type);
 
                 let request = Request::new(GetStatsRequest {
                     name: stat_name,
@@ -94,7 +94,7 @@ async fn get_stat(
                 client.get_stats_online(request).await
             }
             Stat::Inbound(StatType::Downlink) | Stat::Inbound(StatType::Uplink) => {
-                let stat_name = format!("{}>>>{}", stat_name, stat_type);
+                let stat_name = format!("{}>>>traffic>>>{}", stat_name, stat_type);
 
                 let request = Request::new(GetStatsRequest {
                     name: stat_name,

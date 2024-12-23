@@ -291,8 +291,9 @@ pub async fn block_trial_users_by_limit(state: Arc<Mutex<State>>, clients: XrayC
 
         tokio::spawn(async move {
             let user_exceeds_limit = {
+                let limit_in_bytes = user.limit * 1_048_576;
                 user.downlink
-                    .map_or(false, |downlink| downlink > user.limit)
+                    .map_or(false, |downlink| downlink > limit_in_bytes)
             };
 
             if user_exceeds_limit {
@@ -318,14 +319,14 @@ pub async fn block_trial_users_by_limit(state: Arc<Mutex<State>>, clients: XrayC
                     .map(|inbound| remove_user(clients.clone(), user_id.clone(), inbound))
                     .collect();
 
-                if let Some(_) = futures::future::join_all(remove_tasks)
+                if let Some(Err(e)) = futures::future::join_all(remove_tasks)
                     .await
                     .into_iter()
                     .find(|r| r.is_err())
                 {
-                    debug!("Successfully blocked user: {}", user_id);
+                    error!("Failed to block user {}: {:?}", user_id, e);
                 } else {
-                    error!("Failed to block user: {:?}", user_id);
+                    debug!("Successfully blocked user: {}", user_id);
                 }
 
                 let mut state_guard = state.lock().await;

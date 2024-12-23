@@ -1,4 +1,5 @@
 use default_net::{get_default_interface, get_interfaces};
+use log::debug;
 use serde::Deserialize;
 use std::env;
 use std::error::Error;
@@ -141,7 +142,6 @@ pub struct NodeConfig {
     pub hostname: Option<String>,
     pub default_interface: Option<String>,
     pub ipv4: Option<Ipv4Addr>,
-    //todo uuid from PG table
     #[serde(default = "default_uuid")]
     pub uuid: Uuid,
 }
@@ -177,6 +177,8 @@ impl NodeConfig {
             let interface = interfaces
                 .iter()
                 .find(|interface| &interface.name == interface_name);
+
+            debug!("Defaul interface: {}", interface_name);
 
             if let Some(interface) = interface.clone() {
                 match interface.ipv4.first() {

@@ -236,8 +236,6 @@ pub async fn get_inbound_stats(clients: XrayClients, inbound: Prefix) -> Result<
 }
 
 pub async fn get_user_count(clients: XrayClients, inbound: Tag) -> Result<i64, Status> {
-    debug!("get_user_count {:?}", inbound);
-
     match user::user_count(clients, inbound.clone()).await {
         Ok(count) => Ok(count),
         Err(e) => Err(Status::internal(format!(

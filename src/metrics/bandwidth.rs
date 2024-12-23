@@ -9,8 +9,8 @@ use crate::{
 
 #[derive(Debug)]
 struct Bandwidth {
-    rx_bps: u64,
-    tx_bps: u64,
+    rx_pps: u64,
+    tx_pps: u64,
     rx_err: u64,
     tx_err: u64,
 }
@@ -18,8 +18,8 @@ struct Bandwidth {
 impl Default for Bandwidth {
     fn default() -> Self {
         Bandwidth {
-            rx_bps: 0,
-            tx_bps: 0,
+            rx_pps: 0,
+            tx_pps: 0,
             rx_err: 0,
             tx_err: 0,
         }
@@ -31,7 +31,7 @@ impl fmt::Display for Bandwidth {
         write!(
             f,
             "Bandwidth {{ rx_bps: {}, tx_bps: {}, rx_err: {}, tx_err: {} }}",
-            self.rx_bps, self.tx_bps, self.rx_err, self.tx_err
+            self.rx_pps, self.tx_pps, self.rx_err, self.tx_err
         )
     }
 }
@@ -44,15 +44,15 @@ impl AsMetric for Bandwidth {
 
         vec![
             Metric {
-                //dev.localhost.network.eth0.rx_bps (bytes per second)
-                path: format!("{env}.{hostname}.network.{interface}.rx_bps"),
-                value: self.rx_bps,
+                //dev.localhost.network.eth0.rx_bps (packets per second)
+                path: format!("{env}.{hostname}.network.{interface}.rx_pps"),
+                value: self.rx_pps,
                 timestamp,
             },
             Metric {
-                //dev.localhost.network.eth0.tx_bps (bytes per second)
-                path: format!("{env}.{hostname}.network.{interface}.tx_bps"),
-                value: self.tx_bps,
+                //dev.localhost.network.eth0.tx_bps (packets per second)
+                path: format!("{env}.{hostname}.network.{interface}.tx_pps"),
+                value: self.tx_pps,
                 timestamp,
             },
             Metric {
@@ -82,8 +82,8 @@ pub async fn bandwidth_metrics(env: &str, hostname: &str, interface: &str) -> Ve
     match res {
         Some((interface, data)) => {
             let bandwidth = Bandwidth {
-                rx_bps: data.packets_received(),
-                tx_bps: data.packets_transmitted(),
+                rx_pps: data.packets_received(),
+                tx_pps: data.packets_transmitted(),
                 rx_err: data.errors_on_received(),
                 tx_err: data.errors_on_transmitted(),
             };

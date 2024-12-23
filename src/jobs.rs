@@ -36,11 +36,6 @@ pub async fn collect_stats_job(
                 if let Ok(user_stat) =
                     stats::get_user_stats(clients.clone(), Prefix::UserPrefix(user_id)).await
                 {
-                    debug!(
-                        "User {} downlink {} uplink {} online {}",
-                        user_id, user_stat.downlink, user_stat.uplink, user_stat.online
-                    );
-
                     let mut state_guard = state.lock().await;
                     if let Err(e) = state_guard
                         .update_user_downlink(user_id, user_stat.downlink)
@@ -76,10 +71,6 @@ pub async fn collect_stats_job(
                     stats::get_inbound_stats(clients.clone(), Prefix::InboundPrefix(tag.clone()))
                         .await
                 {
-                    debug!(
-                        "Node {} downlink {} uplink {}",
-                        tag, inbound_stat.downlink, inbound_stat.uplink
-                    );
                     let mut state_guard = state.lock().await;
                     if let Err(e) = state_guard
                         .update_node_downlink(tag.clone(), inbound_stat.downlink)
@@ -99,6 +90,8 @@ pub async fn collect_stats_job(
                     let _ = state_guard
                         .update_node_user_count(tag.clone(), user_count)
                         .await;
+                } else {
+                    error!("Failed to update user count : {}", tag);
                 }
             }))
         }
@@ -333,8 +326,12 @@ pub async fn block_trial_users_by_limit(state: Arc<Mutex<State>>, clients: XrayC
                     error!("Failed to update status for user {}: {:?}", user_id, e);
                 }
             } else {
-                let limit_in_bytes = user.limit * 1_048_576;
-                debug!("Left free mb {}", limit_in_bytes - user.downlink.unwrap())
+                let downlink_mb = user.downlink.unwrap() / 1_048_576;
+                debug!(
+                    "Check limit: Left free mb {} for user {}",
+                    user.limit - downlink_mb,
+                    user_id
+                )
             }
         });
     }

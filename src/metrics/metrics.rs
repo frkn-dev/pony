@@ -1,5 +1,4 @@
 use crate::state::State;
-use log::debug;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::sync::Arc;
@@ -96,6 +95,5 @@ pub async fn collect_metrics<T>(
     metrics.extend(xray);
     metrics.extend(heartbeat);
 
-    debug!("METRCIS COLLECTED {:?}", metrics);
     metrics
 }

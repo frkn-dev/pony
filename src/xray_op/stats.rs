@@ -1,6 +1,5 @@
 use super::Tag;
 use log::debug;
-use log::error;
 use std::fmt;
 use tonic::{Request, Status};
 use uuid::Uuid;
@@ -167,7 +166,6 @@ pub async fn get_user_stats(clients: XrayClients, user_id: Prefix) -> Result<Use
                     uplink.stat.clone(),
                     online.stat.clone()
                 );
-                error!("{}", error_msg);
                 Err(Status::internal(error_msg))
             }
         }
@@ -176,15 +174,12 @@ pub async fn get_user_stats(clients: XrayClients, user_id: Prefix) -> Result<Use
                 "Failed to fetch user stats for {:?}: error={:?}",
                 user_id, e
             );
-            error!("{}", error_msg);
             Err(Status::internal(error_msg))
         }
     }
 }
 
 pub async fn get_inbound_stats(clients: XrayClients, inbound: Prefix) -> Result<NodeStats, Status> {
-    debug!("get_inbound_stats {:?}", inbound);
-
     let downlink_result = get_stat(
         clients.clone(),
         inbound.clone(),
@@ -219,7 +214,6 @@ pub async fn get_inbound_stats(clients: XrayClients, inbound: Prefix) -> Result<
                     downlink.stat.clone(),
                     uplink.stat.clone()
                 );
-                error!("{}", error_msg);
                 Err(Status::internal(error_msg))
             }
         }
@@ -229,7 +223,6 @@ pub async fn get_inbound_stats(clients: XrayClients, inbound: Prefix) -> Result<
                 "Both requests failed for inbound {:?}: downlink error: {:?}, uplink error: {:?}",
                 inbound, e1, e2
             );
-            error!("{}", error_msg);
             Err(Status::internal(error_msg))
         }
         (Err(e), _) | (_, Err(e)) => {
@@ -237,7 +230,6 @@ pub async fn get_inbound_stats(clients: XrayClients, inbound: Prefix) -> Result<
                 "One of the requests failed for inbound {:?}: {:?}",
                 inbound, e
             );
-            error!("{}", error_msg);
             Err(Status::internal(error_msg))
         }
     }
@@ -247,10 +239,7 @@ pub async fn get_user_count(clients: XrayClients, inbound: Tag) -> Result<i64, S
     debug!("get_user_count {:?}", inbound);
 
     match user::user_count(clients, inbound.clone()).await {
-        Ok(count) => {
-            debug!("get_user_count {:?} {:?}", inbound.clone(), count);
-            Ok(count)
-        }
+        Ok(count) => Ok(count),
         Err(e) => Err(Status::internal(format!(
             "Failed to fetch user count for inbound {}: {}",
             inbound, e

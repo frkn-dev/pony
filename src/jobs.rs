@@ -13,7 +13,7 @@ use reqwest::Client;
 use crate::{actions, settings::Settings, user::User};
 
 use super::xray_op::{
-    client::XrayClients, remove_user, stats::Prefix, stats::StatType, vless, vmess, Tag,
+    client::XrayClients, remove_user, stats::Prefix, stats::StatType, vless, vmess,
 };
 
 use super::{state::State, user::UserStatus};
@@ -22,8 +22,6 @@ pub async fn collect_stats_job(
     clients: XrayClients,
     state: Arc<Mutex<State>>,
 ) -> Result<(), Box<dyn Error>> {
-    debug!("Stat job");
-
     let mut tasks = vec![];
 
     {
@@ -129,7 +127,6 @@ pub async fn send_metrics_job<T>(
     let metrics =
         collect_metrics::<T>(state.clone(), &settings.node.env, &hostname, &interface).await;
 
-    debug!("Metrics job run");
     for metric in metrics {
         match metric {
             MetricType::F32(m) => send_to_carbon(&m, &settings.carbon.address).await?,
@@ -171,8 +168,6 @@ pub async fn init_state(
     db_user: UserRow,
     debug: bool,
 ) -> Result<(), Box<dyn Error>> {
-    debug!("Running sync for {:?} {:?}", db_user.user_id, db_user.trial);
-
     let user = User::new(
         db_user.trial,
         settings.xray.xray_daily_limit_mb,
@@ -207,7 +202,6 @@ pub async fn init_state(
     .await
     {
         Ok(_) => {
-            debug!("Create: User added: {:?}", db_user.user_id);
             return Ok(());
         }
         Err(_e) => {

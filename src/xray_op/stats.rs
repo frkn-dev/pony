@@ -145,6 +145,7 @@ pub async fn get_user_stats(clients: XrayClients, user_id: Prefix) -> Result<Use
             if let (Some(downlink), Some(uplink), Some(online)) =
                 (downlink.stat, uplink.stat, online.stat)
             {
+                debug!("get_user_stats {:?} {:?} {:?}", downlink, uplink, online);
                 Ok(UserStats {
                     downlink: downlink.value,
                     uplink: uplink.value,
@@ -185,6 +186,7 @@ pub async fn get_inbound_stats(clients: XrayClients, inbound: Prefix) -> Result<
     ) {
         (Ok(downlink), Ok(uplink)) => {
             if let (Some(downlink), Some(uplink)) = (downlink.stat, uplink.stat) {
+                debug!("Node Stats {:?} {:?} {:?}", inbound, downlink, uplink);
                 Ok(NodeStats {
                     downlink: downlink.value,
                     uplink: uplink.value,
@@ -207,7 +209,10 @@ pub async fn get_user_count(clients: XrayClients, inbound: Tag) -> Result<i64, S
     debug!("get_user_count {:?}", inbound);
 
     match user::user_count(clients, inbound.clone()).await {
-        Ok(count) => Ok(count),
+        Ok(count) => {
+            debug!("get_user_count {:?} {:?}", inbound.clone(), count);
+            Ok(count)
+        }
         Err(e) => Err(Status::internal(format!(
             "Failed to fetch user count for inbound {}: {}",
             inbound, e

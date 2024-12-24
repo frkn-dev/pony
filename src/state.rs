@@ -64,9 +64,6 @@ impl State {
             Entry::Vacant(entry) => {
                 debug!("Adding new user: {:?}", new_user);
                 entry.insert(new_user.clone());
-                if debug {
-                    let _ = self.save_to_file_async("ADD_USER").await;
-                }
                 Ok(())
             }
         }

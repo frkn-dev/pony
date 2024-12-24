@@ -47,6 +47,9 @@ pub async fn create_users(
             user_id,
             user_info.in_tag.clone()
         );
+        if let Some(existing_user) = state_lock.users.get_mut(&user_id) {
+            existing_user.add_proto(user_info.in_tag);
+        }
     }
 
     let user_info = vless::UserInfo::new(user_id, vless::UserFlow::Vision);
@@ -68,6 +71,9 @@ pub async fn create_users(
             user_id,
             user_info.in_tag.clone()
         );
+        if let Some(existing_user) = state_lock.users.get_mut(&user_id) {
+            existing_user.add_proto(user_info.in_tag);
+        }
     }
 
     let user_info = vless::UserInfo::new(user_id, vless::UserFlow::Direct);
@@ -89,6 +95,9 @@ pub async fn create_users(
             user_id,
             user_info.in_tag.clone()
         );
+        if let Some(existing_user) = state_lock.users.get_mut(&user_id) {
+            existing_user.add_proto(user_info.in_tag);
+        }
     }
 
     if let Some(password) = password {
@@ -111,6 +120,9 @@ pub async fn create_users(
                 user_id,
                 user_info.in_tag.clone()
             );
+            if let Some(existing_user) = state_lock.users.get_mut(&user_id) {
+                existing_user.add_proto(user_info.in_tag);
+            }
         }
     }
 

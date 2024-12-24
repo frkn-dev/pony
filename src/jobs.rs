@@ -325,9 +325,10 @@ pub async fn block_trial_users_by_limit(state: Arc<Mutex<State>>, clients: XrayC
             } else {
                 let downlink_mb = user.downlink.unwrap() / 1_048_576;
                 debug!(
-                    "Check limit: Left free mb {} for user {}",
+                    "Check limit: Left free mb {} for user {} {:?}",
                     user.limit - downlink_mb,
-                    user_id
+                    user_id,
+                    user
                 );
             }
         });

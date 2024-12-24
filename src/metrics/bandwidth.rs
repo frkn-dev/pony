@@ -71,19 +71,23 @@ impl AsMetric for Bandwidth {
     }
 }
 
-pub async fn bandwidth_metrics(env: &str, hostname: &str, interface: &str) -> Vec<MetricType> {
+pub async fn bandwidth_metrics(
+    env: &str,
+    hostname: &str,
+    target_interface: &str,
+) -> Vec<MetricType> {
     let mut networks = Networks::new_with_refreshed_list();
 
     let _ = networks.refresh(true);
     let res = networks
         .iter()
-        .find(|&(interface, _)| interface == interface);
+        .find(|&(interface, _)| interface == target_interface);
 
     match res {
         Some((interface, data)) => {
             let bandwidth = Bandwidth {
-                rx_pps: data.packets_received(),
-                tx_pps: data.packets_transmitted(),
+                rx_pps: data.total_received(),
+                tx_pps: data.total_transmitted(),
                 rx_err: data.errors_on_received(),
                 tx_err: data.errors_on_transmitted(),
             };
@@ -95,7 +99,7 @@ pub async fn bandwidth_metrics(env: &str, hostname: &str, interface: &str) -> Ve
                 .collect()
         }
         None => {
-            error!("Cannot find interface: {}", interface);
+            error!("Cannot find interface: {}", target_interface);
             vec![]
         }
     }

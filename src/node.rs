@@ -1,10 +1,8 @@
-use crate::metrics::xray::InboundStat;
 use serde::{Deserialize, Serialize};
-
 use std::{collections::HashMap, net::Ipv4Addr};
 use uuid::Uuid;
 
-use crate::xray_op::Tag;
+use crate::xray_op::{stats::InboundStat, Tag};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Node {

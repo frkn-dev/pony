@@ -84,14 +84,12 @@ pub async fn collect_stats_job(
                     {
                         error!("Failed to update inbound uplink: {}", e);
                     }
-                }
-                if let Ok(user_count) = stats::get_user_count(clients.clone(), tag.clone()).await {
-                    let mut state_guard = state.lock().await;
-                    let _ = state_guard
-                        .update_node_user_count(tag.clone(), user_count)
-                        .await;
-                } else {
-                    error!("Failed to update user count : {}", tag);
+                    if let Err(e) = state_guard
+                        .update_node_user_count(tag.clone(), inbound_stat.user_count)
+                        .await
+                    {
+                        error!("Failed to update user_count: {}", e);
+                    }
                 }
             }))
         }

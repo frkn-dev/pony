@@ -1,7 +1,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use super::xray_op::Tag;
+use super::xray_op::{stats::UserStat, Tag};
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub enum UserStatus {
@@ -68,6 +68,14 @@ impl User {
             if proto.is_empty() {
                 self.proto = None;
             }
+        }
+    }
+
+    pub fn as_user_stat(&self) -> UserStat {
+        UserStat {
+            uplink: self.uplink.unwrap_or(0),
+            downlink: self.downlink.unwrap_or(0),
+            online: self.online.unwrap_or(0),
         }
     }
 }

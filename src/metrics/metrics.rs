@@ -1,4 +1,3 @@
-use crate::state::State;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::sync::Arc;
@@ -9,7 +8,8 @@ use super::cpuusage::cpu_metrics;
 use super::heartbeat::heartbeat_metrics;
 use super::loadavg::loadavg_metrics;
 use super::memory::mem_metrics;
-use super::xray::xray_stat_metrics;
+use super::xray::{xray_stat_metrics, xray_user_metrics};
+use crate::state::State;
 
 pub trait AsMetric {
     type Output;
@@ -85,7 +85,8 @@ pub async fn collect_metrics<T>(
     let cpuusage: Vec<MetricType> = cpu_metrics(env, hostname).await;
     let loadavg: Vec<MetricType> = loadavg_metrics(env, hostname).await;
     let memory: Vec<MetricType> = mem_metrics(env, hostname).await;
-    let xray: Vec<MetricType> = xray_stat_metrics(state, env, hostname).await;
+    let xray: Vec<MetricType> = xray_stat_metrics(state.clone(), env, hostname).await;
+    let users: Vec<MetricType> = xray_user_metrics(state, env, hostname).await;
     let heartbeat: Vec<MetricType> = heartbeat_metrics(env, hostname);
 
     metrics.extend(bandwidth);
@@ -93,6 +94,7 @@ pub async fn collect_metrics<T>(
     metrics.extend(loadavg);
     metrics.extend(memory);
     metrics.extend(xray);
+    metrics.extend(users);
     metrics.extend(heartbeat);
 
     metrics

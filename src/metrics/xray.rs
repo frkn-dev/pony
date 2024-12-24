@@ -1,16 +1,10 @@
-use super::metrics::AsMetric;
-use super::metrics::Metric;
-use super::metrics::MetricType;
-use crate::current_timestamp;
-use crate::state::State;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
-pub struct InboundStat {
-    pub uplink: i64,
-    pub downlink: i64,
-    pub user_count: i64,
-}
+use super::metrics::{AsMetric, Metric, MetricType};
+use crate::current_timestamp;
+use crate::state::State;
+use crate::xray_op::stats::{InboundStat, UserStat};
 
 impl AsMetric for InboundStat {
     type Output = i64;
@@ -40,6 +34,34 @@ impl AsMetric for InboundStat {
     }
 }
 
+impl AsMetric for UserStat {
+    type Output = i64;
+    fn as_metric(&self, name: &str, env: &str, hostname: &str) -> Vec<Metric<i64>> {
+        let timestamp = current_timestamp();
+
+        vec![
+            Metric {
+                //dev.localhost.user_id.uplink
+                path: format!("{env}.{hostname}.{name}.uplink"),
+                value: self.uplink,
+                timestamp: timestamp,
+            },
+            Metric {
+                //dev.localhost.user_id.downlink
+                path: format!("{env}.{hostname}.{name}.downlink"),
+                value: self.downlink,
+                timestamp: timestamp,
+            },
+            Metric {
+                // dev.localhost.user_id.online
+                path: format!("{env}.{hostname}.{name}.online"),
+                value: self.online,
+                timestamp: timestamp,
+            },
+        ]
+    }
+}
+
 pub async fn xray_stat_metrics(
     state: Arc<Mutex<State>>,
     env: &str,
@@ -60,6 +82,29 @@ pub async fn xray_stat_metrics(
         .collect();
 
     xray_stat_metrics
+        .iter()
+        .map(|metric| MetricType::I64(metric.clone()))
+        .collect()
+}
+
+pub async fn xray_user_metrics(
+    state: Arc<Mutex<State>>,
+    env: &str,
+    hostname: &str,
+) -> Vec<MetricType> {
+    let state = state.lock().await;
+    let users = state.users.clone();
+
+    let user_stat_metrics: Vec<_> = users
+        .into_iter()
+        .map(|(user_id, user)| {
+            user.as_user_stat()
+                .as_metric(&user_id.to_string(), env, hostname)
+        })
+        .flatten()
+        .collect();
+
+    user_stat_metrics
         .iter()
         .map(|metric| MetricType::I64(metric.clone()))
         .collect()

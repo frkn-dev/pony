@@ -1,9 +1,9 @@
-use super::Tag;
 use log::debug;
 use std::fmt;
 use tonic::{Request, Status};
 use uuid::Uuid;
 
+use super::Tag;
 use super::{client::XrayClients, user};
 use crate::xray_api::xray::app::stats::command::{GetStatsRequest, GetStatsResponse};
 
@@ -43,21 +43,32 @@ impl fmt::Display for StatType {
     }
 }
 
-pub struct UserStats {
+pub struct UserStat {
     pub downlink: i64,
     pub uplink: i64,
     pub online: i64,
 }
 
-pub struct NodeStats {
+pub struct InboundStat {
     pub downlink: i64,
     pub uplink: i64,
+    pub user_count: i64,
 }
 
 #[derive(Debug, Clone)]
 pub enum Prefix {
     UserPrefix(Uuid),
     InboundPrefix(Tag),
+}
+
+impl Prefix {
+    pub fn as_tag(&self) -> Option<&Tag> {
+        if let Prefix::InboundPrefix(tag) = self {
+            Some(tag)
+        } else {
+            None
+        }
+    }
 }
 
 async fn get_stat(
@@ -116,7 +127,7 @@ async fn get_stat(
     }
 }
 
-pub async fn get_user_stats(clients: XrayClients, user_id: Prefix) -> Result<UserStats, Status> {
+pub async fn get_user_stats(clients: XrayClients, user_id: Prefix) -> Result<UserStat, Status> {
     debug!("get_user_stats {:?}", user_id);
 
     let (downlink_result, uplink_result, online_result) = tokio::join!(
@@ -153,7 +164,7 @@ pub async fn get_user_stats(clients: XrayClients, user_id: Prefix) -> Result<Use
                     uplink.clone(),
                     online.clone()
                 );
-                Ok(UserStats {
+                Ok(UserStat {
                     downlink: downlink.value,
                     uplink: uplink.value,
                     online: online.value,
@@ -179,7 +190,10 @@ pub async fn get_user_stats(clients: XrayClients, user_id: Prefix) -> Result<Use
     }
 }
 
-pub async fn get_inbound_stats(clients: XrayClients, inbound: Prefix) -> Result<NodeStats, Status> {
+pub async fn get_inbound_stats(
+    clients: XrayClients,
+    inbound: Prefix,
+) -> Result<InboundStat, Status> {
     let downlink_result = get_stat(
         clients.clone(),
         inbound.clone(),
@@ -196,36 +210,45 @@ pub async fn get_inbound_stats(clients: XrayClients, inbound: Prefix) -> Result<
     )
     .await;
 
-    match (downlink_result, uplink_result) {
-        (Ok(downlink), Ok(uplink)) => {
-            if let (Some(downlink), Some(uplink)) = (downlink.stat.clone(), uplink.stat.clone()) {
+    let user_count_result =
+        get_user_count(clients.clone(), inbound.as_tag().unwrap().clone()).await;
+
+    match (downlink_result, uplink_result, user_count_result) {
+        (Ok(downlink), Ok(uplink), Ok(user_count)) => {
+            if let (Some(downlink), Some(uplink), Some(user_count)) = (
+                downlink.stat.clone(),
+                uplink.stat.clone(),
+                user_count.clone(),
+            ) {
                 debug!(
-                    "Node Stats successfully fetched: inbound={:?}, downlink={:?}, uplink={:?}",
-                    inbound, downlink, uplink
+                    "Node Stats successfully fetched: inbound={:?}, downlink={:?}, uplink={:?}, user_count={:?} ",
+                    inbound, downlink, uplink, user_count
                 );
-                Ok(NodeStats {
+                Ok(InboundStat {
                     downlink: downlink.value,
                     uplink: uplink.value,
+                    user_count: user_count,
                 })
             } else {
                 let error_msg = format!(
-                    "Incomplete stats for inbound {:?}: downlink={:?}, uplink={:?}",
+                    "Incomplete stats for inbound {:?}: downlink={:?}, uplink={:?}, user_count={:?}",
                     inbound,
                     downlink.stat.clone(),
-                    uplink.stat.clone()
+                    uplink.stat.clone(),
+                    user_count.clone(),
                 );
                 Err(Status::internal(error_msg))
             }
         }
 
-        (Err(e1), Err(e2)) => {
+        (Err(e1), Err(e2), Err(e3)) => {
             let error_msg = format!(
-                "Both requests failed for inbound {:?}: downlink error: {:?}, uplink error: {:?}",
-                inbound, e1, e2
+                "ALl requests failed for inbound {:?}: downlink error: {:?}, uplink error: {:?}, user_count: {:?}",
+                inbound, e1, e2, e3
             );
             Err(Status::internal(error_msg))
         }
-        (Err(e), _) | (_, Err(e)) => {
+        (Err(e), _, _) | (_, Err(e), _) | (_, _, Err(e)) => {
             let error_msg = format!(
                 "One of the requests failed for inbound {:?}: {:?}",
                 inbound, e
@@ -235,9 +258,9 @@ pub async fn get_inbound_stats(clients: XrayClients, inbound: Prefix) -> Result<
     }
 }
 
-pub async fn get_user_count(clients: XrayClients, inbound: Tag) -> Result<i64, Status> {
+pub async fn get_user_count(clients: XrayClients, inbound: Tag) -> Result<Option<i64>, Status> {
     match user::user_count(clients, inbound.clone()).await {
-        Ok(count) => Ok(count),
+        Ok(count) => Ok(Some(count)),
         Err(e) => Err(Status::internal(format!(
             "Failed to fetch user count for inbound {}: {}",
             inbound, e

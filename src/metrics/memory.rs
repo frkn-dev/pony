@@ -9,6 +9,7 @@ struct MemUsage {
     free: u64,
     total: u64,
     used: u64,
+    available: u64,
 }
 
 impl AsMetric for MemUsage {
@@ -35,6 +36,12 @@ impl AsMetric for MemUsage {
                 value: self.used,
                 timestamp: timestamp,
             },
+            Metric {
+                //dev.localhost.mem.available
+                path: format!("{env}.{hostname}.{name}.available"),
+                value: self.available,
+                timestamp: timestamp,
+            },
         ]
     }
 }
@@ -47,6 +54,7 @@ pub async fn mem_metrics(env: &str, hostname: &str) -> Vec<MetricType> {
         free: system.free_memory(),
         total: system.total_memory(),
         used: system.used_memory(),
+        available_memory: system.available_memory(),
     };
 
     let mem_metrics = mem.as_metric("mem", env, hostname);

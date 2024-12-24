@@ -1,6 +1,8 @@
 use log::error;
 use std::fmt;
 use sysinfo::Networks;
+use tokio::time::sleep;
+use tokio::time::Duration;
 
 use crate::{
     metrics::metrics::{AsMetric, Metric, MetricType},
@@ -9,8 +11,8 @@ use crate::{
 
 #[derive(Debug)]
 struct Bandwidth {
-    rx_pps: u64,
-    tx_pps: u64,
+    rx_bps: u64,
+    tx_bps: u64,
     rx_err: u64,
     tx_err: u64,
 }
@@ -18,8 +20,8 @@ struct Bandwidth {
 impl Default for Bandwidth {
     fn default() -> Self {
         Bandwidth {
-            rx_pps: 0,
-            tx_pps: 0,
+            rx_bps: 0,
+            tx_bps: 0,
             rx_err: 0,
             tx_err: 0,
         }
@@ -31,7 +33,7 @@ impl fmt::Display for Bandwidth {
         write!(
             f,
             "Bandwidth {{ rx_bps: {}, tx_bps: {}, rx_err: {}, tx_err: {} }}",
-            self.rx_pps, self.tx_pps, self.rx_err, self.tx_err
+            self.rx_bps, self.tx_bps, self.rx_err, self.tx_err
         )
     }
 }
@@ -44,15 +46,15 @@ impl AsMetric for Bandwidth {
 
         vec![
             Metric {
-                //dev.localhost.network.eth0.rx_bps (packets per second)
-                path: format!("{env}.{hostname}.network.{interface}.rx_pps"),
-                value: self.rx_pps,
+                //dev.localhost.network.eth0.rx_bps (bytes per second)
+                path: format!("{env}.{hostname}.network.{interface}.rx_bps"),
+                value: self.rx_bps,
                 timestamp,
             },
             Metric {
-                //dev.localhost.network.eth0.tx_bps (packets per second)
-                path: format!("{env}.{hostname}.network.{interface}.tx_pps"),
-                value: self.tx_pps,
+                //dev.localhost.network.eth0.tx_bps (bytes per second)
+                path: format!("{env}.{hostname}.network.{interface}.tx_bps"),
+                value: self.tx_bps,
                 timestamp,
             },
             Metric {
@@ -77,6 +79,7 @@ pub async fn bandwidth_metrics(
     target_interface: &str,
 ) -> Vec<MetricType> {
     let mut networks = Networks::new_with_refreshed_list();
+    let _ = sleep(Duration::from_secs(1)).await;
 
     let _ = networks.refresh(true);
     let res = networks
@@ -86,8 +89,8 @@ pub async fn bandwidth_metrics(
     match res {
         Some((interface, data)) => {
             let bandwidth = Bandwidth {
-                rx_pps: data.total_received(),
-                tx_pps: data.total_transmitted(),
+                rx_bps: data.total_received(),
+                tx_bps: data.total_transmitted(),
                 rx_err: data.errors_on_received(),
                 tx_err: data.errors_on_transmitted(),
             };

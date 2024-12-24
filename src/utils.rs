@@ -1,22 +1,24 @@
-use log::{error, info, warn, LevelFilter};
-use std::error::Error;
-use std::io;
-use std::net::SocketAddr;
+use log::debug;
+use log::info;
+use std::{
+    io,
+    time::Instant,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use chrono::{TimeZone, Utc};
-use std::time::{SystemTime, UNIX_EPOCH};
-use tokio::io::AsyncWriteExt;
-use tokio::net::TcpStream;
+use log::{error, warn, LevelFilter};
+use tokio::{io::AsyncWriteExt, net::TcpStream};
 
-use crate::geoip;
-use crate::metrics::Metric;
-use std::net::IpAddr;
+use super::metrics::metrics::Metric;
 
-pub async fn send_to_carbon<T: ToString>(
+pub async fn send_to_carbon<T: ToString + std::fmt::Debug>(
     metric: &Metric<T>,
     server: &str,
 ) -> Result<(), io::Error> {
     let metric_string = metric.to_string();
+
+    debug!("Send metric to carbon: {:?}", metric);
 
     match TcpStream::connect(server).await {
         Ok(mut stream) => {
@@ -24,8 +26,6 @@ pub async fn send_to_carbon<T: ToString>(
                 warn!("Failed to send metric: {}", e);
                 return Err(e);
             }
-
-            info!("Sent metric to Carbon: {}", metric_string);
 
             if let Err(e) = stream.flush().await {
                 warn!("Failed to flush stream: {}", e);
@@ -39,6 +39,17 @@ pub async fn send_to_carbon<T: ToString>(
             Err(e)
         }
     }
+}
+
+pub async fn measure_time<T, F>(task: F, name: String) -> T
+where
+    F: std::future::Future<Output = T>,
+{
+    let start_time = Instant::now();
+    let result = task.await;
+    let duration = start_time.elapsed();
+    info!("Task {} completed in {:?}", name, duration);
+    result
 }
 
 pub fn current_timestamp() -> u64 {
@@ -68,38 +79,4 @@ pub fn level_from_settings(level: &str) -> LevelFilter {
         "error" => LevelFilter::Error,
         _ => LevelFilter::Info,
     }
-}
-
-fn remove_prefix(input: &str) -> String {
-    input.replace("::ffff:", "")
-}
-
-fn trim_quotes(s: &str) -> String {
-    s.replace("\"", "").trim().to_string()
-}
-
-fn parse_ip(ip: &str) -> Result<String, Box<dyn Error + 'static>> {
-    if let Ok(ip_addr) = ip.parse::<IpAddr>() {
-        return Ok(ip_addr.to_string());
-    }
-
-    match ip.parse::<SocketAddr>() {
-        Ok(socket_addr) => {
-            let ip: IpAddr = socket_addr.ip();
-            Ok(ip.to_string())
-        }
-        Err(_) => Err("Failed to parse IP or SocketAddr".into()),
-    }
-}
-
-pub async fn country(ip: String) -> Result<String, Box<dyn Error>> {
-    let parsed_ip = parse_ip(&ip)?;
-
-    let country_info = geoip::find(&remove_prefix(&parsed_ip))
-        .await
-        .map_err(|_| "Failed to find country by IP")?;
-
-    let country = trim_quotes(&country_info.country);
-
-    Ok(country)
 }

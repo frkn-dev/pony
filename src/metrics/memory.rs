@@ -54,7 +54,7 @@ pub async fn mem_metrics(env: &str, hostname: &str) -> Vec<MetricType> {
         free: system.free_memory(),
         total: system.total_memory(),
         used: system.used_memory(),
-        available_memory: system.available_memory(),
+        available: system.available_memory(),
     };
 
     let mem_metrics = mem.as_metric("mem", env, hostname);

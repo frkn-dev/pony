@@ -1,8 +1,8 @@
 use log::error;
 use std::fmt;
+use std::thread::sleep;
+use std::time::Duration;
 use sysinfo::Networks;
-use tokio::time::sleep;
-use tokio::time::Duration;
 
 use crate::{
     metrics::metrics::{AsMetric, Metric, MetricType},
@@ -79,7 +79,7 @@ pub async fn bandwidth_metrics(
     target_interface: &str,
 ) -> Vec<MetricType> {
     let mut networks = Networks::new_with_refreshed_list();
-    let _ = sleep(Duration::from_secs(1)).await;
+    sleep(Duration::from_secs(1));
 
     let _ = networks.refresh(true);
     let res = networks

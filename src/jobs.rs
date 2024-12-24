@@ -255,6 +255,7 @@ pub async fn restore_trial_users(state: Arc<Mutex<State>>, clients: XrayClients)
                     if let Err(e) = state.restore_user(user_id).await {
                         error!("Failed to update user state: {:?}", e);
                     } else {
+                        state.reset_user_stat(user_id, StatType::Downlink);
                         debug!("Successfully restored user in state: {}", user_id);
                     }
                 }
@@ -282,11 +283,10 @@ pub async fn block_trial_users_by_limit(state: Arc<Mutex<State>>, clients: XrayC
             };
 
             if user_exceeds_limit {
+                let downlink_mb = user.downlink.unwrap() / 1_048_576;
                 debug!(
                     "User {} exceeds the limit: downlink={} > limit={}",
-                    user_id,
-                    user.downlink.unwrap_or(0),
-                    user.limit
+                    user_id, downlink_mb, user.limit
                 );
 
                 let inbounds = {
@@ -301,7 +301,9 @@ pub async fn block_trial_users_by_limit(state: Arc<Mutex<State>>, clients: XrayC
 
                 let remove_tasks: Vec<_> = inbounds
                     .into_iter()
-                    .map(|inbound| remove_user(clients.clone(), user_id.clone(), inbound))
+                    .map(|inbound| {
+                        tokio::spawn(remove_user(clients.clone(), user_id.clone(), inbound))
+                    })
                     .collect();
 
                 if let Some(Err(e)) = futures::future::join_all(remove_tasks)
@@ -313,9 +315,6 @@ pub async fn block_trial_users_by_limit(state: Arc<Mutex<State>>, clients: XrayC
                 } else {
                     debug!("Successfully blocked user: {}", user_id);
                 }
-
-                let mut state_guard = state.lock().await;
-                state_guard.reset_user_stat(user_id, StatType::Downlink);
 
                 if let Err(e) = {
                     let mut state_guard = state.lock().await;
@@ -329,7 +328,7 @@ pub async fn block_trial_users_by_limit(state: Arc<Mutex<State>>, clients: XrayC
                     "Check limit: Left free mb {} for user {}",
                     user.limit - downlink_mb,
                     user_id
-                )
+                );
             }
         });
     }

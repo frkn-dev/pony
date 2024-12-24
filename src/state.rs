@@ -84,6 +84,7 @@ impl State {
 
     pub async fn remove_user(&mut self, user_id: Uuid) -> Result<(), Box<dyn Error>> {
         if self.users.remove(&user_id).is_some() {
+            debug!("User {} removed  ", user_id);
             Ok(())
         } else {
             Err("User doesn't exist".into())

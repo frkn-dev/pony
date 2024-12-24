@@ -1,4 +1,4 @@
-use log::debug;
+use log::error;
 use serde::Deserialize;
 use std::{error::Error, sync::Arc};
 use tokio::sync::Mutex;
@@ -17,8 +17,6 @@ pub enum Action {
     Delete,
     #[serde(rename = "update")]
     Update,
-    #[serde(rename = "init")]
-    Init,
 }
 
 #[derive(Deserialize, Clone, Debug)]
@@ -55,15 +53,20 @@ pub async fn process_message(
             .await
             {
                 Ok(_) => {
-                    let state_lock = state.lock().await;
-                    let mut user_state = state_lock.clone();
+                    let mut state_guard = state.lock().await;
 
-                    user_state
+                    state_guard
                         .add_user(user_id.clone(), user.clone(), debug)
                         .await
-                        .map_err(|_| format!("Failed to add user {}", message.user_id).into())
+                        .map_err(|err| {
+                            error!("Failed to add user {}: {:?}", message.user_id, err);
+                            format!("Failed to add user {}", message.user_id).into()
+                        })
                 }
-                Err(_) => Err(format!("Failed to create user {}", message.user_id).into()),
+                Err(err) => {
+                    error!("Failed to create user {}: {:?}", message.user_id, err);
+                    Err(format!("Failed to create user {}", message.user_id).into())
+                }
             }
         }
         Action::Delete => {
@@ -80,39 +83,49 @@ pub async fn process_message(
         }
         Action::Update => {
             let mut state_lock = state.lock().await;
-            let user = state_lock.get_user(message.user_id).await;
 
-            match (user, message.trial) {
-                (Some(user), Some(trial)) if trial != user.trial => {
-                    if let Err(e) = actions::create_users(
-                        message.user_id,
-                        message.password,
-                        clients.clone(),
-                        state.clone(),
-                    )
-                    .await
-                    {
+            if let Some(user) = state_lock.get_user(message.user_id).await {
+                if let Some(trial) = message.trial {
+                    if trial != user.trial {
+                        if let Err(e) = actions::create_users(
+                            message.user_id,
+                            message.password.clone(),
+                            clients.clone(),
+                            state.clone(),
+                        )
+                        .await
+                        {
+                            return Err(format!(
+                                "Couldn’t update trial for user {}: {}",
+                                message.user_id, e
+                            )
+                            .into());
+                        }
+
+                        if let Err(e) = state_lock.update_user_trial(message.user_id, trial).await {
+                            return Err(format!(
+                                "Failed to update trial for user {}: {}",
+                                message.user_id, e
+                            )
+                            .into());
+                        }
+                    }
+                }
+
+                if let Some(limit) = message.limit {
+                    if let Err(e) = state_lock.update_user_limit(message.user_id, limit).await {
                         return Err(format!(
-                            "Couldn’t update trial for user {}: {}",
+                            "Failed to update limit for user {}: {}",
                             message.user_id, e
                         )
                         .into());
-                    } else {
-                        let mut state = state.lock().await;
-                        let _ = state.update_user_trial(message.user_id, trial).await;
                     }
                 }
-                _ => {}
-            }
 
-            if let Some(limit) = message.limit {
-                let _ = state_lock.update_user_limit(message.user_id, limit).await;
+                Ok(())
+            } else {
+                Err(format!("User {} not found", message.user_id).into())
             }
-            Ok(())
-        }
-        Action::Init => {
-            debug!("This action needs to initiate TCP handshake and recieve next messages");
-            Ok(())
         }
     }
 }

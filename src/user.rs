@@ -1,5 +1,6 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use std::fmt;
 
 use super::xray_op::{stats::UserStat, Tag};
 
@@ -7,6 +8,16 @@ use super::xray_op::{stats::UserStat, Tag};
 pub enum UserStatus {
     Active,
     Expired,
+}
+
+impl fmt::Display for UserStatus {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let status = match self {
+            UserStatus::Active => "Active",
+            UserStatus::Expired => "Expired",
+        };
+        write!(f, "{}", status)
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -21,6 +32,52 @@ pub struct User {
     pub modified_at: Option<DateTime<Utc>>,
     pub proto: Option<Vec<Tag>>,
     pub password: Option<String>,
+}
+
+impl fmt::Display for User {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "User {{\n")?;
+
+        write!(f, "  trial: {},\n", self.trial)?;
+        write!(f, "  limit: {},\n", self.limit)?;
+        write!(f, "  status: {},\n", self.status)?;
+        if let Some(uplink) = self.uplink {
+            write!(f, "  uplink: {},\n", uplink)?;
+        } else {
+            write!(f, "  uplink: None,\n")?;
+        }
+        if let Some(downlink) = self.downlink {
+            write!(f, "  downlink: {},\n", downlink)?;
+        } else {
+            write!(f, "  downlink: None,\n")?;
+        }
+        if let Some(online) = self.online {
+            write!(f, "  online: {},\n", online)?;
+        } else {
+            write!(f, "  online: None,\n")?;
+        }
+        write!(f, "  created_at: {},\n", self.created_at)?;
+
+        if let Some(modified_at) = &self.modified_at {
+            write!(f, "  modified_at: {},\n", modified_at)?;
+        } else {
+            write!(f, "  modified_at: None,\n")?;
+        }
+
+        if let Some(proto) = &self.proto {
+            write!(f, "  proto: {:?},\n", proto)?;
+        } else {
+            write!(f, "  proto: None,\n")?;
+        }
+
+        if let Some(_password) = &self.password {
+            write!(f, "  password: <secret_password>,\n")?;
+        } else {
+            write!(f, "  password: None,\n")?;
+        }
+
+        write!(f, "}}")
+    }
 }
 
 impl User {

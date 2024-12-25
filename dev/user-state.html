@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>User Info</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+        }
+        #state-container, #user-container {
+            margin-top: 20px;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            background-color: #f9f9f9;
+        }
+        pre {
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            background-color: #f4f4f4;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>    <h1>User Info</h1>
+
+
+
+    <br>
+
+    <div>
+        <label for="userId">Enter User ID:</label>
+        <input type="text" id="userId" placeholder="Enter user ID" />
+        <button id="getUserBtn">Get User Info</button>
+    </div>
+
+    <div id="user-container" style="display:none;">
+        <h3>User Info:</h3>
+        <pre id="user-info"></pre>
+    </div>
+
+    <div id="state-container" style="display:none;">
+        <h3>Current State:</h3>
+        <pre id="state"></pre>
+    </div>
+
+  
+
+   <script>
+    const stateContainer = document.getElementById('state-container');
+    const userContainer = document.getElementById('user-container');
+    const stateElement = document.getElementById('state');
+    const userElement = document.getElementById('user-info');
+    const userIdInput = document.getElementById('userId');
+
+    const socket = new WebSocket('ws://127.0.0.1:3000/ws');
+
+    socket.onopen = () => {
+        console.log("Connected to WebSocket server.");
+        requestState(); 
+    };
+
+    socket.onmessage = (event) => {
+        const data = event.data;
+        console.log('Received from server:', data);
+
+        try {
+            const response = JSON.parse(data);
+            console.log('Parsed response:', response); 
+
+            if (response.kind === undefined) {
+                console.error("Error: Received response has no 'kind' field:", response);
+            } else if (response.kind === "state") {
+                displayState(response);  
+            } else if (response.kind === "user") {
+                displayUserInfo(response);  
+            } else {
+                console.log("Unknown response kind:", response.kind);
+            }
+        } catch (error) {
+            console.error("Error parsing response:", error);
+        }
+    };
+
+    socket.onerror = (error) => {
+        console.error("WebSocket error:", error);
+    };
+
+    socket.onclose = () => {
+        console.log("WebSocket connection closed.");
+    };
+
+    function requestState() {
+        const request = {
+            kind: "get_state",
+            message: "Requesting full state"
+        };
+        socket.send(JSON.stringify(request));
+    }
+
+
+    function requestUserInfo(userId) {
+        const request = {
+            kind: "get_user_info",
+            message: `Requesting info for user ${userId}`,
+            user_id: userId
+        };
+        socket.send(JSON.stringify(request)); 
+    }
+
+
+    function displayState(state) {
+        console.log("Displaying state:", state);
+        stateContainer.style.display = 'block';
+        stateElement.innerHTML = "";
+
+        let data = state.data;
+        if (typeof data === 'string') {
+            try {
+                data = JSON.parse(data); 
+            } catch (e) {
+                console.error("Error parsing JSON:", e);
+            }
+        }
+
+       
+        if (Array.isArray(data)) {
+            const ul = document.createElement('ul'); 
+            data.forEach(item => {
+                const li = document.createElement('li'); 
+                li.textContent = item; 
+                ul.appendChild(li); 
+            });
+            stateElement.appendChild(ul); 
+        } else {
+            stateElement.textContent = `User count: ${state.len}, Data: ${state.data}`;
+        }
+    }
+
+    function displayUserInfo(userInfo) {
+        console.log("Displaying user info:", userInfo); 
+        userContainer.style.display = 'block';
+
+        const userData = userInfo.data;
+        userElement.textContent = userData;
+    }
+
+
+
+    document.getElementById('getUserBtn').addEventListener('click', () => {
+        const userId = userIdInput.value.trim();
+        if (userId) {
+            requestUserInfo(userId);  
+        } else {
+            alert('Please enter a valid user ID');
+        }
+    });
+
+    setInterval(requestState, 5000); 
+</script>
+
+</body>
+</html>

@@ -13,6 +13,7 @@ use tokio::{
 use utils::measure_time;
 
 use crate::{
+    http::start_ws_server,
     postgres::{postgres_client, users_db_request},
     settings::{read_config, Settings},
     utils::{current_timestamp, human_readable_date, level_from_settings},
@@ -20,6 +21,7 @@ use crate::{
 };
 
 mod actions;
+mod http;
 mod jobs;
 mod message;
 mod metrics;
@@ -42,6 +44,9 @@ struct Cli {
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
+    #[cfg(feature = "debug")]
+    console_subscriber::init();
+
     let args = Cli::parse();
 
     println!("Config file {:?}", args.config);
@@ -81,7 +86,6 @@ async fn main() -> std::io::Result<()> {
 
     let debug = settings.app.debug;
 
-    // For store all tasks
     let mut tasks: Vec<JoinHandle<()>> = vec![];
 
     // Clients
@@ -153,12 +157,12 @@ async fn main() -> std::io::Result<()> {
                 info!("Node {:?} is registered", settings.node.hostname);
             }
         }
-        if debug {
-            let user_state = user_state.lock().await;
-            let _ = user_state.save_to_file_async(&user_state.file_path).await;
-        }
         user_state
     };
+
+    if debug {
+        tokio::spawn(start_ws_server(state.clone()));
+    }
 
     // ++ Recurent Jobs ++
     if settings.app.stat_enabled {

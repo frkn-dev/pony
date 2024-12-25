@@ -28,9 +28,19 @@ tokio-postgres = { version="0.7", features=["with-uuid-1", "with-chrono-0_4", "w
 uuid = { version = "1", features = ["serde", "v4"]  }
 zmq = "0.10"
 default-net = "0.22"
-
+warp = "0.3"
+console-subscriber = {version = "0.4", optional = true} 
 
 [build-dependencies]
 tonic-build = "0.12"
 walkdir = "2.0"
+
+[dev-dependencies]
+tracing = "0.1" 
+tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] } 
+tokio-util = "0.7"
+
+[features]
+default = []
+debug = ["console-subscriber"]
 

@@ -1,6 +1,8 @@
+### node active-user.js $(xray uuid)
+
 const zmq = require('zeromq');
 
-async function runPublisher() {
+async function runPublisher(user_id) {
     const sock = new zmq.Publisher();
 
     await sock.bind("tcp://127.0.0.1:3001");
@@ -9,33 +11,21 @@ async function runPublisher() {
 
     await new Promise(resolve => setTimeout(resolve, 2000));
 
-     const createMessage = JSON.stringify({
+    const createMessage = JSON.stringify({
         action: "create",
-        user_id: "96f1de53-472f-4b6d-8b79-4f477e765264",
+        user_id: user_id,
     });
-    const msg = `mk19 ${createMessage}`;
+
+    const msg = `mk5 ${createMessage}`;
     console.log("Sending create message:", msg);
 
     await sock.send(msg);
-
-
-    
-    
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    const initMessage = JSON.stringify({
-        action: "init",
-        user_id: "23bd6e06-e98d-4081-a603-571eb266354d",
-    });
-    const initMsg = `mk19 ${initMessage}`;
-    console.log("Sending create message:", initMsg);
-
-    await sock.send(initMsg);
-
-   // await new Promise(resolve => setTimeout(resolve, 1000));
-
-   
-
-
 }
 
-runPublisher();
+const userId = process.argv[2];  
+
+if (userId) {
+    runPublisher(userId);
+} else {
+    console.log("Please provide a user_id as the second argument.");
+}

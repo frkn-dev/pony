@@ -95,6 +95,10 @@ fn default_uuid() -> Uuid {
     Uuid::parse_str("9557b391-01cb-4031-a3f5-6cbdd749bcff").unwrap()
 }
 
+fn default_debug_port() -> u16 {
+    3000
+}
+
 #[derive(Clone, Debug, Deserialize, Default)]
 pub struct ApiConfig {
     #[serde(default = "default_api_endpoint_address")]
@@ -119,6 +123,8 @@ pub struct AppConfig {
     pub trial_jobs_timeout: u64,
     #[serde(default = "default_stat_jobs_timeout_sec")]
     pub stat_jobs_timeout: u64,
+    #[serde(default = "default_debug_port")]
+    pub debug_port: u16,
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]

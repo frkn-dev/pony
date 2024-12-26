@@ -24,7 +24,7 @@ pub struct Response {
     pub len: usize,
 }
 
-pub async fn start_ws_server(state: Arc<Mutex<State>>) {
+pub async fn start_ws_server(state: Arc<Mutex<State>>, port: u16) {
     let health_check = warp::path("health-check").map(|| format!("Server OK"));
 
     let ws = warp::path("ws")
@@ -40,7 +40,7 @@ pub async fn start_ws_server(state: Arc<Mutex<State>>) {
     warp::serve(routes)
         .run(SocketAddr::new(
             IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
-            3000,
+            port,
         ))
         .await;
     info!("Server is running on ws://127.0.0.1:3000");

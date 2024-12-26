@@ -2,8 +2,8 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 
 use super::metrics::{AsMetric, Metric, MetricType};
-use crate::current_timestamp;
 use crate::state::State;
+use crate::utils::current_timestamp;
 use crate::xray_op::stats::{InboundStat, UserStat};
 
 impl AsMetric for InboundStat {

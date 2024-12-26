@@ -1,4 +1,3 @@
-### node active-user.js $(xray uuid)
 
 const zmq = require('zeromq');
 

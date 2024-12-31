@@ -42,17 +42,24 @@
         <pre id="user-info"></pre>
     </div>
 
-    <div id="state-container" style="display:none;">
-        <h3>Current State:</h3>
-        <pre id="state"></pre>
+    <div id="users-container" style="display:none;">
+        <h3>Current users:</h3>
+        <pre id="users"></pre>
+    </div>
+
+    <div id="nodes-container" style="display:none;">
+        <h3>Current Nodes:</h3>
+        <pre id="nodes"></pre>
     </div>
 
   
 
    <script>
-    const stateContainer = document.getElementById('state-container');
+    const usersContainer = document.getElementById('users-container');
+    const nodesContainer = document.getElementById('nodes-container');
     const userContainer = document.getElementById('user-container');
-    const stateElement = document.getElementById('state');
+    const usersElement = document.getElementById('users');
+    const nodesElement = document.getElementById('nodes');
     const userElement = document.getElementById('user-info');
     const userIdInput = document.getElementById('userId');
 
@@ -60,7 +67,9 @@
 
     socket.onopen = () => {
         console.log("Connected to WebSocket server.");
-        requestState(); 
+        requestUsers(); 
+        requestNodes(); 
+
     };
 
     socket.onmessage = (event) => {
@@ -73,8 +82,10 @@
 
             if (response.kind === undefined) {
                 console.error("Error: Received response has no 'kind' field:", response);
-            } else if (response.kind === "state") {
-                displayState(response);  
+            } else if (response.kind === "users") {
+                displayUsers(response);  
+            } else if (response.kind === "nodes") {
+                displayNodes(response);  
             } else if (response.kind === "user") {
                 displayUserInfo(response);  
             } else {
@@ -93,12 +104,30 @@
         console.log("WebSocket connection closed.");
     };
 
-    function requestState() {
+    function requestUsers() {
         const request = {
-            kind: "get_state",
+            kind: "get_users",
             message: "Requesting full state"
         };
         socket.send(JSON.stringify(request));
+    }
+
+    function requestNodes() {
+        const request = {
+            kind: "get_nodes",
+            message: "Requesting full state"
+        };
+        socket.send(JSON.stringify(request));
+    }
+
+
+    function requestUserInfo(userId) {
+        const request = {
+            kind: "get_nodes",
+            message: `Requesting info for nodes`,
+            user_id: userId
+        };
+        socket.send(JSON.stringify(request)); 
     }
 
 
@@ -112,10 +141,10 @@
     }
 
 
-    function displayState(state) {
+    function displayUsers(state) {
         console.log("Displaying state:", state);
-        stateContainer.style.display = 'block';
-        stateElement.innerHTML = "";
+        usersContainer.style.display = 'block';
+        usersElement.innerHTML = "";
 
         let data = state.data;
         if (typeof data === 'string') {
@@ -134,11 +163,38 @@
                 li.textContent = item; 
                 ul.appendChild(li); 
             });
-            stateElement.appendChild(ul); 
+            usersElement.appendChild(ul); 
         } else {
-            stateElement.textContent = `User count: ${state.len}, Data: ${state.data}`;
+            usersElement.textContent = `User count: ${state.len}, Data: ${state.data}`;
         }
     }
+
+    function displayNodes(state) {
+        console.log("Displaying nodes state:", state);
+        nodesContainer.style.display = 'block';  // Ensure it is visible
+        nodesElement.innerHTML = "";    
+        let data = state.data;
+        if (typeof data === 'string') {
+            try {
+                data = JSON.parse(data);  // If data is string, parse it to JSON
+            } catch (e) {
+                console.error("Error parsing nodes JSON:", e);
+            }
+        }
+    
+        if (Array.isArray(data)) {
+            const ul = document.createElement('ul');
+            data.forEach(item => {
+                const li = document.createElement('li');
+                li.textContent = `Node ID: ${item.uuid}, Hostname: ${item.hostname}, IP: ${item.ipv4}, Status: ${item.status}`; 
+                ul.appendChild(li);
+            });
+            nodesElement.innerHTML = ""; 
+            nodesElement.appendChild(ul);
+        } else {
+            nodesElement.textContent = state.data;
+        }
+}
 
     function displayUserInfo(userInfo) {
         console.log("Displaying user info:", userInfo); 
@@ -159,7 +215,9 @@
         }
     });
 
-    setInterval(requestState, 5000); 
+    setInterval(requestUsers, 5000); 
+    setInterval(requestNodes, 5000); 
+
 </script>
 
 </body>

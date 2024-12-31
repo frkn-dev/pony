@@ -15,7 +15,7 @@ async function runPublisher(user_id) {
         user_id: user_id,
     });
 
-    const msg = `mk5 ${createMessage}`;
+    const msg = `dev ${createMessage}`;
     console.log("Sending create message:", msg);
 
     await sock.send(msg);

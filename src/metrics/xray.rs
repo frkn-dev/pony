@@ -1,5 +1,6 @@
 use std::sync::Arc;
 use tokio::sync::Mutex;
+use uuid::Uuid;
 
 use super::metrics::{AsMetric, Metric, MetricType};
 use crate::state::State;
@@ -66,25 +67,29 @@ pub async fn xray_stat_metrics(
     state: Arc<Mutex<State>>,
     env: &str,
     hostname: &str,
+    node_id: Uuid,
 ) -> Vec<MetricType> {
     let state = state.lock().await;
-    let node = state.node.clone();
+    if let Some(node) = state.get_node(env.to_string(), node_id) {
+        let xray_stat_metrics: Vec<_> = node
+            .inbounds
+            .clone()
+            .into_iter()
+            .map(|(tag, inbound)| {
+                inbound
+                    .as_inbound_stat()
+                    .as_metric(&tag.to_string(), env, hostname)
+            })
+            .flatten()
+            .collect();
 
-    let xray_stat_metrics: Vec<_> = node
-        .inbounds
-        .into_iter()
-        .map(|(tag, inbound)| {
-            inbound
-                .as_inbound_stat()
-                .as_metric(&tag.to_string(), env, hostname)
-        })
-        .flatten()
-        .collect();
-
-    xray_stat_metrics
-        .iter()
-        .map(|metric| MetricType::I64(metric.clone()))
-        .collect()
+        xray_stat_metrics
+            .iter()
+            .map(|metric| MetricType::I64(metric.clone()))
+            .collect()
+    } else {
+        vec![]
+    }
 }
 
 pub async fn xray_user_metrics(

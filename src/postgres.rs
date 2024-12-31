@@ -7,7 +7,7 @@ use tokio::sync::Mutex;
 use tokio_postgres::{Client, NoTls};
 use uuid::Uuid;
 
-use crate::settings::Settings;
+use crate::settings::PostgresConfig;
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct UserRow {
@@ -18,9 +18,9 @@ pub struct UserRow {
     pub created: NaiveDateTime,
 }
 
-pub async fn postgres_client(settings: Settings) -> Result<Arc<Mutex<Client>>, Box<dyn Error>> {
-    let pg_settings = settings.pg.clone();
-
+pub async fn postgres_client(
+    pg_settings: PostgresConfig,
+) -> Result<Arc<Mutex<Client>>, Box<dyn Error>> {
     let connection_line = format!(
         "host={} user={} dbname={} password={} port={}",
         pg_settings.host,

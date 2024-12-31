@@ -4,40 +4,26 @@ use std::{
     collections::{hash_map::Entry, HashMap},
     error::Error,
 };
-use tokio::{
-    fs,
-    fs::File,
-    io::{AsyncReadExt, AsyncWriteExt},
-};
 use uuid::Uuid;
 
 use crate::xray_op::{stats::StatType, Tag};
 
 use super::{
-    node::{Inbound, Node},
-    settings::Settings,
+    node::Node,
     user::{User, UserStatus},
 };
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct State {
-    pub file_path: String,
     pub users: HashMap<Uuid, User>,
-    pub node: Node,
+    pub nodes: HashMap<String, Vec<Node>>,
 }
 
 impl State {
-    pub fn new(settings: Settings, inbounds: HashMap<Tag, Inbound>) -> Self {
+    pub fn new() -> Self {
         State {
             users: HashMap::new(),
-            file_path: settings.app.file_state,
-            node: Node::new(
-                inbounds,
-                settings.node.hostname.expect("hostname"),
-                settings.node.ipv4.expect("ipv4addr"),
-                settings.node.env,
-                settings.node.uuid,
-            ),
+            nodes: HashMap::new(),
         }
     }
 
@@ -45,7 +31,7 @@ impl State {
         &mut self,
         user_id: Uuid,
         new_user: User,
-        debug: bool,
+        _debug: bool,
     ) -> Result<(), Box<dyn Error>> {
         match self.users.entry(user_id) {
             Entry::Occupied(mut entry) => {
@@ -209,33 +195,6 @@ impl State {
         }
     }
 
-    pub async fn update_node_uplink(
-        &mut self,
-        tag: Tag,
-        new_uplink: i64,
-    ) -> Result<(), Box<dyn Error>> {
-        self.node.update_uplink(tag, new_uplink)?;
-        Ok(())
-    }
-
-    pub async fn update_node_downlink(
-        &mut self,
-        tag: Tag,
-        new_downlink: i64,
-    ) -> Result<(), Box<dyn Error>> {
-        self.node.update_downlink(tag, new_downlink)?;
-        Ok(())
-    }
-
-    pub async fn update_node_user_count(
-        &mut self,
-        tag: Tag,
-        user_count: i64,
-    ) -> Result<(), Box<dyn Error>> {
-        self.node.update_user_count(tag, user_count)?;
-        Ok(())
-    }
-
     pub fn get_all_trial_users(&self, status: UserStatus) -> HashMap<Uuid, User> {
         self.users
             .iter()
@@ -244,49 +203,115 @@ impl State {
             .collect()
     }
 
-    pub async fn load_from_file_async(file_path: String) -> Result<Self, Box<dyn Error>> {
-        let mut file = fs::File::open(file_path).await?;
-        let mut file_content = String::new();
-        file.read_to_string(&mut file_content).await?;
+    pub async fn add_node(&mut self, new_node: Node) -> Result<(), Box<dyn Error>> {
+        let env = new_node.env.clone();
+        let uuid = new_node.uuid.clone();
+        debug!("Starting add_node for node in env {}: {:?}", env, new_node);
 
-        let user_state: State = serde_json::from_str(&file_content)?;
-        debug!("State loaded {:?}", user_state);
+        debug!("Current nodes: {:?}", self.nodes);
 
-        Ok(user_state)
+        if let Some(existing_nodes) = self.nodes.get_mut(&env) {
+            if existing_nodes.iter().any(|node| node.uuid == uuid) {
+                debug!(
+                    "Node with uuid {} already exists in env {}, not adding",
+                    uuid, env
+                );
+                return Err(format!("node {} alresy exist", new_node.uuid).into());
+            }
+        }
+
+        match self.nodes.entry(env.clone()) {
+            Entry::Occupied(mut entry) => {
+                debug!("Environment {} already exists, appending new node", env);
+                entry.get_mut().push(new_node);
+            }
+            Entry::Vacant(entry) => {
+                debug!("Adding new node list for environment {}", env);
+                entry.insert(vec![new_node]);
+            }
+        }
+
+        Ok(())
     }
 
-    pub async fn save_to_file_async(&self, msg: &str) -> Result<(), Box<dyn Error>> {
-        let file_content = match serde_json::to_string_pretty(&self) {
-            Ok(content) => {
-                debug!("content len to save {}", content.len());
-                content
-            }
-            Err(e) => {
-                error!("{msg}: Failed to serialize state to JSON: {:?}", e);
-                return Err(Box::new(e));
-            }
-        };
+    pub fn get_node(&self, env: String, uuid: Uuid) -> Option<Node> {
+        self.nodes
+            .get(&env)
+            .and_then(|nodes| nodes.iter().find(|node| node.uuid == uuid))
+            .cloned()
+    }
 
-        let file_path = self.file_path.clone();
-        let mut file = match File::create(&file_path).await {
-            Ok(f) => f,
-            Err(e) => {
-                error!("{msg}: Failed to create file at {:?}: {:?}", file_path, e);
-                return Err(Box::new(e));
-            }
-        };
+    pub fn get_nodes(&self, env: String) -> Option<Vec<Node>> {
+        if let Some(nodes) = self.nodes.get(&env).cloned() {
+            Some(nodes)
+        } else {
+            None
+        }
+    }
 
-        if let Err(e) = file.write_all(file_content.as_bytes()).await {
-            error!("{msg}: Failed to write to file {:?}: {:?}", file_path, e);
-            return Err(Box::new(e));
+    pub async fn update_node_uplink(
+        &mut self,
+        tag: Tag,
+        new_uplink: i64,
+        env: String,
+        node_id: Uuid,
+    ) -> Result<(), Box<dyn Error>> {
+        if let Some(nodes) = self.nodes.get_mut(&env) {
+            if let Some(node) = nodes.iter_mut().find(|n| n.uuid == node_id) {
+                node.update_uplink(tag, new_uplink)?;
+            } else {
+                error!("Node not found: {}", node_id);
+                return Err(format!("Node with ID {} not found", node_id).into());
+            }
+        } else {
+            error!("Environment not found: {}", env);
+            return Err(format!("Environment '{}' not found", env).into());
         }
 
-        if let Err(e) = file.sync_all().await {
-            error!("{msg}: Failed to sync file {:?}: {:?}", file_path, e);
-            return Err(Box::new(e));
+        Ok(())
+    }
+
+    pub async fn update_node_downlink(
+        &mut self,
+        tag: Tag,
+        new_downlink: i64,
+        env: String,
+        node_id: Uuid,
+    ) -> Result<(), Box<dyn Error>> {
+        if let Some(nodes) = self.nodes.get_mut(&env) {
+            if let Some(node) = nodes.iter_mut().find(|n| n.uuid == node_id) {
+                node.update_downlink(tag, new_downlink)?;
+            } else {
+                error!("Node not found: {}", node_id);
+                return Err(format!("Node with ID {} not found", node_id).into());
+            }
+        } else {
+            error!("Environment not found: {}", env);
+            return Err(format!("Environment '{}' not found", env).into());
         }
 
-        debug!("{msg}: Written successfully");
+        Ok(())
+    }
+
+    pub async fn update_node_user_count(
+        &mut self,
+        tag: Tag,
+        user_count: i64,
+        env: String,
+        node_id: Uuid,
+    ) -> Result<(), Box<dyn Error>> {
+        if let Some(nodes) = self.nodes.get_mut(&env) {
+            if let Some(node) = nodes.iter_mut().find(|n| n.uuid == node_id) {
+                node.update_user_count(tag, user_count)?;
+            } else {
+                error!("Node not found: {}", node_id);
+                return Err(format!("Node with ID {} not found", node_id).into());
+            }
+        } else {
+            error!("Environment not found: {}", env);
+            return Err(format!("Environment '{}' not found", env).into());
+        }
+
         Ok(())
     }
 }

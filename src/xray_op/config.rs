@@ -1,5 +1,6 @@
 use log::{debug, warn};
 use serde::Deserialize;
+use std::error::Error;
 use std::{collections::HashMap, fs::File, io::Read};
 
 use super::Tag;
@@ -13,18 +14,32 @@ pub struct Inbound {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct Api {
+    pub listen: String,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct Config {
     pub inbounds: Vec<Inbound>,
+    pub api: Api,
 }
 
 impl Config {
-    pub fn validate(&self) {
+    pub fn validate(&self) -> Result<(), Box<dyn Error>> {
         for inbound in &self.inbounds {
             match inbound.tag.parse::<Tag>() {
-                Ok(_) => debug!("Xray Config: Tag {} is valid", inbound.tag),
-                Err(_) => warn!("Xray Config: Tag {} is invalid", inbound.tag),
+                Ok(_) => {
+                    debug!("Xray Config: Tag {} is valid", inbound.tag);
+                    return Ok(());
+                }
+
+                Err(e) => {
+                    let error = format!("Xray Config: Tag {:?} is invalid: {:?}", inbound.tag, e);
+                    return Err(error.into());
+                }
             }
         }
+        Ok(())
     }
 
     pub fn get_inbounds(&self) -> HashMap<Tag, node::Inbound> {

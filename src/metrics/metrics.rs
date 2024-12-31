@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::sync::Arc;
 use tokio::sync::Mutex;
+use uuid::Uuid;
 
 use super::bandwidth::bandwidth_metrics;
 use super::cpuusage::cpu_metrics;
@@ -79,13 +80,14 @@ pub async fn collect_metrics<T>(
     env: &str,
     hostname: &str,
     interface: &str,
+    node_id: Uuid,
 ) -> Vec<MetricType> {
     let mut metrics: Vec<MetricType> = Vec::new();
     let bandwidth: Vec<MetricType> = bandwidth_metrics(env, hostname, interface).await;
     let cpuusage: Vec<MetricType> = cpu_metrics(env, hostname).await;
     let loadavg: Vec<MetricType> = loadavg_metrics(env, hostname).await;
     let memory: Vec<MetricType> = mem_metrics(env, hostname).await;
-    let xray: Vec<MetricType> = xray_stat_metrics(state.clone(), env, hostname).await;
+    let xray: Vec<MetricType> = xray_stat_metrics(state.clone(), env, hostname, node_id).await;
     let users: Vec<MetricType> = xray_user_metrics(state, env, hostname).await;
     let heartbeat: Vec<MetricType> = heartbeat_metrics(env, hostname);
 

@@ -5,12 +5,12 @@ use zmq;
 
 use crate::utils::measure_time;
 
-use super::{
+use crate::{
     message::{process_message, Message},
-    settings::Settings,
+    settings::AgentSettings,
 };
 
-use super::{state::State, xray_op::client};
+use crate::{state::State, xray_op::client};
 
 fn try_connect(endpoint: &str, topic: &str) -> zmq::Socket {
     let context = zmq::Context::new();
@@ -38,15 +38,15 @@ fn try_connect(endpoint: &str, topic: &str) -> zmq::Socket {
 
 pub async fn subscriber(
     clients: client::XrayClients,
-    settings: Settings,
+    settings: AgentSettings,
     state: Arc<Mutex<State>>,
     debug: bool,
 ) {
-    let subscriber = try_connect(&settings.zmq.endpoint, &settings.node.env);
+    let subscriber = try_connect(&settings.zmq.sub_endpoint, &settings.node.env);
 
     info!(
         "Subscriber connected to {}:{}",
-        settings.zmq.endpoint, settings.node.env
+        settings.zmq.sub_endpoint, settings.node.env
     );
 
     loop {

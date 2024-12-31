@@ -7,10 +7,11 @@ use chrono::{Duration, Utc};
 use log::{debug, error};
 use std::{error::Error, sync::Arc};
 use tokio::sync::Mutex;
+use uuid::Uuid;
 
 use reqwest::Client;
 
-use crate::{actions, settings::Settings, user::User};
+use crate::{actions, settings::AgentSettings, user::User};
 
 use super::xray_op::{
     client::XrayClients, remove_user, stats::Prefix, stats::StatType, vless, vmess,
@@ -21,50 +22,63 @@ use super::{state::State, user::UserStatus};
 pub async fn collect_stats_job(
     clients: XrayClients,
     state: Arc<Mutex<State>>,
+    node_id: Uuid,
+    env: String,
 ) -> Result<(), Box<dyn Error>> {
     let mut tasks = vec![];
 
-    {
+    let user_ids = {
         let state_guard = state.lock().await;
-        let user_ids: Vec<_> = state_guard.users.keys().cloned().collect();
+        state_guard.users.keys().cloned().collect::<Vec<_>>()
+    };
 
-        for user_id in user_ids {
-            let clients = clients.clone();
-            let state = state.clone();
+    for user_id in user_ids {
+        let clients = clients.clone();
+        let state = state.clone();
 
-            tasks.push(tokio::spawn(async move {
-                if let Ok(user_stat) =
-                    stats::get_user_stats(clients.clone(), Prefix::UserPrefix(user_id)).await
+        tasks.push(tokio::spawn(async move {
+            if let Ok(user_stat) =
+                stats::get_user_stats(clients.clone(), Prefix::UserPrefix(user_id)).await
+            {
+                let mut state_guard = state.lock().await;
+                if let Err(e) = state_guard
+                    .update_user_downlink(user_id, user_stat.downlink)
+                    .await
                 {
-                    let mut state_guard = state.lock().await;
-                    if let Err(e) = state_guard
-                        .update_user_downlink(user_id, user_stat.downlink)
-                        .await
-                    {
-                        error!("Failed to update user downlink: {}", e);
-                    }
-                    if let Err(e) = state_guard
-                        .update_user_uplink(user_id, user_stat.uplink)
-                        .await
-                    {
-                        error!("Failed to update user uplink: {}", e);
-                    }
-                    if let Err(e) = state_guard
-                        .update_user_online(user_id, user_stat.online)
-                        .await
-                    {
-                        error!("Failed to update user online: {}", e);
-                    }
-                } else {
-                    error!("Failed to fetch user stats for {}", user_id);
+                    error!("Failed to update user downlink: {}", e);
                 }
-            }));
-        }
+                if let Err(e) = state_guard
+                    .update_user_uplink(user_id, user_stat.uplink)
+                    .await
+                {
+                    error!("Failed to update user uplink: {}", e);
+                }
+                if let Err(e) = state_guard
+                    .update_user_online(user_id, user_stat.online)
+                    .await
+                {
+                    error!("Failed to update user online: {}", e);
+                }
+            } else {
+                error!("Failed to fetch user stats for {}", user_id);
+            }
+        }));
+    }
 
-        let tags: Vec<_> = state_guard.node.inbounds.keys().cloned().collect();
-        for tag in tags {
+    let (node_tags, node_exists) = {
+        let state_guard = state.lock().await;
+        if let Some(node) = state_guard.get_node(env.clone(), node_id) {
+            (node.inbounds.keys().cloned().collect::<Vec<_>>(), true)
+        } else {
+            (vec![], false)
+        }
+    };
+
+    if node_exists {
+        for tag in node_tags {
             let clients = clients.clone();
             let state = state.clone();
+            let env = env.clone();
 
             tasks.push(tokio::spawn(async move {
                 if let Ok(inbound_stat) =
@@ -73,30 +87,39 @@ pub async fn collect_stats_job(
                 {
                     let mut state_guard = state.lock().await;
                     if let Err(e) = state_guard
-                        .update_node_downlink(tag.clone(), inbound_stat.downlink)
+                        .update_node_downlink(
+                            tag.clone(),
+                            inbound_stat.downlink,
+                            env.clone(),
+                            node_id,
+                        )
                         .await
                     {
                         error!("Failed to update inbound downlink: {}", e);
                     }
                     if let Err(e) = state_guard
-                        .update_node_uplink(tag.clone(), inbound_stat.uplink)
+                        .update_node_uplink(tag.clone(), inbound_stat.uplink, env.clone(), node_id)
                         .await
                     {
                         error!("Failed to update inbound uplink: {}", e);
                     }
                     if let Err(e) = state_guard
-                        .update_node_user_count(tag.clone(), inbound_stat.user_count)
+                        .update_node_user_count(
+                            tag.clone(),
+                            inbound_stat.user_count,
+                            env.clone(),
+                            node_id,
+                        )
                         .await
                     {
                         error!("Failed to update user_count: {}", e);
                     }
                 }
-            }))
+            }));
         }
     }
 
     let results = futures::future::join_all(tasks).await;
-
     for result in results {
         if let Err(e) = result {
             error!("Task panicked: {:?}", e);
@@ -108,15 +131,22 @@ pub async fn collect_stats_job(
 
 pub async fn send_metrics_job<T>(
     state: Arc<Mutex<State>>,
-    settings: Settings,
+    settings: AgentSettings,
+    node_id: Uuid,
 ) -> Result<(), Box<dyn Error>> {
     let hostname = settings.node.hostname.unwrap_or("localhost".to_string());
     let interface = settings
         .node
         .default_interface
         .unwrap_or("eth0".to_string());
-    let metrics =
-        collect_metrics::<T>(state.clone(), &settings.node.env, &hostname, &interface).await;
+    let metrics = collect_metrics::<T>(
+        state.clone(),
+        &settings.node.env,
+        &hostname,
+        &interface,
+        node_id,
+    )
+    .await;
 
     for metric in metrics {
         match metric {
@@ -132,15 +162,16 @@ pub async fn send_metrics_job<T>(
 
 pub async fn register_node(
     state: Arc<Mutex<State>>,
-    settings: Settings,
+    settings: AgentSettings,
+    env: String,
 ) -> Result<(), Box<dyn Error>> {
     let node_state = state.lock().await;
-    let node = node_state.node.clone();
+    let node = node_state.nodes.get(&env).clone();
 
-    debug!("node {:?} ", node.uuid);
+    debug!("node {:?} ", node);
     let client = Client::new();
 
-    let endpoint = format!("{}/node/register", settings.api.endpoint_address);
+    let endpoint = format!("{}/node/register", settings.api.endpoint,);
     let res = client.post(endpoint).json(&node).send().await?;
 
     if res.status().is_success() {
@@ -154,7 +185,7 @@ pub async fn register_node(
 
 pub async fn init_state(
     state: Arc<Mutex<State>>,
-    settings: Settings,
+    settings: AgentSettings,
     clients: XrayClients,
     db_user: UserRow,
     debug: bool,
@@ -264,7 +295,12 @@ pub async fn restore_trial_users(state: Arc<Mutex<State>>, clients: XrayClients)
     }
 }
 
-pub async fn block_trial_users_by_limit(state: Arc<Mutex<State>>, clients: XrayClients) {
+pub async fn block_trial_users_by_limit(
+    state: Arc<Mutex<State>>,
+    clients: XrayClients,
+    env: String,
+    node_id: Uuid,
+) {
     let trial_users = {
         let state_guard = state.lock().await;
         state_guard.get_all_trial_users(UserStatus::Active)
@@ -274,6 +310,7 @@ pub async fn block_trial_users_by_limit(state: Arc<Mutex<State>>, clients: XrayC
         let state = state.clone();
         let user_id = user_id.clone();
         let clients = clients.clone();
+        let env = env.clone();
 
         tokio::spawn(async move {
             let user_exceeds_limit = {
@@ -291,12 +328,12 @@ pub async fn block_trial_users_by_limit(state: Arc<Mutex<State>>, clients: XrayC
 
                 let inbounds = {
                     let state_guard = state.lock().await;
-                    state_guard
-                        .node
-                        .inbounds
-                        .keys()
-                        .cloned()
-                        .collect::<Vec<_>>()
+
+                    if let Some(node) = state_guard.get_node(env.clone(), node_id) {
+                        node.inbounds.keys().cloned().collect::<Vec<_>>()
+                    } else {
+                        vec![]
+                    }
                 };
 
                 let remove_tasks: Vec<_> = inbounds

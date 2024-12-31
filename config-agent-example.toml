@@ -1,0 +1,46 @@
+[debug]
+# enabled = true
+# web_server = "127.0.0.1"
+# web_port = 3001
+
+[carbon]
+# address = "localhost:2003"
+
+[logging]
+# level = "debug"
+# file = "pony.log"
+
+[app]
+# metrics_timeout = 60
+# trial_users_enabled = true
+# stat_enabled = true
+# metrics_enabled = true
+# trial_jobs_timeout = 60
+# stat_jobs_timeout = 60
+
+[xray]
+# xray_daily_limit_mb = 1000
+# xray_config_path = "dev/xray-config.json"
+
+[zmq]
+# sub_endpoint = "tcp://localhost:3000"
+# pub_endpoint = "tcp://*:3000"
+
+[node]
+# env = "dev"
+# uuid = "9557b391-01cb-4031-a3f5-6cbdd749bcff"
+# hostname = ""
+# default_interface = ""
+# ipv4 = ""
+
+[pg]
+# host = "localhost"
+# port = 5432
+# db = "postgres"
+# username = "postgres"
+# password = "password"
+
+[api]
+# address = "127.0.0.1"
+# port = 3005
+# endpoint = "http://localhost:3005"

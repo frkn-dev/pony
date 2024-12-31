@@ -1,5 +1,6 @@
 use default_net::{get_default_interface, get_interfaces};
 use log::debug;
+use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use std::env;
 use std::error::Error;
@@ -7,22 +8,12 @@ use std::fs;
 use std::net::Ipv4Addr;
 use uuid::Uuid;
 
-pub fn read_config(config_file: &str) -> Result<Settings, Box<dyn std::error::Error>> {
-    let config_str = fs::read_to_string(config_file)?;
-    let settings: Settings = toml::from_str(&config_str)?;
-    Ok(settings)
-}
-
 fn default_enabled() -> bool {
     true
 }
 
 fn default_env() -> String {
     "dev".to_string()
-}
-
-fn default_metrics_timeout() -> u64 {
-    1
 }
 
 fn default_xray_daily_limit_mb() -> i64 {
@@ -33,9 +24,8 @@ fn default_carbon_server() -> String {
     "localhost:2003".to_string()
 }
 
-fn default_xray_api_endpoint() -> String {
-    // ToDo - parse xray-config.yaml
-    "http://localhost:23456".to_string()
+fn default_clickhouse_server() -> String {
+    "http://localhost:8123".to_string()
 }
 
 fn default_loglevel() -> String {
@@ -46,17 +36,16 @@ fn default_logfile() -> String {
     "pony.log".to_string()
 }
 
-fn default_zmq_endpoint() -> String {
-    // ToDo - address port separate fields
+fn default_zmq_sub_endpoint() -> String {
     "tcp://localhost:3000".to_string()
 }
 
-fn default_file_state() -> String {
-    "users.json".to_string()
+fn default_zmq_pub_endpoint() -> String {
+    "tcp://*:3000".to_string()
 }
 
 fn default_xray_config_path() -> String {
-    "xray-config.json".to_string()
+    "dev/xray-config.json".to_string()
 }
 
 fn default_pg_address() -> String {
@@ -87,32 +76,48 @@ fn default_stat_jobs_timeout_sec() -> u64 {
     60
 }
 
+fn default_metrics_timeout() -> u64 {
+    60
+}
+
 fn default_api_endpoint_address() -> String {
-    "http://localhost:5006".to_string()
+    "http://localhost:3005".to_string()
 }
 
 fn default_uuid() -> Uuid {
     Uuid::parse_str("9557b391-01cb-4031-a3f5-6cbdd749bcff").unwrap()
 }
 
-fn default_debug_port() -> u16 {
-    3000
+fn default_debug_web_server() -> Option<Ipv4Addr> {
+    Some(Ipv4Addr::new(127, 0, 0, 1))
+}
+
+fn default_debug_web_port() -> u16 {
+    3001
+}
+
+fn default_api_web_listen() -> Option<Ipv4Addr> {
+    Some(Ipv4Addr::new(127, 0, 0, 1))
+}
+
+fn default_api_web_port() -> u16 {
+    3005
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]
 pub struct ApiConfig {
+    #[serde(default = "default_api_web_listen")]
+    pub address: Option<Ipv4Addr>,
+    #[serde(default = "default_api_web_port")]
+    pub port: u16,
     #[serde(default = "default_api_endpoint_address")]
-    pub endpoint_address: String,
+    pub endpoint: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]
 pub struct AppConfig {
     #[serde(default = "default_metrics_timeout")]
     pub metrics_timeout: u64,
-    #[serde(default = "default_file_state")]
-    pub file_state: String,
-    #[serde(default = "default_enabled")]
-    pub debug: bool,
     #[serde(default = "default_enabled")]
     pub trial_users_enabled: bool,
     #[serde(default = "default_enabled")]
@@ -123,14 +128,28 @@ pub struct AppConfig {
     pub trial_jobs_timeout: u64,
     #[serde(default = "default_stat_jobs_timeout_sec")]
     pub stat_jobs_timeout: u64,
-    #[serde(default = "default_debug_port")]
-    pub debug_port: u16,
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]
 pub struct CarbonConfig {
     #[serde(default = "default_carbon_server")]
     pub address: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Default)]
+pub struct ClickhouseConfig {
+    #[serde(default = "default_clickhouse_server")]
+    pub address: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Default)]
+pub struct DebugConfig {
+    #[serde(default = "default_enabled")]
+    pub enabled: bool,
+    #[serde(default = "default_debug_web_server")]
+    pub web_server: Option<Ipv4Addr>,
+    #[serde(default = "default_debug_web_port")]
+    pub web_port: u16,
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]
@@ -184,7 +203,7 @@ impl NodeConfig {
                 .iter()
                 .find(|interface| &interface.name == interface_name);
 
-            debug!("Defaul interface: {}", interface_name);
+            debug!("Default interface: {}", interface_name);
 
             if let Some(interface) = interface.clone() {
                 match interface.ipv4.first() {
@@ -214,8 +233,6 @@ pub struct PostgresConfig {
 
 #[derive(Clone, Debug, Deserialize, Default)]
 pub struct XrayConfig {
-    #[serde(default = "default_xray_api_endpoint")]
-    pub xray_api_endpoint: String,
     #[serde(default = "default_xray_daily_limit_mb")]
     pub xray_daily_limit_mb: i64,
     #[serde(default = "default_xray_config_path")]
@@ -224,21 +241,78 @@ pub struct XrayConfig {
 
 #[derive(Clone, Debug, Deserialize, Default)]
 pub struct ZmqConfig {
-    #[serde(default = "default_zmq_endpoint")]
-    pub endpoint: String,
+    #[serde(default = "default_zmq_sub_endpoint")]
+    pub sub_endpoint: String,
+    #[serde(default = "default_zmq_pub_endpoint")]
+    pub pub_endpoint: String,
 }
 
 impl ZmqConfig {
     pub fn validate(self) -> Result<(), Box<dyn Error>> {
-        if !self.endpoint.starts_with("tcp://") {
+        if !self.sub_endpoint.starts_with("tcp://") || !self.pub_endpoint.starts_with("tcp://") {
             return Err("ZMQ endpoint should start with tcp://".into());
         }
         Ok(())
     }
 }
 
+pub trait Settings: Sized {
+    fn read_config<T: DeserializeOwned>(config_file: &str) -> Result<T, Box<dyn Error>> {
+        let config_str = fs::read_to_string(config_file)?;
+        let settings: T = toml::from_str(&config_str)?;
+        Ok(settings)
+    }
+
+    fn new(config_file: &str) -> Self
+    where
+        for<'de> Self: Deserialize<'de>,
+    {
+        match Self::read_config(config_file) {
+            Ok(settings) => settings,
+            Err(e) => panic!("Failed to load settings: {}", e),
+        }
+    }
+
+    fn validate(&mut self) -> Result<(), String>;
+}
+
 #[derive(Clone, Debug, Deserialize, Default)]
-pub struct Settings {
+pub struct ApiSettings {
+    #[serde(default)]
+    pub api: ApiConfig,
+    #[serde(default)]
+    pub debug: DebugConfig,
+    #[serde(default)]
+    pub node: NodeConfig,
+    #[serde(default)]
+    pub logging: LoggingConfig,
+    #[serde(default)]
+    pub zmq: ZmqConfig,
+    #[serde(default)]
+    pub clickhouse: ClickhouseConfig,
+    #[serde(default)]
+    pub pg: PostgresConfig,
+}
+
+impl Settings for ApiSettings {
+    fn validate(&mut self) -> Result<(), std::string::String> {
+        self.node
+            .validate()
+            .map_err(|e| format!("Node configuration validation error: {}", e))?;
+
+        self.zmq
+            .clone()
+            .validate()
+            .map_err(|e| format!("Zmq configuration validation error: {}", e))?;
+
+        Ok(())
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Default)]
+pub struct AgentSettings {
+    #[serde(default)]
+    pub debug: DebugConfig,
     #[serde(default)]
     pub carbon: CarbonConfig,
     #[serde(default)]
@@ -257,8 +331,8 @@ pub struct Settings {
     pub api: ApiConfig,
 }
 
-impl Settings {
-    pub fn validate(&mut self) -> Result<(), String> {
+impl Settings for AgentSettings {
+    fn validate(&mut self) -> Result<(), String> {
         self.node
             .validate()
             .map_err(|e| format!("Node configuration validation error: {}", e))?;

@@ -1,5 +1,6 @@
 use log::error;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
+use std::fmt;
 use std::{error::Error, sync::Arc};
 use tokio::sync::Mutex;
 use uuid::Uuid;
@@ -9,7 +10,7 @@ use crate::actions;
 use crate::xray_op::client;
 use crate::{state::State, user::User};
 
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Deserialize, Serialize, Debug, Clone)]
 pub enum Action {
     #[serde(rename = "create")]
     Create,
@@ -19,13 +20,22 @@ pub enum Action {
     Update,
 }
 
-#[derive(Deserialize, Clone, Debug)]
+#[derive(Deserialize, Serialize, Clone, Debug)]
 pub struct Message {
     pub user_id: Uuid,
     pub action: Action,
+    pub env: String,
     pub trial: Option<bool>,
     pub limit: Option<i64>,
     pub password: Option<String>,
+}
+
+impl fmt::Display for Message {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let json_message = serde_json::to_string(self).expect("Failed to serialize message");
+
+        write!(f, "{}", json_message)
+    }
 }
 
 pub async fn process_message(

@@ -7,29 +7,12 @@ on:
 env:
   CARGO_TERM_COLOR: always
   REGISTRY: frknorg
-  IMAGE_NAME: pony
+  IMAGE_NAME: pony-api
   DOCKER_TAG: latest
 
 jobs:
-  build:
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v1
-
-      - name: Install latest rust toolchain
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          default: true
-          override: true
-
-      - name: Build
-        run: cargo build --all
   release:
     name: Release
-    needs: build
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -38,26 +21,42 @@ jobs:
       - name: Install latest rust toolchain
         uses: actions-rs/toolchain@v1
         with:
-          toolchain: stable
+          toolchain: nightly
+          target: x86_64-unknown-linux-gnu
           default: true
           override: true
+
+      - name: Install protobuf-compiler
+        run: sudo apt-get install -y protobuf-compiler
+
       - name: Build
-        run: cargo build --all --release
+        run: cargo build --all --release --features agent,api 
+
+      - name: Get architecture
+        id: arch
+        run: echo "ARCH=$(uname -m)" >> $GITHUB_ENV
+
+      - name: Rename binaries with architecture
+        run: |
+          mv target/release/api target/release/api-$ARCH
+          mv target/release/agent target/release/agent-$ARCH
     
       - name: Release
         uses: softprops/action-gh-release@v1
         if: startsWith(github.ref, 'refs/tags/')
         with:
           files: |
-            target/release/pony
+            target/release/api-$ARCH
+            target/release/agent-$ARCH
             README.md
-            config-example.toml
+            config-agent-example.toml
+            config-api-example.toml
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   publish:
     name: Push Docker image 
-    needs: build
+    needs: release
     runs-on: ubuntu-latest
     permissions:
       packages: write

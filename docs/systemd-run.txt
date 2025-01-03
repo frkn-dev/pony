@@ -1,0 +1,49 @@
+### Инструкция по настройке systemd с логами в файл ###
+
+#### Основной юнит-файл с логами ####
+Создайте файл `/etc/systemd/system/xray-pony.service` со следующим содержимым:
+
+```
+[Unit]
+Description=Run Xray and Pony Together
+After=network.target
+
+[Service]
+Type=simple
+ExecStartPre=/bin/bash -c '/home/youruser/xray/xray --config /home/youruser/xray-config-mk2nl.json & echo $! > /run/xray.pid'
+ExecStart=/home/youruser/pony/target/debug/pony --config /home/youruser/pony/config-metrics2.toml
+Restart=on-failure
+RestartSec=5
+KillMode=mixed
+KillSignal=SIGTERM
+ExecStop=/bin/bash -c 'kill $(cat /run/xray.pid)'
+
+# Логи
+StandardOutput=append:/var/log/xray-pony.log
+StandardError=append:/var/log/xray-pony.log
+
+[Install]
+WantedBy=multi-user.target
+```
+
+#### Настройка прав на файл логов ####
+Убедитесь, что файл логов существует и имеет правильные права доступа:
+
+```bash
+sudo touch /var/log/xray-pony.log
+sudo chown youruser:youruser /var/log/xray-pony.log
+```
+
+Замените `youruser` на имя пользователя, под которым будут запускаться сервисы.
+
+#### Перезагрузка systemd и активация юнита ####
+После создания или изменения юнит-файла выполните следующие команды:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable xray-pony.service
+sudo systemctl start xray-pony.service
+```
+
+Теперь оба процесса (`xray` и `pony`) будут запускаться вместе, и их логи будут сохраняться в `/var/log/xray-pony.log`, а также доступны через `journalctl`.
+

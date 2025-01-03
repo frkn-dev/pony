@@ -22,6 +22,7 @@ jobs:
         uses: actions-rs/toolchain@v1
         with:
           toolchain: nightly
+          target: x86_64-unknown-linux-gnu
           default: true
           override: true
 
@@ -29,15 +30,24 @@ jobs:
         run: sudo apt-get install -y protobuf-compiler
 
       - name: Build
-        run: cargo build --all --release
+        run: cargo build --all --release --features agent,api 
+
+      - name: Get architecture
+        id: arch
+        run: echo "ARCH=$(uname -m)" >> $GITHUB_ENV
+
+      - name: Rename binaries with architecture
+        run: |
+          mv target/release/api target/release/api-$ARCH
+          mv target/release/agent target/release/agent-$ARCH
     
       - name: Release
         uses: softprops/action-gh-release@v1
         if: startsWith(github.ref, 'refs/tags/')
         with:
           files: |
-            target/release/api
-            target/release/agent
+            target/release/api-$ARCH
+            target/release/agent-$ARCH
             README.md
             config-agent-example.toml
             config-api-example.toml

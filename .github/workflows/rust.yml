@@ -10,7 +10,7 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build:
+  build-agent:
     runs-on: ubuntu-latest
 
     steps:
@@ -28,5 +28,22 @@ jobs:
         run: sudo apt-get install -y protobuf-compiler
 
       - name: Build
-        run: cargo build --all
+        run: cargo build --bin agent --features agent
+
+  build-api:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v1
+
+      - name: Install latest rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: nightly
+          default: true
+          override: true
+
+      - name: Build
+        run: cargo build --bin api --features api
     

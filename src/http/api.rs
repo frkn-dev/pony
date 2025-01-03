@@ -1,12 +1,10 @@
-use crate::http::handlers::node_register;
-use crate::node::NodeRequest;
-use crate::state::State;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use warp::Filter;
 use zmq::Socket;
 
-use super::handlers::{self, NodesQueryParams};
+use super::handlers::{self, node_register, NodesQueryParams};
+use crate::state::{node::NodeRequest, state::State};
 
 pub async fn run_api_server(state: Arc<Mutex<State>>, publisher: Arc<Mutex<Socket>>) {
     let user_route = warp::post()

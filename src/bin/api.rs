@@ -10,7 +10,7 @@ use pony::{
     http,
     http::debug::start_ws_server,
     settings::{ApiSettings, Settings},
-    state::State,
+    state::state::State,
     utils::{current_timestamp, human_readable_date, level_from_settings},
     zmq::publisher::publisher,
 };

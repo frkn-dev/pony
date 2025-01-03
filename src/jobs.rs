@@ -1,23 +1,23 @@
-use crate::metrics::metrics::collect_metrics;
-use crate::metrics::metrics::MetricType;
-use crate::postgres::UserRow;
-use crate::utils::send_to_carbon;
-use crate::xray_op::stats;
 use chrono::{Duration, Utc};
 use log::{debug, error};
+use reqwest::Client;
 use std::{error::Error, sync::Arc};
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
-use reqwest::Client;
-
-use crate::{actions, settings::AgentSettings, user::User};
-
-use super::xray_op::{
-    client::XrayClients, remove_user, stats::Prefix, stats::StatType, vless, vmess,
+use crate::metrics::metrics::{collect_metrics, MetricType};
+use crate::postgres::postgres::UserRow;
+use crate::settings::AgentSettings;
+use crate::state::{
+    state::State,
+    stats::StatType,
+    user::{User, UserStatus},
 };
-
-use super::{state::State, user::UserStatus};
+use crate::utils::send_to_carbon;
+use crate::xray_op::{
+    actions::create_users, actions::remove_user, client::XrayClients, stats, stats::Prefix, vless,
+    vmess,
+};
 
 pub async fn collect_stats_job(
     clients: XrayClients,
@@ -215,7 +215,7 @@ pub async fn init_state(
         }
     };
 
-    match actions::create_users(
+    match create_users(
         db_user.user_id,
         Some(db_user.password.clone()),
         clients.clone(),

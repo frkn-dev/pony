@@ -3,9 +3,12 @@ use tokio::sync::Mutex;
 use uuid::Uuid;
 
 use super::metrics::{AsMetric, Metric, MetricType};
-use crate::state::State;
 use crate::utils::current_timestamp;
-use crate::xray_op::stats::{InboundStat, UserStat};
+
+use crate::state::{
+    state::State,
+    stats::{InboundStat, UserStat},
+};
 
 impl AsMetric for InboundStat {
     type Output = i64;

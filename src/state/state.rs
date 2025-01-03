@@ -6,10 +6,10 @@ use std::{
 };
 use uuid::Uuid;
 
-use crate::xray_op::{stats::StatType, Tag};
-
 use super::{
     node::Node,
+    stats::StatType,
+    tag::Tag,
     user::{User, UserStatus},
 };
 

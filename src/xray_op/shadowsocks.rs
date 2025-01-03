@@ -9,7 +9,8 @@ use crate::xray_api::xray::{
     proxy::shadowsocks::CipherType,
 };
 
-use super::{client::XrayClients, Tag};
+use super::client::XrayClients;
+use crate::state::tag::Tag;
 
 #[derive(Clone, Debug)]
 pub struct UserInfo {

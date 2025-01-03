@@ -10,7 +10,7 @@ use super::heartbeat::heartbeat_metrics;
 use super::loadavg::loadavg_metrics;
 use super::memory::mem_metrics;
 use super::xray::{xray_stat_metrics, xray_user_metrics};
-use crate::state::State;
+use crate::state::state::State;
 
 pub trait AsMetric {
     type Output;

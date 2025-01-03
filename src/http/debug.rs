@@ -9,7 +9,7 @@ use uuid::Uuid;
 use warp::ws::Message;
 use warp::Filter;
 
-use crate::state::State;
+use crate::state::state::State;
 
 enum Kind {
     User,

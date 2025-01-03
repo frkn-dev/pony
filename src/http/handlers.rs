@@ -1,6 +1,3 @@
-use crate::node::NodeRequest;
-use crate::node::NodeResponse;
-use crate::user::User;
 use serde::Deserialize;
 use serde::Serialize;
 use std::sync::Arc;
@@ -11,8 +8,12 @@ use warp::Rejection;
 use warp::Reply;
 use zmq::Socket;
 
-use crate::message::Message;
-use crate::state::State;
+use crate::state::{
+    node::{NodeRequest, NodeResponse},
+    state::State,
+    user::User,
+};
+use crate::zmq::message::Message;
 use crate::zmq::publisher;
 
 pub type UserRequest = Message;

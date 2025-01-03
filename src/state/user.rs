@@ -2,23 +2,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
-use super::xray_op::{stats::UserStat, Tag};
-
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
-pub enum UserStatus {
-    Active,
-    Expired,
-}
-
-impl fmt::Display for UserStatus {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let status = match self {
-            UserStatus::Active => "Active",
-            UserStatus::Expired => "Expired",
-        };
-        write!(f, "{}", status)
-    }
-}
+use super::{stats::UserStat, tag::Tag};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct User {
@@ -134,5 +118,21 @@ impl User {
             downlink: self.downlink.unwrap_or(0),
             online: self.online.unwrap_or(0),
         }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub enum UserStatus {
+    Active,
+    Expired,
+}
+
+impl fmt::Display for UserStatus {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let status = match self {
+            UserStatus::Active => "Active",
+            UserStatus::Expired => "Expired",
+        };
+        write!(f, "{}", status)
     }
 }

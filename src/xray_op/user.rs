@@ -5,7 +5,8 @@ use crate::xray_api::xray::app::proxyman::command::{
     GetInboundUserRequest, GetInboundUserResponse, GetInboundUsersCountResponse,
 };
 
-use super::{client::XrayClients, Tag};
+use super::client::XrayClients;
+use crate::state::tag::Tag;
 
 pub async fn get_user(
     clients: XrayClients,

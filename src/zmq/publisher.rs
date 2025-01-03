@@ -1,10 +1,11 @@
-use crate::message::Message;
 use log::debug;
 use log::error;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio::time::{sleep, Duration};
 use zmq;
+
+use super::message::Message;
 
 pub async fn publisher(endpoint: &str) -> Arc<Mutex<zmq::Socket>> {
     let context = zmq::Context::new();

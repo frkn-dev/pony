@@ -1,13 +1,18 @@
-use log::debug;
-use log::error;
+use log::{debug, error};
 use std::error::Error;
 use std::sync::Arc;
 use tokio::sync::Mutex;
+use tonic::{Request, Status};
 use uuid::Uuid;
 
-use crate::state::State;
-use crate::xray_op::user;
-use crate::xray_op::{client::XrayClients, remove_user, shadowsocks, vless, vmess, Tag};
+use super::user;
+use super::{client::XrayClients, shadowsocks, vless, vmess};
+use crate::state::{state::State, tag::Tag};
+
+use crate::xray_api::xray::{
+    app::proxyman::command::{AlterInboundRequest, RemoveUserOperation},
+    common::serial::TypedMessage,
+};
 
 async fn user_exist(clients: XrayClients, uuid: Uuid, in_tag: Tag) -> bool {
     match user::get_user(clients.clone(), in_tag, uuid.to_string()).await {
@@ -169,4 +174,29 @@ pub async fn remove_users(
     }
 
     Ok(())
+}
+
+pub async fn remove_user<Tag>(clients: XrayClients, user_id: Uuid, tag: Tag) -> Result<(), Status>
+where
+    Tag: ToString,
+{
+    let operation = RemoveUserOperation {
+        email: format!("{}@{}", user_id, "pony"),
+    };
+
+    let operation_message = TypedMessage {
+        r#type: "xray.app.proxyman.command.RemoveUserOperation".to_string(),
+        value: prost::Message::encode_to_vec(&operation),
+    };
+
+    let request = AlterInboundRequest {
+        tag: tag.to_string(),
+        operation: Some(operation_message),
+    };
+
+    let mut handler_client = clients.handler_client.lock().await;
+    handler_client
+        .alter_inbound(Request::new(request))
+        .await
+        .map(|_| ())
 }

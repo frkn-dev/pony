@@ -3,9 +3,7 @@ use serde::Deserialize;
 use std::error::Error;
 use std::{collections::HashMap, fs::File, io::Read};
 
-use super::Tag;
-
-use crate::node;
+use crate::state::{inbound::Inbound as NodeInbound, tag::Tag};
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct Inbound {
@@ -42,12 +40,12 @@ impl Config {
         Ok(())
     }
 
-    pub fn get_inbounds(&self) -> HashMap<Tag, node::Inbound> {
+    pub fn get_inbounds(&self) -> HashMap<Tag, NodeInbound> {
         let mut result_inbounds = HashMap::new();
         for inbound in &self.inbounds {
             match inbound.tag.parse::<Tag>() {
                 Ok(tag) => {
-                    result_inbounds.insert(tag, node::Inbound::new(inbound.port));
+                    result_inbounds.insert(tag, NodeInbound::new(inbound.port));
                     debug!("Xray Config: Tag {} inserted into HashMap", inbound.tag);
                 }
                 Err(_) => {

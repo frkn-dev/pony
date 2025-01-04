@@ -38,16 +38,16 @@ jobs:
 
       - name: Rename binaries with architecture
         run: |
-          mv target/release/api target/release/api-$ARCH
-          mv target/release/agent target/release/agent-$ARCH
+          mv target/release/api target/release/api-${{ env.ARCH }}
+          mv target/release/agent target/release/agent-${{ env.ARCH }}
     
       - name: Release
         uses: softprops/action-gh-release@v1
         if: startsWith(github.ref, 'refs/tags/')
         with:
           files: |
-            target/release/api-$ARCH
-            target/release/agent-$ARCH
+            target/release/api-${{ env.ARCH }}
+            target/release/agent-${{ env.ARCH }}
             README.md
             config-agent-example.toml
             config-api-example.toml

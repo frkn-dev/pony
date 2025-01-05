@@ -10,37 +10,6 @@ use chrono::{TimeZone, Utc};
 use log::{error, warn, LevelFilter};
 use tokio::{io::AsyncWriteExt, net::TcpStream};
 
-use super::metrics::metrics::Metric;
-
-pub async fn send_to_carbon<T: ToString + std::fmt::Debug>(
-    metric: &Metric<T>,
-    server: &str,
-) -> Result<(), io::Error> {
-    let metric_string = metric.to_string();
-
-    debug!("Send metric to carbon: {:?}", metric);
-
-    match TcpStream::connect(server).await {
-        Ok(mut stream) => {
-            if let Err(e) = stream.write_all(metric_string.as_bytes()).await {
-                warn!("Failed to send metric: {}", e);
-                return Err(e);
-            }
-
-            if let Err(e) = stream.flush().await {
-                warn!("Failed to flush stream: {}", e);
-                return Err(e);
-            }
-
-            Ok(())
-        }
-        Err(e) => {
-            error!("Failed to connect to Carbon server: {}", e);
-            Err(e)
-        }
-    }
-}
-
 pub async fn measure_time<T, F>(task: F, name: String) -> T
 where
     F: std::future::Future<Output = T>,

@@ -5,7 +5,7 @@ use std::{error::Error, sync::Arc};
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
-use crate::metrics::metrics::{collect_metrics, MetricType};
+use crate::metrics::metrics::{collect_metrics, send_to_carbon, MetricType};
 use crate::postgres::postgres::UserRow;
 use crate::settings::AgentSettings;
 use crate::state::{

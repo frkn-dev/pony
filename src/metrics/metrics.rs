@@ -101,3 +101,32 @@ pub async fn collect_metrics<T>(
 
     metrics
 }
+
+pub async fn send_to_carbon<T: ToString + std::fmt::Debug>(
+    metric: &Metric<T>,
+    server: &str,
+) -> Result<(), io::Error> {
+    let metric_string = metric.to_string();
+
+    debug!("Send metric to carbon: {:?}", metric);
+
+    match TcpStream::connect(server).await {
+        Ok(mut stream) => {
+            if let Err(e) = stream.write_all(metric_string.as_bytes()).await {
+                warn!("Failed to send metric: {}", e);
+                return Err(e);
+            }
+
+            if let Err(e) = stream.flush().await {
+                warn!("Failed to flush stream: {}", e);
+                return Err(e);
+            }
+
+            Ok(())
+        }
+        Err(e) => {
+            error!("Failed to connect to Carbon server: {}", e);
+            Err(e)
+        }
+    }
+}

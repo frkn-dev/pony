@@ -1,14 +1,11 @@
-use log::debug;
 use log::info;
 use std::{
-    io,
     time::Instant,
     time::{SystemTime, UNIX_EPOCH},
 };
 
 use chrono::{TimeZone, Utc};
-use log::{error, warn, LevelFilter};
-use tokio::{io::AsyncWriteExt, net::TcpStream};
+use log::LevelFilter;
 
 pub async fn measure_time<T, F>(task: F, name: String) -> T
 where

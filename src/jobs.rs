@@ -13,7 +13,7 @@ use crate::state::{
     stats::StatType,
     user::{User, UserStatus},
 };
-use crate::utils::send_to_carbon;
+
 use crate::xray_op::{
     actions::create_users, actions::remove_user, client::XrayClients, stats, stats::Prefix, vless,
     vmess,

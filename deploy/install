@@ -1,0 +1,366 @@
+#!/bin/bash
+
+set -e 
+
+### helper
+function join_array() {
+    local result=""
+    for x in "$@"; do
+        if [[ -n "$result" ]]; then
+            result+=", "
+        fi
+        result+="\"$x\""
+    done
+    echo "$result"
+}
+
+
+# DO NOT EDIT 
+# OVERRIDE settings with dot env file corresponding to the env/machine 
+
+# Installation settings
+XRAY_VERSION="${XRAY_VERSION:-v24.12.31}"
+PONY_VERSION="${PONY_VERSION:-v0.1.1}"
+INSTALL_DIR="/opt/vpn"
+ARCH=$(uname -m)
+XRAY_URL="https://github.com/XTLS/Xray-core/releases/download/$XRAY_VERSION/Xray-linux-64.zip"
+AGENT_URL="https://github.com/frkn-dev/pony/releases/download/$PONY_VERSION/agent-$ARCH"
+XRAY_CONFIG_PATH="$INSTALL_DIR/xray-config.json"
+PONY_CONFIG_PATH="$INSTALL_DIR/config-agent.toml"
+
+# Xray core settings 
+XRAY_API_PORT="${XRAY_API_PORT:-23456}"
+SHADOWSOCKS_PORT="${SHADOWSOCKS_PORT:-1080}"
+VMESS_HOST="${VMESS_HOST:-google.com}"
+VMESS_PORT="${VMESS_PORT:-80}"
+VLESS_XTLS_PORT="${VLESS_XTLS_PORT:-443}"
+VLESS_GRPC_PORT="${VLESS_GRPC_PORT:-2053}"
+VLESS_SERVER_NAMES=("discordapp.com", "cdn.discordapp.com")
+VLESS_DEST="discordapp.com:443"
+VLESS_SETTINGS_FILE="$INSTALL_DIR/vless.settings"
+
+# Pony agent settings 
+CARBON_ADDRESS="${CARBON_ADDRESS:-localhost:2003}"
+ZMQ_ENDPOINT="${ZMQ_ENDPOINT:-tcp://localhost:3000}"
+ENV="${ENV:-dev}"
+PG_HOST="${PG_HOST:-localhost}"
+PG_PORT="${PG_PORT:-5432}"
+PG_DB="${PG_DB:-postgres}"
+PG_USERNAME="${PG_USERNAME:-postgres}"
+PG_PASSWORD="${PG_PASSWORD:-password}"
+API_ENDPOINT=${API_ENDPOINT:-http://localhost:3005}
+
+sudo mkdir -p "$INSTALL_DIR"
+cd "$INSTALL_DIR"
+
+echo "Installing xray-core version $XRAY_VERSION..."
+curl -L -o xray.zip "$XRAY_URL"
+sudo unzip -o xray.zip -d "$INSTALL_DIR"
+sudo rm xray.zip
+
+echo "XRAY Core Version"
+$INSTALL_DIR/xray --version
+
+cat <<EOF | sudo tee /etc/systemd/system/xray.service
+[Unit]
+Description=Xray Core Service
+After=network.target
+
+[Service]
+ExecStart=$INSTALL_DIR/xray -config $XRAY_CONFIG_PATH
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+sudo systemctl daemon-reload
+sudo systemctl enable xray
+
+echo "Installing agent version $PONY_VERSION..."
+curl -L -o agent "$AGENT_URL"
+sudo chmod +x agent
+
+cat <<EOF | sudo tee /etc/systemd/system/agent.service
+[Unit]
+Description=Pony Agent Service
+After=xray.service
+Requires=xray.service
+
+[Service]
+Type=simple
+ExecStart=$INSTALL_DIR/agent -c $PONY_CONFIG_PATH
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+sudo systemctl daemon-reload
+sudo systemctl enable agent
+
+echo "Generating configurations..."
+
+if [[ ! -f "$VLESS_SETTINGS_FILE" ]]; then 
+    $INSTALL_DIR/xray x25519 > $VLESS_SETTINGS_FILE
+    echo "short_id: $(openssl rand -hex 4)" >> $VLESS_SETTINGS_FILE
+fi
+
+PRIVATE_KEY=$(cat $VLESS_SETTINGS_FILE | grep Private | awk '{print $3}')
+SHORT_ID=$(cat $VLESS_SETTINGS_FILE | grep short_id | awk '{print $2}')
+
+default_interface=$(ip route | grep '^default' | awk '{print $5}')
+
+if [[ -n "$default_interface" ]]; then
+  default_ip=$(ip -o -4 addr show dev "$default_interface" | awk '{print $4}' | cut -d'/' -f1)
+  echo "default_interface: $default_interface"
+  echo "default_ip: $default_ip"
+else
+  echo "Cannot get default ip, abort"
+  exit -1
+fi
+
+if [[ -f "$XRAY_CONFIG_PATH" ]]; then
+  echo "File $XRAY_CONFIG_PATH already exist. skip."
+else
+    cat <<EOF | sudo tee "$XRAY_CONFIG_PATH"
+{
+  "log": {
+    "loglevel": "debug"
+  },
+  "inbounds": [
+    {
+      "tag": "Shadowsocks",
+      "listen": "0.0.0.0",
+      "port": $SHADOWSOCKS_PORT,
+      "protocol": "shadowsocks",
+      "settings": {
+        "clients": [],
+        "network": "tcp,udp"
+      }
+    },
+    {
+      "tag": "Vmess",
+      "listen": "0.0.0.0",
+      "port": ${VMESS_PORT},
+      "protocol": "vmess",
+      "settings": {
+        "clients": []
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "tcpSettings": {
+          "header": {
+            "type": "http",
+            "request": {
+              "method": "GET",
+              "path": [
+                "/"
+              ],
+              "headers": {
+                "Host": [
+                  "$VMESS_HOST"
+                ]
+              }
+            },
+            "response": {}
+          }
+        },
+        "security": "none"
+      },
+      "sniffing": {
+        "enabled": true,
+        "destOverride": [
+          "http",
+          "tls"
+        ]
+      }
+    },
+    {
+      "tag": "VlessXtls",
+      "listen": "0.0.0.0",
+      "port": $VLESS_XTLS_PORT,
+      "protocol": "vless",
+      "settings": {
+        "clients": [],
+        "decryption": "none"
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "security": "reality",
+        "realitySettings": {
+          "serverNames": [$(join_array "${VLESS_SERVER_NAMES[@]}")],
+          "privateKey": "$PRIVATE_KEY",
+          "shortIds": [
+            "$SHORT_ID"
+          ],
+          "dest": "$VLESS_DEST"
+        }
+      }
+    },
+    {
+      "tag": "VlessGrpc",
+      "listen": "0.0.0.0",
+      "port": $VLESS_GRPC_PORT,
+      "protocol": "vless",
+      "settings": {
+        "clients": [],
+        "decryption": "none"
+      },
+      "streamSettings": {
+        "network": "grpc",
+        "grpcSettings": {
+          "serviceName": "xyz"
+        },
+        "security": "reality",
+        "realitySettings": {
+          "show": false,
+          "dest": "$VLESS_DEST",
+          "xver": 0,
+          "serverNames": [$(join_array "${VLESS_SERVER_NAMES[@]}")],
+          "privateKey": "$PRIVATE_KEY",
+          "shortIds": [
+            "",
+            "$SHORT_ID"
+          ]
+        }
+      },
+      "sniffing": {
+        "enabled": true,
+        "destOverride": [
+          "http",
+          "tls"
+        ]
+      }
+    }
+  ],
+  "outbounds": [
+    {
+      "protocol": "freedom",
+      "tag": "DIRECT"
+    },
+    {
+      "protocol": "blackhole",
+      "tag": "BLOCK"
+    }
+  ],
+  "routing": {
+    "rules": [
+      {
+        "inboundTag": [
+          "API_INBOUND"
+        ],
+        "source": [
+          "127.0.0.1",
+          "$default_ip"
+        ],
+        "outboundTag": "API",
+        "type": "field"
+      },
+      {
+        "ip": [
+          "geoip:private"
+        ],
+        "outboundTag": "BLOCK",
+        "type": "field"
+      },
+      {
+        "domain": [
+          "geosite:private"
+        ],
+        "outboundTag": "BLOCK",
+        "type": "field"
+      },
+      {
+        "protocol": [
+          "bittorrent"
+        ],
+        "outboundTag": "BLOCK",
+        "type": "field"
+      }
+    ]
+  },
+  "api": {
+    "listen": "127.0.0.1:$XRAY_API_PORT",
+    "services": [
+      "HandlerService",
+      "StatsService",
+      "LoggerService",
+      "ReflectionService"
+    ],
+    "tag": "API"
+  },
+  "stats": {},
+  "policy": {
+    "levels": {
+      "0": {
+        "statsUserUplink": true,
+        "statsUserDownlink": true,
+        "statsUserOnline": true
+      }
+    },
+    "system": {
+      "statsInboundDownlink": false,
+      "statsInboundUplink": false,
+      "statsOutboundDownlink": true,
+      "statsOutboundUplink": true
+    }
+  }
+}
+EOF
+fi
+
+if [[ -f "$PONY_CONFIG_PATH" ]]; then
+  echo "File $PONY_CONFIG_PATH already exist. skip."
+else
+    cat <<EOF | sudo tee "$PONY_CONFIG_PATH"
+[debug]
+enabled = true
+web_server = "127.0.0.1"
+web_port = 3001
+
+[carbon]
+address = "$CARBON_ADDRESS"
+
+[logging]
+level = "debug"
+file = "pony.log"
+
+[app]
+metrics_timeout = 60
+trial_users_enabled = true
+stat_enabled = true
+metrics_enabled = true
+trial_jobs_timeout = 60
+stat_jobs_timeout = 60
+
+[xray]
+xray_daily_limit_mb = 1000
+xray_config_path = "$XRAY_CONFIG_PATH"
+
+[zmq]
+sub_endpoint = "$ZMQ_ENDPOINT"
+
+[node]
+env = "$ENV"
+uuid = $(./xray uuid)
+hostname = "$HOSTNAME"
+default_interface = "$default_interface"
+ipv4 = "$default_ip"
+
+[pg]
+host = "${PG_HOST}"
+port = "${PG_PORT}"
+db = "${PG_DB}"
+username = "${PG_USERNAME}"
+password = "${PG_PASSWORD}
+
+[api]
+endpoint = "$API_ENDPOINT"
+EOF
+fi
+
+echo "Installation complete. Use the following commands to start services:"
+echo "  sudo systemctl start xray"
+echo "  sudo systemctl start agent"

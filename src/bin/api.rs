@@ -7,9 +7,9 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 
 use pony::{
+    config::settings::{ApiSettings, Settings},
     http,
     http::debug::start_ws_server,
-    settings::{ApiSettings, Settings},
     state::state::State,
     utils::{current_timestamp, human_readable_date, level_from_settings},
     zmq::publisher::publisher,

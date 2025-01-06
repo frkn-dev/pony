@@ -15,3 +15,67 @@ INSERT INTO users (
     false,
     'mk3'
 );
+
+
+
+CREATE TABLE nodes (
+    id SERIAL PRIMARY KEY,
+    hostname TEXT NOT NULL,
+    ipv4 INET NOT NULL,
+    status TEXT NOT NULL,
+    env TEXT NOT NULL,
+    uuid UUID NOT NULL UNIQUE,
+    inbounds JSONB NOT NULL, 
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    modified_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+
+INSERT INTO nodes (hostname, ipv4, status, env, uuid, inbounds)
+VALUES (
+    'devmachine',
+    '198.18.0.1',
+    'Online',
+    'dev',
+    '9557b391-01cb-4031-a3f5-6cbdd749bcff',
+    '{
+        "VlessGrpc": {
+            "tag": "VlessGrpc",
+            "port": 2053,
+            "streamSettings": {
+                "tcpSettings": null,
+                "realitySettings": {
+                    "serverNames": ["cdn.discordapp.com", "discordapp.com"],
+                    "privateKey": "4AQgu1qeCaGT8nnZTOnKLSOudSp_Z_kS0kzIE6bMcUM",
+                    "shortIds": ["", "e5c4d84fb339fb92"],
+                    "dest": "discordapp.com:443"
+                }
+            },
+            "uplink": null,
+            "downlink": null,
+            "user_count": null
+        },
+        "Vmess": {
+            "tag": "Vmess",
+            "port": 8081,
+            "streamSettings": {
+                "tcpSettings": {
+                    "header": {
+                        "type": "http",
+                        "request": {
+                            "method": "GET",
+                            "path": ["/"],
+                            "headers": {
+                                "Host": ["google.com"]
+                            }
+                        }
+                    }
+                },
+                "realitySettings": null
+            },
+            "uplink": null,
+            "downlink": null,
+            "user_count": null
+        }
+    }'::jsonb
+);

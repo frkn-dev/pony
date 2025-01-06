@@ -3,13 +3,13 @@ use std::fmt;
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Tag {
-    #[serde(rename = "vlessXtls")]
+    #[serde(rename = "VlessXtls")]
     VlessXtls,
-    #[serde(rename = "vlessGrpc")]
+    #[serde(rename = "VlessGrpc")]
     VlessGrpc,
-    #[serde(rename = "vmess")]
+    #[serde(rename = "Vmess")]
     Vmess,
-    #[serde(rename = "shadowsocks")]
+    #[serde(rename = "Shadowsocks")]
     Shadowsocks,
 }
 

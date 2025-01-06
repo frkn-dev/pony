@@ -7,7 +7,9 @@ use zmq;
 
 use crate::xray_op::actions::{create_users, remove_users};
 
-use crate::{settings::AgentSettings, state::state::State, utils::measure_time, xray_op::client};
+use crate::{
+    config::settings::AgentSettings, state::state::State, utils::measure_time, xray_op::client,
+};
 
 use super::message::{Action, Message};
 

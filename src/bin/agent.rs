@@ -1,6 +1,7 @@
 use clap::Parser;
 use fern::Dispatch;
 use futures::future::join_all;
+use log::debug;
 use log::error;
 use log::info;
 
@@ -13,17 +14,17 @@ use tokio::{
 };
 
 use pony::{
+    config::{
+        settings::{AgentSettings, Settings},
+        xray,
+    },
     http::debug::start_ws_server,
     jobs,
     metrics::metrics::MetricType,
     postgres::postgres::{postgres_client, users_db_request},
-    settings::AgentSettings,
-    settings::Settings,
-    state::node::Node,
-    state::state::State,
-    utils::measure_time,
-    utils::{current_timestamp, human_readable_date, level_from_settings},
-    xray_op::{client::XrayClients, config},
+    state::{node::Node, state::State},
+    utils::{current_timestamp, human_readable_date, level_from_settings, measure_time},
+    xray_op::client::XrayClients,
     zmq::subscriber::subscriber,
 };
 
@@ -83,7 +84,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     // Xray-core Config Validation
-    let xray_config = match config::read_xray_config(&settings.xray.xray_config_path) {
+    let xray_config = match xray::Config::new(&settings.xray.xray_config_path) {
         Ok(config) => {
             info!(
                 "Xray Config: Successfully read Xray config file: {:?}",
@@ -110,9 +111,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let state = {
         info!("Running User State Sync");
 
-        let inbounds = xray_config.get_inbounds();
         let node = Node::new(
-            inbounds,
+            xray_config,
             settings
                 .node
                 .hostname
@@ -168,6 +168,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         state
+    };
+
+    let _ = {
+        let settings = settings.clone();
+        debug!("----->>>>> Register node");
+        let _ =
+            jobs::register_node(state.clone(), settings.clone(), settings.node.env.clone()).await;
     };
 
     if debug {

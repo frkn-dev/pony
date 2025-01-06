@@ -7,7 +7,7 @@ use tokio::sync::Mutex;
 use tokio_postgres::{Client, NoTls};
 use uuid::Uuid;
 
-use crate::settings::PostgresConfig;
+use crate::config::settings::PostgresConfig;
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct UserRow {

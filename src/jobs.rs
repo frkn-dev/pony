@@ -5,9 +5,9 @@ use std::{error::Error, sync::Arc};
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
+use crate::config::settings::AgentSettings;
 use crate::metrics::metrics::{collect_metrics, send_to_carbon, MetricType};
 use crate::postgres::postgres::UserRow;
-use crate::settings::AgentSettings;
 use crate::state::{
     state::State,
     stats::StatType,
@@ -168,16 +168,25 @@ pub async fn register_node(
     let node_state = state.lock().await;
     let node = node_state.nodes.get(&env).clone();
 
-    debug!("node {:?} ", node);
     let client = Client::new();
 
-    let endpoint = format!("{}/node/register", settings.api.endpoint,);
-    let res = client.post(endpoint).json(&node).send().await?;
+    let endpoint = format!("{}/node/register", settings.api.endpoint);
+    debug!("ENDPOINT: {}", endpoint);
 
-    if res.status().is_success() {
-        debug!("Req success!");
-    } else {
-        error!("Req error: {}", res.status());
+    match serde_json::to_string_pretty(&node) {
+        Ok(json) => debug!("NODE {}", json),
+        Err(e) => error!("Error serializing to JSON: {}", e),
+    }
+
+    if let Some(env) = node {
+        if let Some(node) = env.first() {
+            let res = client.post(endpoint).json(&node).send().await?;
+            if res.status().is_success() {
+                debug!("Req success!");
+            } else {
+                error!("Req error: {} {:?}", res.status(), res);
+            }
+        }
     }
 
     Ok(())

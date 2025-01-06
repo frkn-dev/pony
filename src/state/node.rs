@@ -4,10 +4,8 @@ use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, net::Ipv4Addr};
 use uuid::Uuid;
 
-use super::{
-    inbound::{Inbound, InboundResponse},
-    tag::Tag,
-};
+use super::tag::Tag;
+use crate::config::xray::{Config, Inbound, InboundResponse};
 
 #[derive(Clone, Debug, Deserialize, Serialize, Copy)]
 pub enum NodeStatus {
@@ -63,14 +61,13 @@ pub struct Node {
 }
 
 impl Node {
-    pub fn new(
-        inbounds: HashMap<Tag, Inbound>,
-        hostname: String,
-        ipv4: Ipv4Addr,
-        env: String,
-        uuid: Uuid,
-    ) -> Self {
+    pub fn new(config: Config, hostname: String, ipv4: Ipv4Addr, env: String, uuid: Uuid) -> Self {
         let now = Utc::now();
+        let inbounds = config
+            .inbounds
+            .into_iter()
+            .map(|inbound| (inbound.tag.clone(), inbound))
+            .collect::<HashMap<Tag, Inbound>>();
         Self {
             hostname: hostname,
             inbounds: inbounds,

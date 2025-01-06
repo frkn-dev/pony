@@ -1,6 +1,6 @@
+pub mod config;
 pub mod http;
 pub mod postgres;
-pub mod settings;
 pub mod state;
 pub mod utils;
 pub mod zmq;

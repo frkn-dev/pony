@@ -44,7 +44,7 @@ tokio-util = "0.7"
 [features]
 agent = ["netstat2", "prost", "prost-derive", "tonic", "sysinfo" ]  
 api = ["clickhouse"]
-default = []
+default = ["api", "agent"]
 debug = ["console-subscriber"]
 
 [[bin]]

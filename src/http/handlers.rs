@@ -1,7 +1,9 @@
+use crate::state::node::Node;
 use serde::Deserialize;
 use serde::Serialize;
 use std::sync::Arc;
 use tokio::sync::Mutex;
+use tokio_postgres::Client;
 use warp::http::StatusCode;
 use warp::reject;
 use warp::Rejection;
@@ -112,6 +114,7 @@ pub async fn get_nodes(
 pub async fn node_register(
     node_req: NodeRequest,
     state: Arc<Mutex<State>>,
+    client: Arc<Mutex<Client>>,
     _publisher: Arc<Mutex<Socket>>,
 ) -> Result<impl Reply, Rejection> {
     log::debug!("Received: {:?}", node_req);
@@ -119,7 +122,8 @@ pub async fn node_register(
     let node = node_req.clone().as_node();
     let mut state = state.lock().await;
 
-    if state.add_node(node).await.is_ok() {
+    if state.add_node(node.clone()).await.is_ok() {
+        let _ = Node::insert_node(client, node).await;
         let response = ResponseMessage::<String> {
             status: 200,
             message: format!("node {} is added", node_req.uuid),

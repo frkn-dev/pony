@@ -1,12 +1,17 @@
 use std::sync::Arc;
 use tokio::sync::Mutex;
+use tokio_postgres::Client;
 use warp::Filter;
 use zmq::Socket;
 
-use super::handlers::{self, node_register, NodesQueryParams};
+use super::handlers::{self, NodesQueryParams};
 use crate::state::{node::NodeRequest, state::State};
 
-pub async fn run_api_server(state: Arc<Mutex<State>>, publisher: Arc<Mutex<Socket>>) {
+pub async fn run_api_server(
+    state: Arc<Mutex<State>>,
+    client: Arc<Mutex<Client>>,
+    publisher: Arc<Mutex<Socket>>,
+) {
     let user_route = warp::post()
         .and(warp::path("user"))
         .and(warp::body::json())
@@ -25,8 +30,11 @@ pub async fn run_api_server(state: Arc<Mutex<State>>, publisher: Arc<Mutex<Socke
         .and(warp::path("register"))
         .and(warp::body::json::<NodeRequest>())
         .and(with_state(state))
+        .and(with_pg_client(client))
         .and(with_publisher(publisher))
-        .and_then(node_register);
+        .and_then(|node_req, state, client, publisher| {
+            handlers::node_register(node_req, state, client, publisher)
+        });
 
     let routes = user_route
         .or(nodes_route)
@@ -40,6 +48,12 @@ fn with_state(
     state: Arc<Mutex<State>>,
 ) -> impl Filter<Extract = (Arc<Mutex<State>>,), Error = std::convert::Infallible> + Clone {
     warp::any().map(move || state.clone())
+}
+
+fn with_pg_client(
+    client: Arc<Mutex<Client>>,
+) -> impl Filter<Extract = (Arc<Mutex<Client>>,), Error = std::convert::Infallible> + Clone {
+    warp::any().map(move || client.clone())
 }
 
 fn with_publisher(

@@ -1,7 +1,8 @@
 use clap::Parser;
 use clickhouse::Client;
 use fern::Dispatch;
-use log::info;
+use futures::future::join_all;
+use log::{debug, error};
 use std::net::Ipv4Addr;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -10,8 +11,10 @@ use pony::{
     config::settings::{ApiSettings, Settings},
     http,
     http::debug::start_ws_server,
+    jobs::api,
+    postgres::{node::nodes_db_request, postgres::postgres_client},
     state::state::State,
-    utils::{current_timestamp, human_readable_date, level_from_settings},
+    utils::{current_timestamp, human_readable_date, level_from_settings, measure_time},
     zmq::publisher::publisher,
 };
 
@@ -26,7 +29,7 @@ struct Cli {
 }
 
 #[tokio::main]
-async fn main() -> std::io::Result<()> {
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(feature = "debug")]
     console_subscriber::init();
 
@@ -59,14 +62,50 @@ async fn main() -> std::io::Result<()> {
         .unwrap();
 
     let debug = settings.debug.enabled;
-    let ch_client = Arc::new(Client::default().with_url(&settings.clickhouse.address));
+    let env = settings.node.env;
+
+    let pg_client = match postgres_client(settings.pg.clone()).await {
+        Ok(client) => client,
+        Err(e) => panic!("PG not available, {}", e),
+    };
+
+    let _ch_client = Arc::new(Client::default().with_url(&settings.clickhouse.address));
     let publisher = publisher(&settings.zmq.pub_endpoint).await;
 
     let state = {
-        info!("Running User State Sync");
+        let state = State::new();
+        let state = Arc::new(Mutex::new(state));
 
-        Arc::new(Mutex::new(State::new()))
+        match measure_time(
+            nodes_db_request(pg_client.clone(), env.clone()),
+            "db query".to_string(),
+        )
+        .await
+        {
+            Ok(nodes) => {
+                let futures: Vec<_> = nodes
+                    .into_iter()
+                    .map(|node| api::init_state(state.clone(), node))
+                    .collect();
+
+                if let Some(Err(e)) = measure_time(join_all(futures), "Init state".to_string())
+                    .await
+                    .into_iter()
+                    .find(Result::is_err)
+                {
+                    error!("Error during user state initialization: {}", e);
+                }
+            }
+            Err(e) => {
+                error!("Failed to fetch users from DB: {}", e);
+                return Err(e);
+            }
+        }
+
+        state
     };
+
+    debug!("STATE: {:?}", state);
 
     if debug {
         tokio::spawn(start_ws_server(
@@ -79,7 +118,11 @@ async fn main() -> std::io::Result<()> {
         ));
     }
 
-    tokio::spawn(http::api::run_api_server(state.clone(), publisher.clone()));
+    tokio::spawn(http::api::run_api_server(
+        state.clone(),
+        pg_client.clone(),
+        publisher.clone(),
+    ));
     tokio::signal::ctrl_c()
         .await
         .expect("Failed to listen for event");

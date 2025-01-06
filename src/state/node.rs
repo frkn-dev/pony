@@ -1,7 +1,15 @@
 use chrono::DateTime;
 use chrono::Utc;
+use log::{debug, error};
 use serde::{Deserialize, Serialize};
+use std::error::Error;
+use std::fmt;
+use std::net::IpAddr;
+use std::str::FromStr;
+use std::sync::Arc;
 use std::{collections::HashMap, net::Ipv4Addr};
+use tokio::sync::Mutex;
+use tokio_postgres::Client;
 use uuid::Uuid;
 
 use super::tag::Tag;
@@ -11,6 +19,29 @@ use crate::config::xray::{Config, Inbound, InboundResponse};
 pub enum NodeStatus {
     Online,
     Offline,
+    Unknown,
+}
+
+impl fmt::Display for NodeStatus {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            NodeStatus::Online => write!(f, "Online"),
+            NodeStatus::Offline => write!(f, "Offline"),
+            NodeStatus::Unknown => write!(f, "Unknown"),
+        }
+    }
+}
+
+impl FromStr for NodeStatus {
+    type Err = ();
+
+    fn from_str(input: &str) -> Result<Self, Self::Err> {
+        match input {
+            "Online" => Ok(NodeStatus::Online),
+            "Offline" => Ok(NodeStatus::Offline),
+            _ => Ok(NodeStatus::Unknown),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -78,6 +109,42 @@ impl Node {
             created_at: now,
             modified_at: now,
         }
+    }
+
+    pub async fn insert_node(client: Arc<Mutex<Client>>, node: Node) -> Result<(), Box<dyn Error>> {
+        let client = client.lock().await;
+
+        let query = "
+            INSERT INTO nodes (hostname, ipv4, status, inbounds, env, uuid, created_at, modified_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        ";
+
+        let status_str = node.status.to_string();
+        //  let ipv4_str = node.ipv4.to_string();
+        let ip: IpAddr = IpAddr::V4(node.ipv4);
+        let inbounds_json = serde_json::to_value(&node.inbounds)?;
+
+        let result = client
+            .execute(
+                query,
+                &[
+                    &node.hostname,
+                    &ip,
+                    &status_str,
+                    &inbounds_json,
+                    &node.env,
+                    &node.uuid,
+                    &node.created_at,
+                    &node.modified_at,
+                ],
+            )
+            .await;
+        match result {
+            Ok(_) => debug!("Node inserted successfully"),
+            Err(e) => error!("Error inserting node: {}", e),
+        }
+
+        Ok(())
     }
 
     pub fn as_node_response(&self) -> NodeResponse {

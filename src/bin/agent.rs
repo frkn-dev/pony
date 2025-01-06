@@ -19,9 +19,9 @@ use pony::{
         xray,
     },
     http::debug::start_ws_server,
-    jobs,
+    jobs::agent,
     metrics::metrics::MetricType,
-    postgres::postgres::{postgres_client, users_db_request},
+    postgres::{postgres::postgres_client, user::users_db_request},
     state::{node::Node, state::State},
     utils::{current_timestamp, human_readable_date, level_from_settings, measure_time},
     xray_op::client::XrayClients,
@@ -143,7 +143,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let futures: Vec<_> = users
                     .into_iter()
                     .map(|user| {
-                        jobs::init_state(
+                        agent::init_state(
                             state.clone(),
                             settings.clone(),
                             xray_api_clients.clone(),
@@ -174,7 +174,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let settings = settings.clone();
         debug!("----->>>>> Register node");
         let _ =
-            jobs::register_node(state.clone(), settings.clone(), settings.node.env.clone()).await;
+            agent::register_node(state.clone(), settings.clone(), settings.node.env.clone()).await;
     };
 
     if debug {
@@ -199,7 +199,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             async move {
                 loop {
                     sleep(Duration::from_secs(settings.app.stat_jobs_timeout)).await;
-                    let _ = jobs::collect_stats_job(
+                    let _ = agent::collect_stats_job(
                         clients.clone(),
                         state.clone(),
                         settings.node.uuid,
@@ -221,7 +221,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             async move {
                 loop {
                     sleep(Duration::from_secs(settings.app.trial_jobs_timeout)).await;
-                    jobs::block_trial_users_by_limit(
+                    agent::block_trial_users_by_limit(
                         state.clone(),
                         clients.clone(),
                         env.clone(),
@@ -240,7 +240,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let clients = xray_api_clients.clone();
             async move {
                 loop {
-                    jobs::restore_trial_users(state.clone(), clients.clone()).await;
+                    agent::restore_trial_users(state.clone(), clients.clone()).await;
                     sleep(Duration::from_secs(settings.app.trial_jobs_timeout)).await;
                 }
             }
@@ -270,7 +270,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             async move {
                 loop {
                     sleep(Duration::from_secs(settings.app.metrics_timeout)).await;
-                    let _ = jobs::send_metrics_job::<MetricType>(
+                    let _ = agent::send_metrics_job::<MetricType>(
                         state.clone(),
                         settings.clone(),
                         node_uuid.clone(),

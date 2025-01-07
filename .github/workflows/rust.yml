@@ -45,5 +45,5 @@ jobs:
           override: true
 
       - name: Build
-        run: cargo build --bin api --features api
+        run: cargo build --bin api --no-default-features --features api
     

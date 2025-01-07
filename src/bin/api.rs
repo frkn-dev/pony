@@ -122,6 +122,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         state.clone(),
         pg_client.clone(),
         publisher.clone(),
+        settings.api.address.unwrap_or(Ipv4Addr::new(127, 0, 0, 1)),
+        settings.api.port,
     ));
     tokio::signal::ctrl_c()
         .await

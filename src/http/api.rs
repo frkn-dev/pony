@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{net::Ipv4Addr, sync::Arc};
 use tokio::sync::Mutex;
 use tokio_postgres::Client;
 use warp::Filter;
@@ -11,6 +11,8 @@ pub async fn run_api_server(
     state: Arc<Mutex<State>>,
     client: Arc<Mutex<Client>>,
     publisher: Arc<Mutex<Socket>>,
+    listen: Ipv4Addr,
+    port: u16,
 ) {
     let user_route = warp::post()
         .and(warp::path("user"))
@@ -41,7 +43,7 @@ pub async fn run_api_server(
         .or(nodes_register_route)
         .recover(handlers::rejection);
 
-    warp::serve(routes).run(([127, 0, 0, 1], 3030)).await;
+    warp::serve(routes).run((listen, port)).await;
 }
 
 fn with_state(

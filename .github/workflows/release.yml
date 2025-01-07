@@ -86,6 +86,8 @@ jobs:
           files: |
             target/release/api-${{ env.ARCH }}
             target/release/agent-${{ env.ARCH }}
+            deploy/install
+            docs/
             README.md
             config-agent-example.toml
             config-api-example.toml

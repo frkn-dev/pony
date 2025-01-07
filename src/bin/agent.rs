@@ -173,8 +173,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _ = {
         let settings = settings.clone();
         debug!("----->>>>> Register node");
-        let _ =
-            agent::register_node(state.clone(), settings.clone(), settings.node.env.clone()).await;
+        if let Err(e) =
+            agent::register_node(state.clone(), settings.clone(), settings.node.env.clone()).await
+        {
+            panic!("Cannot register node {:?}", e);
+        }
     };
 
     if debug {

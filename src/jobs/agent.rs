@@ -1,6 +1,7 @@
 use chrono::{Duration, Utc};
 use log::{debug, error};
-use reqwest::Client;
+use reqwest::Url;
+use reqwest::{Client, StatusCode};
 use std::{error::Error, sync::Arc};
 use tokio::sync::Mutex;
 use uuid::Uuid;
@@ -168,28 +169,41 @@ pub async fn register_node(
     let node_state = state.lock().await;
     let node = node_state.nodes.get(&env).clone();
 
-    let client = Client::new();
+    let mut endpoint = Url::parse(&settings.api.endpoint)?;
+    endpoint
+        .path_segments_mut()
+        .map_err(|_| "Invalid API endpoint")?
+        .push("node")
+        .push("register");
+    let endpoint = endpoint.to_string();
 
-    let endpoint = format!("{}/node/register", settings.api.endpoint);
     debug!("ENDPOINT: {}", endpoint);
 
     match serde_json::to_string_pretty(&node) {
-        Ok(json) => debug!("NODE {}", json),
-        Err(e) => error!("Error serializing to JSON: {}", e),
+        Ok(json) => debug!("Serialized node for environment '{}': {}", env, json),
+        Err(e) => error!("Error serializing node for environment '{}': {}", env, e),
     }
 
     if let Some(env) = node {
         if let Some(node) = env.first() {
-            let res = client.post(endpoint).json(&node).send().await?;
-            if res.status().is_success() {
-                debug!("Req success!");
-            } else {
-                error!("Req error: {} {:?}", res.status(), res);
-            }
-        }
-    }
+            let res = Client::new()
+                .post(&endpoint)
+                .header("Content-Type", "application/json")
+                .json(&node)
+                .send()
+                .await?;
 
-    Ok(())
+            if res.status().is_success() || res.status() == StatusCode::NOT_MODIFIED {
+                return Ok(());
+            } else {
+                return Err(format!("Req error: {} {:?}", res.status(), res).into());
+            }
+        } else {
+            return Err("No nodes found in environment".into());
+        }
+    } else {
+        return Err("No data found for the given environment".into());
+    }
 }
 
 pub async fn init_state(

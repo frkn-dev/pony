@@ -50,18 +50,18 @@ PG_USERNAME="${PG_USERNAME:-postgres}"
 PG_PASSWORD="${PG_PASSWORD:-password}"
 API_ENDPOINT=${API_ENDPOINT:-http://localhost:3005}
 
-sudo mkdir -p "$INSTALL_DIR"
+mkdir -p "$INSTALL_DIR"
 cd "$INSTALL_DIR"
 
 echo "Installing xray-core version $XRAY_VERSION..."
 curl -L -o xray.zip "$XRAY_URL"
-sudo unzip -o xray.zip -d "$INSTALL_DIR"
-sudo rm xray.zip
+unzip -o xray.zip -d "$INSTALL_DIR"
+rm xray.zip
 
 echo "XRAY Core Version"
 $INSTALL_DIR/xray --version
 
-cat <<EOF | sudo tee /etc/systemd/system/xray.service
+cat <<EOF | tee /etc/systemd/system/xray.service
 [Unit]
 Description=Xray Core Service
 After=network.target
@@ -74,14 +74,14 @@ Restart=on-failure
 WantedBy=multi-user.target
 EOF
 
-sudo systemctl daemon-reload
-sudo systemctl enable xray
+systemctl daemon-reload
+systemctl enable xray
 
 echo "Installing agent version $PONY_VERSION..."
 curl -L -o agent "$AGENT_URL"
-sudo chmod +x agent
+chmod +x agent
 
-cat <<EOF | sudo tee /etc/systemd/system/agent.service
+cat <<EOF | tee /etc/systemd/system/agent.service
 [Unit]
 Description=Pony Agent Service
 After=xray.service
@@ -97,8 +97,8 @@ RestartSec=5
 WantedBy=multi-user.target
 EOF
 
-sudo systemctl daemon-reload
-sudo systemctl enable agent
+systemctl daemon-reload
+systemctl enable agent
 
 echo "Generating configurations..."
 
@@ -124,7 +124,7 @@ fi
 if [[ -f "$XRAY_CONFIG_PATH" ]]; then
   echo "File $XRAY_CONFIG_PATH already exist. skip."
 else
-    cat <<EOF | sudo tee "$XRAY_CONFIG_PATH"
+    cat <<EOF | tee "$XRAY_CONFIG_PATH"
 {
   "log": {
     "loglevel": "debug"
@@ -314,7 +314,7 @@ fi
 if [[ -f "$PONY_CONFIG_PATH" ]]; then
   echo "File $PONY_CONFIG_PATH already exist. skip."
 else
-    cat <<EOF | sudo tee "$PONY_CONFIG_PATH"
+    cat <<EOF | tee "$PONY_CONFIG_PATH"
 [debug]
 enabled = true
 web_server = "127.0.0.1"
@@ -344,17 +344,17 @@ sub_endpoint = "$ZMQ_ENDPOINT"
 
 [node]
 env = "$ENV"
-uuid = $(./xray uuid)
+uuid = "$(./xray uuid)"
 hostname = "$HOSTNAME"
 default_interface = "$default_interface"
 ipv4 = "$default_ip"
 
 [pg]
 host = "${PG_HOST}"
-port = "${PG_PORT}"
+port = ${PG_PORT}
 db = "${PG_DB}"
 username = "${PG_USERNAME}"
-password = "${PG_PASSWORD}
+password = "${PG_PASSWORD}"
 
 [api]
 endpoint = "$API_ENDPOINT"

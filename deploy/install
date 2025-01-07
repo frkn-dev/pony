@@ -20,7 +20,7 @@ function join_array() {
 
 # Installation settings
 XRAY_VERSION="${XRAY_VERSION:-v24.12.31}"
-PONY_VERSION="${PONY_VERSION:-v0.1.1}"
+PONY_VERSION="${PONY_VERSION:-v0.0.3-dev}"
 INSTALL_DIR="/opt/vpn"
 ARCH=$(uname -m)
 XRAY_URL="https://github.com/XTLS/Xray-core/releases/download/$XRAY_VERSION/Xray-linux-64.zip"

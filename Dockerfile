@@ -2,7 +2,7 @@
 FROM rust:latest AS builder
 WORKDIR /app
 COPY . .
-RUN cargo build --bin api  --features api --release
+RUN cargo build --bin api --no-default-features --features api --release
 
 FROM rust:latest
 COPY --from=builder /app/target/release/api /app/api

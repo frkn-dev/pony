@@ -27,12 +27,7 @@ impl State {
         }
     }
 
-    pub async fn add_user(
-        &mut self,
-        user_id: Uuid,
-        new_user: User,
-        _debug: bool,
-    ) -> Result<(), Box<dyn Error>> {
+    pub async fn add_user(&mut self, user_id: Uuid, new_user: User) -> Result<(), Box<dyn Error>> {
         match self.users.entry(user_id) {
             Entry::Occupied(mut entry) => {
                 debug!(

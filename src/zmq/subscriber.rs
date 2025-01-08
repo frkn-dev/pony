@@ -41,7 +41,6 @@ pub async fn subscriber(
     clients: client::XrayClients,
     settings: AgentSettings,
     state: Arc<Mutex<State>>,
-    debug: bool,
 ) {
     let subscriber = try_connect(&settings.zmq.sub_endpoint, &settings.node.env);
 
@@ -78,7 +77,6 @@ pub async fn subscriber(
                                         message.clone(),
                                         state,
                                         settings.xray.xray_daily_limit_mb,
-                                        debug,
                                     ),
                                     "process_message".to_string(),
                                 )
@@ -109,7 +107,6 @@ pub async fn process_message(
     message: Message,
     state: Arc<Mutex<State>>,
     config_daily_limit_mb: i64,
-    debug: bool,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     match message.action {
         Action::Create => {
@@ -118,7 +115,7 @@ pub async fn process_message(
             let daily_limit_mb = message.limit.unwrap_or(config_daily_limit_mb);
             let trial = message.trial.unwrap_or(true);
 
-            let user = User::new(trial, daily_limit_mb, message.password.clone());
+            let user = User::new(trial, daily_limit_mb, message.env, message.password.clone());
 
             match create_users(
                 message.user_id.clone(),
@@ -132,7 +129,7 @@ pub async fn process_message(
                     let mut state_guard = state.lock().await;
 
                     state_guard
-                        .add_user(user_id.clone(), user.clone(), debug)
+                        .add_user(user_id.clone(), user.clone())
                         .await
                         .map_err(|err| {
                             error!("Failed to add user {}: {:?}", message.user_id, err);

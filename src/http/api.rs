@@ -4,7 +4,7 @@ use tokio_postgres::Client;
 use warp::Filter;
 use zmq::Socket;
 
-use super::handlers::{self, NodesQueryParams};
+use super::handlers::{self, NodesQueryParams, UserQueryParams};
 use crate::state::{node::NodeRequest, state::State};
 
 pub async fn run_api_server(
@@ -27,6 +27,12 @@ pub async fn run_api_server(
         .and(with_state(state.clone()))
         .and_then(handlers::get_nodes);
 
+    let conn_route = warp::get()
+        .and(warp::path("conn"))
+        .and(warp::query::<UserQueryParams>())
+        .and(with_state(state.clone()))
+        .and_then(handlers::get_conn);
+
     let nodes_register_route = warp::post()
         .and(warp::path("node"))
         .and(warp::path("register"))
@@ -41,6 +47,7 @@ pub async fn run_api_server(
     let routes = user_route
         .or(nodes_route)
         .or(nodes_register_route)
+        .or(conn_route)
         .recover(handlers::rejection);
 
     warp::serve(routes).run((listen, port)).await;

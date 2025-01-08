@@ -20,18 +20,14 @@ fn to_ipv4(ip: IpAddr) -> Option<Ipv4Addr> {
     }
 }
 
-pub async fn nodes_db_request(
-    client: Arc<Mutex<Client>>,
-    env: String,
-) -> Result<Vec<Node>, Box<dyn Error>> {
+pub async fn nodes_db_request(client: Arc<Mutex<Client>>) -> Result<Vec<Node>, Box<dyn Error>> {
     let client = client.lock().await;
 
     let rows = client
         .query(
             "SELECT hostname, ipv4, status, inbounds, env, uuid, created_at, modified_at 
-             FROM nodes 
-             WHERE env = $1",
-            &[&env],
+             FROM nodes",
+            &[],
         )
         .await?;
 

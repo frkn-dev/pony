@@ -10,6 +10,14 @@ pub struct StreamSettings {
     pub tcp_settings: Option<TcpSettings>,
     #[serde(rename = "realitySettings")]
     pub reality_settings: Option<RealitySettings>,
+    #[serde(rename = "grpcSettings")]
+    pub grpc_settings: Option<GrpcSettings>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct GrpcSettings {
+    #[serde(rename = "serviceName")]
+    pub service_name: String,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

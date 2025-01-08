@@ -12,7 +12,7 @@ use pony::{
     http,
     http::debug::start_ws_server,
     jobs::api,
-    postgres::{node::nodes_db_request, postgres::postgres_client},
+    postgres::{node::nodes_db_request, postgres::postgres_client, user::users_db_request},
     state::state::State,
     utils::{current_timestamp, human_readable_date, level_from_settings, measure_time},
     zmq::publisher::publisher,
@@ -62,7 +62,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap();
 
     let debug = settings.debug.enabled;
-    let env = settings.node.env;
 
     let pg_client = match postgres_client(settings.pg.clone()).await {
         Ok(client) => client,
@@ -76,16 +75,37 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let state = State::new();
         let state = Arc::new(Mutex::new(state));
 
-        match measure_time(
-            nodes_db_request(pg_client.clone(), env.clone()),
-            "db query".to_string(),
-        )
-        .await
-        {
+        match measure_time(nodes_db_request(pg_client.clone()), "db query".to_string()).await {
             Ok(nodes) => {
                 let futures: Vec<_> = nodes
                     .into_iter()
                     .map(|node| api::init_state(state.clone(), node))
+                    .collect();
+
+                if let Some(Err(e)) = measure_time(join_all(futures), "Init state".to_string())
+                    .await
+                    .into_iter()
+                    .find(Result::is_err)
+                {
+                    error!("Error during user state initialization: {}", e);
+                }
+            }
+            Err(e) => {
+                error!("Failed to fetch users from DB: {}", e);
+                return Err(e);
+            }
+        }
+
+        match measure_time(
+            users_db_request(pg_client.clone(), None),
+            "db query".to_string(),
+        )
+        .await
+        {
+            Ok(users) => {
+                let futures: Vec<_> = users
+                    .into_iter()
+                    .map(|user| api::sync_users(state.clone(), user, 0))
                     .collect();
 
                 if let Some(Err(e)) = measure_time(join_all(futures), "Init state".to_string())

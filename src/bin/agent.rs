@@ -134,7 +134,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let state = Arc::new(Mutex::new(state));
 
         match measure_time(
-            users_db_request(pg_client.clone(), env.clone()),
+            users_db_request(pg_client.clone(), Some(env.clone())),
             "db query".to_string(),
         )
         .await
@@ -145,10 +145,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .map(|user| {
                         agent::init_state(
                             state.clone(),
-                            settings.clone(),
+                            settings.xray.xray_daily_limit_mb,
                             xray_api_clients.clone(),
                             user,
-                            debug,
                         )
                     })
                     .collect();
@@ -259,7 +258,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             xray_api_clients.clone(),
             settings.clone(),
             user_state,
-            debug,
         )))
     };
 

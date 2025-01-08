@@ -186,7 +186,7 @@
             const ul = document.createElement('ul');
             data.forEach(item => {
                 const li = document.createElement('li');
-                li.textContent = `Node ID: ${item.uuid}, Hostname: ${item.hostname}, IP: ${item.ipv4}, Status: ${item.status}`; 
+                li.textContent = `Node ID: ${item.uuid}, Hostname: ${item.hostname}, IP: ${item.ipv4}, Status: ${item.status}, Env: ${item.env}`; 
                 ul.appendChild(li);
             });
             nodesElement.innerHTML = ""; 

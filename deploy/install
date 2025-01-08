@@ -35,7 +35,7 @@ VMESS_HOST="${VMESS_HOST:-google.com}"
 VMESS_PORT="${VMESS_PORT:-80}"
 VLESS_XTLS_PORT="${VLESS_XTLS_PORT:-443}"
 VLESS_GRPC_PORT="${VLESS_GRPC_PORT:-2053}"
-VLESS_SERVER_NAMES=("discordapp.com", "cdn.discordapp.com")
+VLESS_SERVER_NAME="discordapp.com"
 VLESS_DEST="discordapp.com:443"
 VLESS_SETTINGS_FILE="$INSTALL_DIR/vless.settings"
 
@@ -104,7 +104,7 @@ echo "Generating configurations..."
 
 if [[ ! -f "$VLESS_SETTINGS_FILE" ]]; then 
     $INSTALL_DIR/xray x25519 > $VLESS_SETTINGS_FILE
-    echo "short_id: $(openssl rand -hex 4)" >> $VLESS_SETTINGS_FILE
+    echo "short_id: $(openssl rand -hex 6)" >> $VLESS_SETTINGS_FILE
 fi
 
 PRIVATE_KEY=$(cat $VLESS_SETTINGS_FILE | grep Private | awk '{print $3}')
@@ -190,14 +190,25 @@ else
         "network": "tcp",
         "security": "reality",
         "realitySettings": {
-          "serverNames": [$(join_array "${VLESS_SERVER_NAMES[@]}")],
+          "show": false,
+          "xver": 0,
+          "serverNames": [ 
+              "${VLESS_SERVER_NAME}"
+          ],
           "privateKey": "$PRIVATE_KEY",
           "shortIds": [
             "$SHORT_ID"
           ],
           "dest": "$VLESS_DEST"
         }
-      }
+      },
+      "sniffing": {
+                "enabled": true,
+                "destOverride": [
+                    "http",
+                    "tls"
+                ]
+            }
     },
     {
       "tag": "VlessGrpc",
@@ -218,7 +229,9 @@ else
           "show": false,
           "dest": "$VLESS_DEST",
           "xver": 0,
-          "serverNames": [$(join_array "${VLESS_SERVER_NAMES[@]}")],
+          "serverNames": [
+              "${VLESS_SERVER_NAME}"
+          ],
           "privateKey": "$PRIVATE_KEY",
           "shortIds": [
             "",
@@ -301,8 +314,8 @@ else
       }
     },
     "system": {
-      "statsInboundDownlink": false,
-      "statsInboundUplink": false,
+      "statsInboundDownlink": true,
+      "statsInboundUplink": true,
       "statsOutboundDownlink": true,
       "statsOutboundUplink": true
     }

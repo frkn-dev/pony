@@ -1,22 +1,9 @@
-use chrono::NaiveDateTime;
-use serde::Deserialize;
-use serde::Serialize;
 use std::error::Error;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio_postgres::{Client, NoTls};
-use uuid::Uuid;
 
 use crate::config::settings::PostgresConfig;
-
-#[derive(Deserialize, Serialize, Debug, Clone)]
-pub struct UserRow {
-    pub user_id: Uuid,
-    pub trial: bool,
-    pub password: String,
-    pub cluster: String,
-    pub created: NaiveDateTime,
-}
 
 pub async fn postgres_client(
     pg_settings: PostgresConfig,

@@ -8,7 +8,7 @@ use uuid::Uuid;
 
 use crate::config::settings::AgentSettings;
 use crate::metrics::metrics::{collect_metrics, send_to_carbon, MetricType};
-use crate::postgres::postgres::UserRow;
+use crate::postgres::user::UserRow;
 use crate::state::{
     state::State,
     stats::StatType,
@@ -208,23 +208,20 @@ pub async fn register_node(
 
 pub async fn init_state(
     state: Arc<Mutex<State>>,
-    settings: AgentSettings,
+    limit: i64,
     clients: XrayClients,
     db_user: UserRow,
-    debug: bool,
 ) -> Result<(), Box<dyn Error>> {
     let user = User::new(
         db_user.trial,
-        settings.xray.xray_daily_limit_mb,
+        limit,
+        db_user.cluster,
         Some(db_user.password.clone()),
     );
 
     let _ = {
         let mut user_state = state.lock().await;
-        match user_state
-            .add_user(db_user.user_id, user.clone(), debug)
-            .await
-        {
+        match user_state.add_user(db_user.user_id, user.clone()).await {
             Ok(user) => {
                 debug!("User added to State {:?}", user);
             }

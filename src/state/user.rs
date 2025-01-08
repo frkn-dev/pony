@@ -8,6 +8,7 @@ use super::{stats::UserStat, tag::Tag};
 pub struct User {
     pub trial: bool,
     pub limit: i64,
+    pub env: String,
     pub status: UserStatus,
     pub uplink: Option<i64>,
     pub downlink: Option<i64>,
@@ -23,6 +24,7 @@ impl fmt::Display for User {
         write!(f, "User {{\n")?;
 
         write!(f, "  trial: {},\n", self.trial)?;
+        write!(f, "  env: {},\n", self.env)?;
         write!(f, "  limit: {},\n", self.limit)?;
         write!(f, "  status: {},\n", self.status)?;
         if let Some(uplink) = self.uplink {
@@ -65,11 +67,12 @@ impl fmt::Display for User {
 }
 
 impl User {
-    pub fn new(trial: bool, limit: i64, password: Option<String>) -> Self {
+    pub fn new(trial: bool, limit: i64, env: String, password: Option<String>) -> Self {
         let now = Utc::now();
         Self {
             trial,
             limit,
+            env,
             status: UserStatus::Active,
             uplink: Some(0),
             downlink: Some(0),

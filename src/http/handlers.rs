@@ -1,4 +1,5 @@
 use base64::{engine::general_purpose, Engine as _};
+use hex;
 use log::debug;
 use serde::Deserialize;
 use serde::Serialize;
@@ -13,6 +14,7 @@ use warp::http::StatusCode;
 use warp::reject;
 use warp::Rejection;
 use warp::Reply;
+use x25519_dalek::{PublicKey, StaticSecret};
 use zmq::Socket;
 
 use crate::config::xray::Inbound;
@@ -161,7 +163,14 @@ fn vless_xtls_conn(user_id: Uuid, ipv4: Ipv4Addr, inbound: Inbound) -> Option<St
     let port = inbound.port;
     let stream_settings = inbound.stream_settings?;
     let reality_settings = stream_settings.reality_settings?;
-    let pbk = reality_settings.private_key;
+    let private_key_bytes = hex::decode(&reality_settings.private_key).expect("Invalid hex string");
+    let private_key_array: [u8; 32] = private_key_bytes
+        .try_into()
+        .expect("Private key must be 32 bytes long");
+
+    let private_key = StaticSecret::from(private_key_array);
+    let public_key = PublicKey::from(&private_key);
+    let pbk = hex::encode(public_key.as_bytes());
     let sid = reality_settings.short_ids.first()?;
     let sni = reality_settings.server_names.first()?;
 
@@ -177,7 +186,15 @@ fn vless_grpc_conn(user_id: Uuid, ipv4: Ipv4Addr, inbound: Inbound) -> Option<St
     let grpc_settings = stream_settings.grpc_settings?;
 
     let service_name = grpc_settings.service_name;
-    let pbk = reality_settings.private_key;
+
+    let private_key_bytes = hex::decode(&reality_settings.private_key).expect("Invalid hex string");
+    let private_key_array: [u8; 32] = private_key_bytes
+        .try_into()
+        .expect("Private key must be 32 bytes long");
+
+    let private_key = StaticSecret::from(private_key_array);
+    let public_key = PublicKey::from(&private_key);
+    let pbk = hex::encode(public_key.as_bytes());
     let sid = reality_settings.short_ids.first()?;
     let sni = reality_settings.server_names.first()?;
 

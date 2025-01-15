@@ -5,7 +5,7 @@ use uuid::Uuid;
 pub fn heartbeat_metrics(env: &str, uuid: Uuid) -> Vec<MetricType> {
     let timestamp = current_timestamp();
 
-    //dev.localhost.heartbeat
+    //dev.<uuid>.heartbeat
     let path = format!("{env}.{uuid}.heartbeat");
     let metric = Metric::new(path, 1, timestamp);
 

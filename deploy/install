@@ -95,6 +95,8 @@ if [[ ! -f "$VLESS_SETTINGS_FILE" ]]; then
 fi
 
 PRIVATE_KEY=$(cat $VLESS_SETTINGS_FILE | grep Private | awk '{print $3}')
+PUBLIC_KEY=$(cat $VLESS_SETTINGS_FILE | grep Public | awk '{print $3}')
+
 SHORT_ID=$(cat $VLESS_SETTINGS_FILE | grep short_id | awk '{print $2}')
 
 default_interface=$(ip route | grep '^default' | awk '{print $5}')
@@ -183,6 +185,7 @@ else
               "${VLESS_SERVER_NAME}"
           ],
           "privateKey": "$PRIVATE_KEY",
+          "publicKey": "$PUBLIC_KEY",
           "shortIds": [
             "$SHORT_ID"
           ],
@@ -220,6 +223,8 @@ else
               "${VLESS_SERVER_NAME}"
           ],
           "privateKey": "$PRIVATE_KEY",
+          "publicKey": "$PUBLIC_KEY",
+
           "shortIds": [
             "",
             "$SHORT_ID"

@@ -26,6 +26,8 @@ pub struct RealitySettings {
     pub server_names: Vec<String>,
     #[serde(rename = "privateKey")]
     pub private_key: String,
+    #[serde(rename = "publicKey")]
+    pub public_key: String,
     #[serde(rename = "shortIds")]
     pub short_ids: Vec<String>,
     pub dest: String,

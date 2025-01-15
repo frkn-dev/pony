@@ -1,5 +1,4 @@
 use base64::{engine::general_purpose, Engine as _};
-use hex;
 use log::debug;
 use serde::Deserialize;
 use serde::Serialize;
@@ -14,7 +13,6 @@ use warp::http::StatusCode;
 use warp::reject;
 use warp::Rejection;
 use warp::Reply;
-use x25519_dalek::{PublicKey, StaticSecret};
 use zmq::Socket;
 
 use crate::config::xray::Inbound;
@@ -154,29 +152,20 @@ pub async fn node_register(
     }
 }
 
-#[derive(Serialize, Deserialize)]
-pub struct UserQueryParams {
-    pub id: Uuid,
-}
-
 fn vless_xtls_conn(user_id: Uuid, ipv4: Ipv4Addr, inbound: Inbound) -> Option<String> {
     let port = inbound.port;
     let stream_settings = inbound.stream_settings?;
     let reality_settings = stream_settings.reality_settings?;
-    let private_key_bytes = hex::decode(&reality_settings.private_key).expect("Invalid hex string");
-    let private_key_array: [u8; 32] = private_key_bytes
-        .try_into()
-        .expect("Private key must be 32 bytes long");
-
-    let private_key = StaticSecret::from(private_key_array);
-    let public_key = PublicKey::from(&private_key);
-    let pbk = hex::encode(public_key.as_bytes());
+    let pbk = reality_settings.public_key;
     let sid = reality_settings.short_ids.first()?;
     let sni = reality_settings.server_names.first()?;
 
-    Some(format!(
+    let conn = format!(
         "vless://{user_id}@{ipv4}:{port}?security=reality&flow=xtls-rprx-vision&type=tcp&sni={sni}&fp=chrome&pbk={pbk}&sid={sid}#VLESS-XTLS"
-    ))
+    );
+    debug!("Conn XTLS Vless - {}", conn);
+
+    Some(conn)
 }
 
 fn vless_grpc_conn(user_id: Uuid, ipv4: Ipv4Addr, inbound: Inbound) -> Option<String> {
@@ -184,23 +173,17 @@ fn vless_grpc_conn(user_id: Uuid, ipv4: Ipv4Addr, inbound: Inbound) -> Option<St
     let stream_settings = inbound.stream_settings?;
     let reality_settings = stream_settings.reality_settings?;
     let grpc_settings = stream_settings.grpc_settings?;
-
     let service_name = grpc_settings.service_name;
-
-    let private_key_bytes = hex::decode(&reality_settings.private_key).expect("Invalid hex string");
-    let private_key_array: [u8; 32] = private_key_bytes
-        .try_into()
-        .expect("Private key must be 32 bytes long");
-
-    let private_key = StaticSecret::from(private_key_array);
-    let public_key = PublicKey::from(&private_key);
-    let pbk = hex::encode(public_key.as_bytes());
+    let pbk = reality_settings.public_key;
     let sid = reality_settings.short_ids.first()?;
     let sni = reality_settings.server_names.first()?;
 
-    Some(format!(
+    let conn = format!(
         "vless://{user_id}@{ipv4}:{port}?security=reality&type=grpc&mode=gun&serviceName={service_name}&fp=chrome&sni={sni}&pbk={pbk}&sid={sid}#VLESS-GRPC"
-    ))
+    );
+    debug!("Conn GRPC Vless - {}", conn);
+
+    Some(conn)
 }
 
 pub fn vmess_tcp_conn(user_id: Uuid, ipv4: Ipv4Addr, inbound: Inbound) -> Option<String> {
@@ -237,6 +220,11 @@ pub fn vmess_tcp_conn(user_id: Uuid, ipv4: Ipv4Addr, inbound: Inbound) -> Option
     Some(format!("vmess://{base64_str}"))
 }
 
+#[derive(Serialize, Deserialize)]
+pub struct UserQueryParams {
+    pub id: Uuid,
+}
+
 pub async fn get_conn(
     user_req: UserQueryParams,
     state: Arc<Mutex<State>>,
@@ -253,6 +241,7 @@ pub async fn get_conn(
             let connections: Vec<String> = nodes
                 .iter()
                 .flat_map(|node| {
+                    debug!("TAGS {:?}", node.inbounds.keys());
                     node.inbounds.iter().filter_map(|(tag, inbound)| match tag {
                         Tag::VlessXtls => vless_xtls_conn(user_id, node.ipv4, inbound.clone()),
                         Tag::VlessGrpc => vless_grpc_conn(user_id, node.ipv4, inbound.clone()),

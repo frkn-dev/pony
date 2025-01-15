@@ -8,7 +8,6 @@
 
 [logging]
 # level = "debug"
-# file = "pony.log"
 
 [app]
 # metrics_timeout = 60

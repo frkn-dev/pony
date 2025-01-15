@@ -2,19 +2,6 @@
 
 set -e 
 
-### helper
-function join_array() {
-    local result=""
-    for x in "$@"; do
-        if [[ -n "$result" ]]; then
-            result+=", "
-        fi
-        result+="\"$x\""
-    done
-    echo "$result"
-}
-
-
 # DO NOT EDIT 
 # OVERRIDE settings with dot env file corresponding to the env/machine 
 

@@ -92,7 +92,7 @@ pub async fn collect_metrics<T>(
     let memory: Vec<MetricType> = mem_metrics(env, hostname).await;
     let xray: Vec<MetricType> = xray_stat_metrics(state.clone(), env, hostname, node_id).await;
     let users: Vec<MetricType> = xray_user_metrics(state, env, hostname).await;
-    let heartbeat: Vec<MetricType> = heartbeat_metrics(env, hostname);
+    let heartbeat: Vec<MetricType> = heartbeat_metrics(env, node_id);
 
     metrics.extend(bandwidth);
     metrics.extend(cpuusage);

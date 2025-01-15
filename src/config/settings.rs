@@ -32,10 +32,6 @@ fn default_loglevel() -> String {
     "debug".to_string()
 }
 
-fn default_logfile() -> String {
-    "pony.log".to_string()
-}
-
 fn default_zmq_sub_endpoint() -> String {
     "tcp://localhost:3000".to_string()
 }
@@ -104,6 +100,10 @@ fn default_api_web_port() -> u16 {
     3005
 }
 
+fn default_node_health_check_timeout() -> i16 {
+    60
+}
+
 #[derive(Clone, Debug, Deserialize, Default)]
 pub struct ApiConfig {
     #[serde(default = "default_api_web_listen")]
@@ -112,6 +112,8 @@ pub struct ApiConfig {
     pub port: u16,
     #[serde(default = "default_api_endpoint_address")]
     pub endpoint: String,
+    #[serde(default = "default_node_health_check_timeout")]
+    pub node_health_check_timeout: i16,
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]
@@ -156,8 +158,6 @@ pub struct DebugConfig {
 pub struct LoggingConfig {
     #[serde(default = "default_loglevel")]
     pub level: String,
-    #[serde(default = "default_logfile")]
-    pub file: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]

@@ -30,7 +30,7 @@ use pony::{
 
 #[derive(Parser)]
 #[command(
-    version = "0.0.3-dev",
+    version = "0.0.4-dev",
     about = "Pony Agent - control tool for Xray/Wireguard"
 )]
 struct Cli {
@@ -67,7 +67,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         })
         .level(level_from_settings(&settings.logging.level))
         .chain(std::io::stdout())
-        .chain(fern::log_file(&settings.logging.file).unwrap())
         .apply()
         .unwrap();
 

@@ -120,7 +120,6 @@ impl Node {
         ";
 
         let status_str = node.status.to_string();
-        //  let ipv4_str = node.ipv4.to_string();
         let ip: IpAddr = IpAddr::V4(node.ipv4);
         let inbounds_json = serde_json::to_value(&node.inbounds)?;
 
@@ -172,6 +171,11 @@ impl Node {
         } else {
             Err(format!("Inbound {}  not found", tag))
         }
+    }
+
+    pub fn update_status(&mut self, new_status: NodeStatus) -> Result<(), String> {
+        self.status = new_status;
+        Ok(())
     }
 
     pub fn update_downlink(&mut self, tag: Tag, new_downlink: i64) -> Result<(), String> {

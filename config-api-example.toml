@@ -17,7 +17,6 @@
 
 [logging]
 # level = "debug"
-# file = "pony.log"
 
 [zmq]
 #sub_endpoint = "tcp://localhost:3000"

@@ -20,7 +20,7 @@ use pony::{
 
 #[derive(Parser)]
 #[command(
-    version = "0.0.3-dev",
+    version = "0.0.4-dev",
     about = "Pony Api - control tool for Xray/Wireguard"
 )]
 struct Cli {
@@ -57,7 +57,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         })
         .level(level_from_settings(&settings.logging.level))
         .chain(std::io::stdout())
-        .chain(fern::log_file(&settings.logging.file).unwrap())
         .apply()
         .unwrap();
 
@@ -68,7 +67,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Err(e) => panic!("PG not available, {}", e),
     };
 
-    let _ch_client = Arc::new(Client::default().with_url(&settings.clickhouse.address));
+    let ch_client = Arc::new(Mutex::new(
+        Client::default().with_url(&settings.clickhouse.address),
+    ));
     let publisher = publisher(&settings.zmq.pub_endpoint).await;
 
     let state = {
@@ -137,6 +138,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             settings.debug.web_port,
         ));
     }
+
+    tokio::spawn(api::node_healthcheck(
+        state.clone(),
+        ch_client,
+        settings.api.node_health_check_timeout,
+    ));
 
     tokio::spawn(http::api::run_api_server(
         state.clone(),

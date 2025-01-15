@@ -43,7 +43,7 @@ impl State {
                 Ok(())
             }
             Entry::Vacant(entry) => {
-                debug!("Adding new user: {:?}", new_user);
+                debug!("Adding new user: {:?} {:?}", user_id, new_user);
                 entry.insert(new_user.clone());
                 Ok(())
             }
@@ -242,6 +242,19 @@ impl State {
         } else {
             None
         }
+    }
+
+    pub fn get_all_nodes(&self) -> Option<Vec<Node>> {
+        let nodes: Vec<_> = self
+            .nodes
+            .values()
+            .flat_map(|nodes| nodes.clone())
+            .collect();
+
+        if nodes.is_empty() {
+            return None;
+        }
+        Some(nodes)
     }
 
     pub async fn update_node_uplink(

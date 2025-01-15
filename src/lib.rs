@@ -6,6 +6,8 @@ pub mod state;
 pub mod utils;
 pub mod zmq;
 
+#[cfg(feature = "api")]
+pub mod clickhouse;
 #[cfg(feature = "agent")]
 pub mod metrics;
 #[cfg(feature = "agent")]

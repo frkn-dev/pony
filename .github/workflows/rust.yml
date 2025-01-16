@@ -33,7 +33,7 @@ jobs:
       - name: Install cargo-zigbuild
         run: cargo install --locked cargo-zigbuild
       
-      - name: Add musl target
+      - name: Add target
         run: rustup target add x86_64-unknown-linux-gnu
       
       - name: Build statically linked binary

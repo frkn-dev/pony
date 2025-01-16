@@ -83,6 +83,9 @@ jobs:
         id: arch
         run: echo "ARCH=$(uname -m)" >> $GITHUB_ENV
 
+      - name: list target
+        run: find target/
+        
       - name: Rename binaries with architecture
         run: |
           mv target/release/api target/release/api-${{ env.ARCH }}

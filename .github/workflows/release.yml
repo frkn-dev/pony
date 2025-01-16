@@ -52,6 +52,9 @@ jobs:
     name: Release
     needs: [build-api, build-agent]
     runs-on: ubuntu-latest
+    strategy:
+    matrix:
+      os: [ubuntu-20.04, ubuntu-22.04]
     steps:
       - name: Checkout
         uses: actions/checkout@v1
@@ -76,18 +79,18 @@ jobs:
 
       - name: Rename binaries with architecture
         run: |
-          mv target/release/api target/release/api-${{ env.ARCH }}
-          mv target/release/agent target/release/agent-${{ env.ARCH }}
+          mv target/release/api target/release/api-${{ env.ARCH }}-${{ matrix.os }}
+          mv target/release/agent target/release/agent-${{ env.ARCH }}-${{ matrix.os }}
     
       - name: Release
         uses: softprops/action-gh-release@v1
         if: startsWith(github.ref, 'refs/tags/')
         with:
           files: |
-            target/release/api-${{ env.ARCH }}
-            target/release/agent-${{ env.ARCH }}
+            target/release/api-${{ env.ARCH }}-${{ matrix.os }}
+            target/release/agent-${{ env.ARCH }}-${{ matrix.os }}
             deploy/install
-            docs/
+            docs/*
             README.md
             config-agent-example.toml
             config-api-example.toml

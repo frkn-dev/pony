@@ -100,6 +100,10 @@ fn default_api_web_port() -> u16 {
     3005
 }
 
+fn default_api_token() -> String {
+    "supetsecrettoken".to_string()
+}
+
 fn default_node_health_check_timeout() -> i16 {
     60
 }
@@ -114,6 +118,8 @@ pub struct ApiConfig {
     pub endpoint: String,
     #[serde(default = "default_node_health_check_timeout")]
     pub node_health_check_timeout: i16,
+    #[serde(default = "default_api_token")]
+    pub token: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]

@@ -151,6 +151,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         publisher.clone(),
         settings.api.address.unwrap_or(Ipv4Addr::new(127, 0, 0, 1)),
         settings.api.port,
+        settings.api.token,
     ));
     tokio::signal::ctrl_c()
         .await

@@ -171,8 +171,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _ = {
         let settings = settings.clone();
         debug!("----->>>>> Register node");
-        if let Err(e) =
-            agent::register_node(state.clone(), settings.clone(), settings.node.env.clone()).await
+        if let Err(e) = agent::register_node(
+            state.clone(),
+            settings.api.endpoint,
+            settings.node.env.clone(),
+            settings.api.token,
+        )
+        .await
         {
             panic!("Cannot register node {:?}", e);
         }
@@ -219,6 +224,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let block_trial_users_by_limit_handle = tokio::spawn({
             let state = state.clone();
             let clients = xray_api_clients.clone();
+            let endpoint = settings.api.endpoint.clone();
+            let api_token = settings.api.token.clone();
             async move {
                 loop {
                     sleep(Duration::from_secs(settings.app.trial_jobs_timeout)).await;
@@ -227,6 +234,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         clients.clone(),
                         env.clone(),
                         node_uuid.clone(),
+                        endpoint.clone(),
+                        api_token.clone(),
                     )
                     .await;
                 }

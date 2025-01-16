@@ -2,6 +2,7 @@ use chrono::{Duration, Utc};
 use log::{debug, error};
 use reqwest::Url;
 use reqwest::{Client, StatusCode};
+
 use std::{error::Error, sync::Arc};
 use tokio::sync::Mutex;
 use uuid::Uuid;
@@ -14,6 +15,8 @@ use crate::state::{
     stats::StatType,
     user::{User, UserStatus},
 };
+use crate::zmq::message::Action;
+use crate::zmq::message::Message;
 
 use crate::xray_op::{
     actions::create_users, actions::remove_user, client::XrayClients, stats, stats::Prefix, vless,
@@ -161,15 +164,60 @@ pub async fn send_metrics_job<T>(
     Ok(())
 }
 
+async fn block_user_req(
+    user_id: Uuid,
+    env: String,
+    endpoint: String,
+    token: String,
+) -> Result<(), Box<dyn Error>> {
+    let msg = Message {
+        user_id: user_id,
+        action: Action::Delete,
+        env: env,
+        trial: None,
+        limit: None,
+        password: None,
+    };
+
+    let mut endpoint = Url::parse(&endpoint)?;
+    endpoint
+        .path_segments_mut()
+        .map_err(|_| "Invalid API endpoint")?
+        .push("user");
+    let endpoint = endpoint.to_string();
+
+    debug!("ENDPOINT: {}", endpoint);
+
+    match serde_json::to_string_pretty(&msg) {
+        Ok(json) => debug!("Serialized Message for user '{}': {}", user_id, json),
+        Err(e) => error!("Error serializing Message for user_id '{}': {}", user_id, e),
+    }
+
+    let res = Client::new()
+        .post(&endpoint)
+        .header("Content-Type", "application/json")
+        .header("Authorization", format!("Bearer {}", token))
+        .json(&msg)
+        .send()
+        .await?;
+
+    if res.status().is_success() || res.status() == StatusCode::NOT_MODIFIED {
+        return Ok(());
+    } else {
+        return Err(format!("Req error: {} {:?}", res.status(), res).into());
+    }
+}
+
 pub async fn register_node(
     state: Arc<Mutex<State>>,
-    settings: AgentSettings,
+    endpoint: String,
     env: String,
+    token: String,
 ) -> Result<(), Box<dyn Error>> {
     let node_state = state.lock().await;
     let node = node_state.nodes.get(&env).clone();
 
-    let mut endpoint = Url::parse(&settings.api.endpoint)?;
+    let mut endpoint = Url::parse(&endpoint)?;
     endpoint
         .path_segments_mut()
         .map_err(|_| "Invalid API endpoint")?
@@ -189,6 +237,7 @@ pub async fn register_node(
             let res = Client::new()
                 .post(&endpoint)
                 .header("Content-Type", "application/json")
+                .header("Authorization", format!("Bearer {}", token))
                 .json(&node)
                 .send()
                 .await?;
@@ -320,6 +369,8 @@ pub async fn block_trial_users_by_limit(
     clients: XrayClients,
     env: String,
     node_id: Uuid,
+    endpoint: String,
+    token: String,
 ) {
     let trial_users = {
         let state_guard = state.lock().await;
@@ -329,8 +380,11 @@ pub async fn block_trial_users_by_limit(
     for (user_id, user) in trial_users {
         let state = state.clone();
         let user_id = user_id.clone();
+        let user = user.clone();
         let clients = clients.clone();
         let env = env.clone();
+        let endpoint = endpoint.clone();
+        let token = token.clone();
 
         tokio::spawn(async move {
             let user_exceeds_limit = {
@@ -370,6 +424,8 @@ pub async fn block_trial_users_by_limit(
                 {
                     error!("Failed to block user {}: {:?}", user_id, e);
                 } else {
+                    let _ =
+                        block_user_req(user_id.clone(), user.env.clone(), endpoint, token).await;
                     debug!("Successfully blocked user: {}", user_id);
                 }
 

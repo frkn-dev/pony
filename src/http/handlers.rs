@@ -18,6 +18,7 @@ use zmq::Socket;
 use crate::config::xray::Inbound;
 use crate::state::{
     node::Node,
+    node::NodeStatus,
     node::{NodeRequest, NodeResponse},
     state::State,
     tag::Tag,
@@ -29,8 +30,11 @@ pub type UserRequest = Message;
 
 #[derive(Debug)]
 struct JsonError(String);
-
 impl reject::Reject for JsonError {}
+
+#[derive(Debug)]
+pub struct AuthError(pub String);
+impl warp::reject::Reject for AuthError {}
 
 #[derive(Debug)]
 struct MethodError;
@@ -49,13 +53,26 @@ pub async fn user_request(
 ) -> Result<impl warp::Reply, warp::Rejection> {
     match publisher::send_message(publisher, &user_req.env, user_req.clone()).await {
         Ok(_) => {
+            let trial = match user_req.trial {
+                Some(trial) => trial,
+                None => {
+                    return Err(warp::reject::custom(JsonError(
+                        "Missing 'trial' value".to_string(),
+                    )))
+                }
+            };
+
+            let limit = match user_req.limit {
+                Some(limit) => limit,
+                None => {
+                    return Err(warp::reject::custom(JsonError(
+                        "Missing 'limit' value".to_string(),
+                    )))
+                }
+            };
+
             let mut state = state.lock().await;
-            let user = User::new(
-                user_req.trial.expect("REASON"),
-                user_req.limit.expect("REASON"),
-                user_req.env,
-                user_req.password,
-            );
+            let user = User::new(trial, limit, user_req.env, user_req.password);
             let _ = state.add_user(user_req.user_id, user).await;
 
             let response = ResponseMessage {
@@ -240,6 +257,7 @@ pub async fn get_conn(
         if let Some(nodes) = state.get_nodes(env) {
             let connections: Vec<String> = nodes
                 .iter()
+                .filter(|node| node.status == NodeStatus::Online)
                 .flat_map(|node| {
                     debug!("TAGS {:?}", node.inbounds.keys());
                     node.inbounds.iter().filter_map(|(tag, inbound)| match tag {
@@ -270,6 +288,14 @@ pub async fn rejection(reject: Rejection) -> Result<impl Reply, Rejection> {
         Ok(warp::reply::with_status(
             error_response,
             StatusCode::METHOD_NOT_ALLOWED,
+        ))
+    } else if let Some(_) = reject.find::<AuthError>() {
+        let error_response = warp::reply::json(&serde_json::json!({
+            "error": "UNAUTHORIZED"
+        }));
+        Ok(warp::reply::with_status(
+            error_response,
+            StatusCode::UNAUTHORIZED,
         ))
     } else if let Some(err) = reject.find::<JsonError>() {
         let error_response = warp::reply::json(&serde_json::json!({

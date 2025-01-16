@@ -22,6 +22,17 @@ pub enum NodeStatus {
     Unknown,
 }
 
+impl PartialEq for NodeStatus {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (NodeStatus::Online, NodeStatus::Online) => true,
+            (NodeStatus::Offline, NodeStatus::Offline) => true,
+            (NodeStatus::Unknown, NodeStatus::Unknown) => true,
+            _ => false,
+        }
+    }
+}
+
 impl fmt::Display for NodeStatus {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {

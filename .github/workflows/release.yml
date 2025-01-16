@@ -53,8 +53,8 @@ jobs:
     needs: [build-api, build-agent]
     runs-on: ubuntu-latest
     strategy:
-    matrix:
-      os: [ubuntu-20.04, ubuntu-22.04]
+      matrix:
+        os: [ubuntu-20.04, ubuntu-22.04]
     steps:
       - name: Checkout
         uses: actions/checkout@v1

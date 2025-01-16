@@ -20,7 +20,7 @@ use pony::{
 
 #[derive(Parser)]
 #[command(
-    version = "0.0.6-dev",
+    version = "0.0.7-dev",
     about = "Pony Api - control tool for Xray/Wireguard"
 )]
 struct Cli {

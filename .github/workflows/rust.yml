@@ -27,8 +27,17 @@ jobs:
       - name: Install protobuf-compiler
         run: sudo apt-get install -y protobuf-compiler
 
-      - name: Build
-        run: cargo build --bin agent --features agent
+      - name: Install musl-tools
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+
+      - name: Link g++ musl
+        run: sudo ln -s "/usr/bin/g++" "/usr/bin/musl-g++"
+      
+      - name: Add musl target
+        run: rustup target add x86_64-unknown-linux-musl
+      
+      - name: Build statically linked binary
+        run: cargo build --release --target x86_64-unknown-linux-musl 
 
   build-api:
     runs-on: ubuntu-latest

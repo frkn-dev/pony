@@ -93,8 +93,8 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         with:
           files: |
-            target/release/api-${{ env.ARCH }}-${{ matrix.os }}
-            target/release/agent-${{ env.ARCH }}-${{ matrix.os }}
+            target/release/api-${{ env.ARCH }}
+            target/release/agent-${{ env.ARCH }}
             deploy/install
             docs/*
             README.md

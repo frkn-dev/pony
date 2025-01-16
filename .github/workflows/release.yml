@@ -83,13 +83,10 @@ jobs:
         id: arch
         run: echo "ARCH=$(uname -m)" >> $GITHUB_ENV
 
-      - name: list target
-        run: find target/
-        
       - name: Rename binaries with architecture
         run: |
-          mv target/release/api target/release/api-${{ env.ARCH }}
-          mv target/release/agent target/release/agent-${{ env.ARCH }}
+          mv target/x86_64-unknown-linux-gnu/release/api target/release/api-${{ env.ARCH }}
+          mv target/x86_64-unknown-linux-gnu/release/agent target/release/agent-${{ env.ARCH }}
     
       - name: Release
         uses: softprops/action-gh-release@v1

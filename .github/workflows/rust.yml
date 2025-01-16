@@ -24,28 +24,28 @@ jobs:
           default: true
           override: true
 
-     - name: Install protobuf-compiler
-       run: sudo apt-get install -y protobuf-compiler
+      - name: Install protobuf-compiler
+        run: sudo apt-get install -y protobuf-compiler
 
-     - name: Install musl-tools
-       run: sudo apt-get update && sudo apt-get install -y musl-tools
-     
-     - name: Link musl-g++
-       run: sudo ln -sf "/usr/bin/musl-gcc" "/usr/bin/musl-g++"
-     
-     - name: Add musl target
-       run: rustup target add x86_64-unknown-linux-musl
-     
-     - name: Set environment variables for musl
-       run: |
-         echo "export CC=musl-gcc" >> $GITHUB_ENV
-         echo "export CXX=musl-g++" >> $GITHUB_ENV
-     
-     - name: Build statically linked binary
-       env:
-         CC: musl-gcc
-         CXX: musl-g++
-       run: cargo build --release --no-default-features --features agent --target x86_64-unknown-linux-musl
+      - name: Install musl-tools
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+      
+      - name: Link musl-g++
+        run: sudo ln -sf "/usr/bin/musl-gcc" "/usr/bin/musl-g++"
+      
+      - name: Add musl target
+        run: rustup target add x86_64-unknown-linux-musl
+      
+      - name: Set environment variables for musl
+        run: |
+          echo "export CC=musl-gcc" >> $GITHUB_ENV
+          echo "export CXX=musl-g++" >> $GITHUB_ENV
+      
+      - name: Build statically linked binary
+        env:
+          CC: musl-gcc
+          CXX: musl-g++
+        run: cargo build --release --no-default-features --features agent --target x86_64-unknown-linux-musl
 
 
   build-api:

@@ -36,6 +36,7 @@ PG_DB="${PG_DB:-postgres}"
 PG_USERNAME="${PG_USERNAME:-postgres}"
 PG_PASSWORD="${PG_PASSWORD:-password}"
 API_ENDPOINT=${API_ENDPOINT:-http://localhost:3005}
+API_TOKEN=${API_TOKEN:-mysecrettoken}
 
 mkdir -p "$INSTALL_DIR"
 cd "$INSTALL_DIR"
@@ -65,6 +66,7 @@ systemctl daemon-reload
 systemctl enable xray
 
 echo "Installing agent version $PONY_VERSION..."
+echo "$AGENT_URL"
 curl -L -o agent "$AGENT_URL"
 chmod +x agent
 
@@ -363,6 +365,7 @@ password = "${PG_PASSWORD}"
 
 [api]
 endpoint = "$API_ENDPOINT"
+token="$API_TOKEN"
 EOF
 fi
 

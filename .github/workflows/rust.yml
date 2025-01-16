@@ -37,7 +37,7 @@ jobs:
         run: rustup target add x86_64-unknown-linux-gnu
       
       - name: Build statically linked binary
-        run: cargo zigbuild --release --no-default-features --features agent --target x86_64-unknown-linux-gnu
+        run: cargo zigbuild --release --bin agent --no-default-features --features agent --target x86_64-unknown-linux-gnu
 
 
   build-api:

@@ -50,6 +50,7 @@ pub async fn subscriber(
     );
 
     loop {
+        tokio::task::yield_now().await;
         match subscriber.recv_string(0) {
             Ok(Ok(data)) => {
                 let data = data.to_string();

@@ -30,7 +30,7 @@ use pony::{
 
 #[derive(Parser)]
 #[command(
-    version = "0.0.11-dev",
+    version = "0.0.12-dev",
     about = "Pony Agent - control tool for Xray/Wireguard"
 )]
 struct Cli {
@@ -292,6 +292,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // Run all tasks
-    let _ = futures::future::try_join_all(tasks).await;
+    let _ = futures::future::join_all(tasks).await;
     Ok(())
 }

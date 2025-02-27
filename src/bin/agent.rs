@@ -30,7 +30,7 @@ use pony::{
 
 #[derive(Parser)]
 #[command(
-    version = "0.0.12-dev",
+    version = "0.0.13-dev",
     about = "Pony Agent - control tool for Xray/Wireguard"
 )]
 struct Cli {
@@ -204,6 +204,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let env = env.clone();
             async move {
                 loop {
+                    tokio::task::yield_now().await;
                     sleep(Duration::from_secs(settings.app.stat_jobs_timeout)).await;
                     let _ = agent::collect_stats_job(
                         clients.clone(),
@@ -228,6 +229,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let api_token = settings.api.token.clone();
             async move {
                 loop {
+                    tokio::task::yield_now().await;
                     sleep(Duration::from_secs(settings.app.trial_jobs_timeout)).await;
                     agent::block_trial_users_by_limit(
                         state.clone(),
@@ -250,6 +252,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let clients = xray_api_clients.clone();
             async move {
                 loop {
+                    tokio::task::yield_now().await;
                     agent::restore_trial_users(state.clone(), clients.clone()).await;
                     sleep(Duration::from_secs(settings.app.trial_jobs_timeout)).await;
                 }
@@ -278,6 +281,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             async move {
                 loop {
+                    tokio::task::yield_now().await;
                     sleep(Duration::from_secs(settings.app.metrics_timeout)).await;
                     let _ = agent::send_metrics_job::<MetricType>(
                         state.clone(),

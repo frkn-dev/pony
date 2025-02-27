@@ -32,6 +32,8 @@ zmq = "0.10"
 default-net = "0.22"
 warp = "0.3"
 console-subscriber = {version = "0.4", optional = true} 
+teloxide = { version = "0.13", features = ["macros"], optional = true }
+
 
 [build-dependencies]
 tonic-build = "0.12"
@@ -45,7 +47,8 @@ tokio-util = "0.7"
 [features]
 agent = ["netstat2", "prost", "prost-derive", "tonic", "sysinfo" ]  
 api = ["clickhouse"]
-default = ["api", "agent"]
+bot = ["teloxide"]
+default = ["api", "agent", "bot"]
 debug = ["console-subscriber"]
 
 [[bin]]
@@ -55,4 +58,8 @@ path = "src/bin/agent.rs"
 [[bin]]
 name = "api"
 path = "src/bin/api.rs"
+
+[[bin]]
+name = "bot"
+path = "src/bin/bot.rs"
 

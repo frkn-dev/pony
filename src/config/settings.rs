@@ -351,3 +351,19 @@ impl Settings for AgentSettings {
         Ok(())
     }
 }
+
+#[derive(Clone, Debug, Deserialize, Default)]
+pub struct BotSettings {
+    #[serde(default)]
+    pub logging: LoggingConfig,
+    #[serde(default)]
+    pub pg: PostgresConfig,
+    #[serde(default)]
+    pub api: ApiConfig,
+}
+
+impl Settings for BotSettings {
+    fn validate(&mut self) -> Result<(), String> {
+        Ok(()) //ToDo implement validate
+    }
+}

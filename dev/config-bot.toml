@@ -1,0 +1,17 @@
+
+
+
+[logging]
+# level = "debug"
+# file = "pony.log"
+ 
+[pg]
+# host = "localhost"
+# port = 5432
+# db = "postgres"
+# username = "postgres"
+# password = "password"
+ 
+[api]
+endpoint = "https://dev.frkn.org/api"
+

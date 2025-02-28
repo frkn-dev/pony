@@ -46,6 +46,7 @@ pub async fn create_users(
             if let Some(existing_user) = state_lock.users.get_mut(&user_id) {
                 existing_user.add_proto(user_info.in_tag);
             }
+            drop(state_lock);
         }
     } else {
         debug!(
@@ -58,6 +59,7 @@ pub async fn create_users(
         if let Some(existing_user) = state_lock.users.get_mut(&user_id) {
             existing_user.add_proto(user_info.in_tag);
         }
+        drop(state_lock);
     }
 
     let user_info = vless::UserInfo::new(user_id, vless::UserFlow::Vision);
@@ -73,6 +75,7 @@ pub async fn create_users(
             if let Some(existing_user) = state_lock.users.get_mut(&user_id) {
                 existing_user.add_proto(user_info.in_tag);
             }
+            drop(state_lock);
         }
     } else {
         debug!(
@@ -85,6 +88,7 @@ pub async fn create_users(
         if let Some(existing_user) = state_lock.users.get_mut(&user_id) {
             existing_user.add_proto(user_info.in_tag);
         }
+        drop(state_lock);
     }
 
     let user_info = vless::UserInfo::new(user_id, vless::UserFlow::Direct);
@@ -100,6 +104,7 @@ pub async fn create_users(
             if let Some(existing_user) = state_lock.users.get_mut(&user_id) {
                 existing_user.add_proto(Tag::VlessGrpc);
             }
+            drop(state_lock);
         }
     } else {
         debug!(
@@ -112,6 +117,7 @@ pub async fn create_users(
         if let Some(existing_user) = state_lock.users.get_mut(&user_id) {
             existing_user.add_proto(user_info.in_tag);
         }
+        drop(state_lock);
     }
 
     if let Some(password) = password {
@@ -129,6 +135,7 @@ pub async fn create_users(
                 if let Some(existing_user) = state_lock.users.get_mut(&user_id) {
                     existing_user.add_proto(Tag::Shadowsocks);
                 }
+                drop(state_lock);
             }
         } else {
             debug!(
@@ -140,6 +147,7 @@ pub async fn create_users(
             if let Some(existing_user) = state_lock.users.get_mut(&user_id) {
                 existing_user.add_proto(user_info.in_tag);
             }
+            drop(state_lock);
         }
     }
 

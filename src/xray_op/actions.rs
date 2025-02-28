@@ -31,7 +31,7 @@ pub async fn create_users(
     clients: XrayClients,
     state: Arc<Mutex<State>>,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
-    let mut state_lock = state.lock().await;
+    println!("CREATE USER");
 
     let user_info = vmess::UserInfo::new(user_id);
     if user_exist(clients.clone(), user_info.uuid, user_info.in_tag.clone()).await {
@@ -42,6 +42,7 @@ pub async fn create_users(
                 "Create: Success to add {} user: {:?}",
                 user_info.in_tag, user_id
             );
+            let mut state_lock = state.lock().await;
             if let Some(existing_user) = state_lock.users.get_mut(&user_id) {
                 existing_user.add_proto(user_info.in_tag);
             }
@@ -52,6 +53,8 @@ pub async fn create_users(
             user_id,
             user_info.in_tag.clone()
         );
+
+        let mut state_lock = state.lock().await;
         if let Some(existing_user) = state_lock.users.get_mut(&user_id) {
             existing_user.add_proto(user_info.in_tag);
         }
@@ -66,6 +69,7 @@ pub async fn create_users(
                 "Create: Success to add {} user: {:?}",
                 user_info.in_tag, user_id
             );
+            let mut state_lock = state.lock().await;
             if let Some(existing_user) = state_lock.users.get_mut(&user_id) {
                 existing_user.add_proto(user_info.in_tag);
             }
@@ -76,6 +80,8 @@ pub async fn create_users(
             user_id,
             user_info.in_tag.clone()
         );
+
+        let mut state_lock = state.lock().await;
         if let Some(existing_user) = state_lock.users.get_mut(&user_id) {
             existing_user.add_proto(user_info.in_tag);
         }
@@ -90,6 +96,7 @@ pub async fn create_users(
                 "Create: Success to add {} user: {:?}",
                 user_info.in_tag, user_id
             );
+            let mut state_lock = state.lock().await;
             if let Some(existing_user) = state_lock.users.get_mut(&user_id) {
                 existing_user.add_proto(Tag::VlessGrpc);
             }
@@ -100,6 +107,8 @@ pub async fn create_users(
             user_id,
             user_info.in_tag.clone()
         );
+
+        let mut state_lock = state.lock().await;
         if let Some(existing_user) = state_lock.users.get_mut(&user_id) {
             existing_user.add_proto(user_info.in_tag);
         }
@@ -115,6 +124,8 @@ pub async fn create_users(
                     "Create: Success to add {} user: {:?}",
                     user_info.in_tag, user_id
                 );
+
+                let mut state_lock = state.lock().await;
                 if let Some(existing_user) = state_lock.users.get_mut(&user_id) {
                     existing_user.add_proto(Tag::Shadowsocks);
                 }
@@ -125,6 +136,7 @@ pub async fn create_users(
                 user_id,
                 user_info.in_tag.clone()
             );
+            let mut state_lock = state.lock().await;
             if let Some(existing_user) = state_lock.users.get_mut(&user_id) {
                 existing_user.add_proto(user_info.in_tag);
             }

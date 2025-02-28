@@ -118,6 +118,8 @@ pub async fn process_message(
 
             let user = User::new(trial, daily_limit_mb, message.env, message.password.clone());
 
+            println!("USER {:?}", user);
+
             match create_users(
                 message.user_id.clone(),
                 message.password.clone(),

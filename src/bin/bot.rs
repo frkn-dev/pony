@@ -15,8 +15,9 @@ use teloxide::{
     utils::command::BotCommands,
 };
 
-use pony::{create_vpn_user, postgres_client, register, BotSettings, Settings};
-use pony::{utils::*, ApiSettings};
+use pony::jobs::bot::{create_vpn_user, register};
+use pony::utils::*;
+use pony::{postgres_client, BotSettings, Settings};
 
 #[derive(BotCommands)]
 #[command(rename_rule = "lowercase")]

@@ -20,7 +20,4 @@ pub use postgres::{
     postgres::postgres_client,
     user::{insert_user, user_exist, UserRow},
 };
-
-pub use jobs::bot::{create_vpn_user, register};
-
 pub use utils::*;

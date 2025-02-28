@@ -1,5 +1,4 @@
 use log::debug;
-use log::error;
 use reqwest::Client as HttpClient;
 use reqwest::StatusCode;
 use reqwest::Url;

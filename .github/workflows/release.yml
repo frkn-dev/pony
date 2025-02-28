@@ -47,10 +47,28 @@ jobs:
 
       - name: Build
         run: cargo build --bin api --no-default-features --features api
+        
+  build-bot:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v1
+
+      - name: Install latest rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: nightly
+          default: true
+          override: true
+
+      - name: Build
+        run: cargo build --bin bot --no-default-features --features bot
+
 
   release:
     name: Release
-    needs: [build-api, build-agent]
+    needs: [build-api, build-agent, build-bot]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -87,6 +105,7 @@ jobs:
         run: |
           mv target/x86_64-unknown-linux-gnu/release/api target/release/api-${{ env.ARCH }}
           mv target/x86_64-unknown-linux-gnu/release/agent target/release/agent-${{ env.ARCH }}
+          mv target/x86_64-unknown-linux-gnu/release/bot target/release/bot-${{ env.ARCH }}
     
       - name: Release
         uses: softprops/action-gh-release@v1
@@ -95,6 +114,7 @@ jobs:
           files: |
             target/release/api-${{ env.ARCH }}
             target/release/agent-${{ env.ARCH }}
+            target/release/bot-${{ env.ARCH }}
             deploy/install
             docs/*
             README.md

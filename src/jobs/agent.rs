@@ -15,16 +15,17 @@ use crate::state::{
     stats::StatType,
     user::{User, UserStatus},
 };
+use crate::xray_op::client::{HandlerClient, StatsClient};
 use crate::zmq::message::Action;
 use crate::zmq::message::Message;
 
 use crate::xray_op::{
-    actions::create_users, actions::remove_user, client::XrayClients, stats, stats::Prefix, vless,
-    vmess,
+    actions::create_users, actions::remove_user, stats, stats::Prefix, vless, vmess,
 };
 
 pub async fn collect_stats_job(
-    clients: XrayClients,
+    stats_client: StatsClient,
+    handler_client: HandlerClient,
     state: Arc<Mutex<State>>,
     node_id: Uuid,
     env: String,
@@ -37,12 +38,12 @@ pub async fn collect_stats_job(
     };
 
     for user_id in user_ids {
-        let clients = clients.clone();
+        let stats_client = stats_client.clone();
         let state = state.clone();
 
         tasks.push(tokio::spawn(async move {
             if let Ok(user_stat) =
-                stats::get_user_stats(clients.clone(), Prefix::UserPrefix(user_id)).await
+                stats::get_user_stats(stats_client, Prefix::UserPrefix(user_id)).await
             {
                 let mut state_guard = state.lock().await;
                 if let Err(e) = state_guard
@@ -80,14 +81,18 @@ pub async fn collect_stats_job(
 
     if node_exists {
         for tag in node_tags {
-            let clients = clients.clone();
+            let stats_client = stats_client.clone();
+            let handler_client = handler_client.clone();
             let state = state.clone();
             let env = env.clone();
 
             tasks.push(tokio::spawn(async move {
-                if let Ok(inbound_stat) =
-                    stats::get_inbound_stats(clients.clone(), Prefix::InboundPrefix(tag.clone()))
-                        .await
+                if let Ok(inbound_stat) = stats::get_inbound_stats(
+                    stats_client,
+                    handler_client,
+                    Prefix::InboundPrefix(tag.clone()),
+                )
+                .await
                 {
                     let mut state_guard = state.lock().await;
                     if let Err(e) = state_guard
@@ -258,7 +263,7 @@ pub async fn register_node(
 pub async fn init_state(
     state: Arc<Mutex<State>>,
     limit: i64,
-    clients: XrayClients,
+    client: HandlerClient,
     db_user: UserRow,
 ) -> Result<(), Box<dyn Error>> {
     let user = User::new(
@@ -284,13 +289,7 @@ pub async fn init_state(
         }
     };
 
-    match create_users(
-        db_user.user_id,
-        Some(db_user.password.clone()),
-        clients.clone(),
-    )
-    .await
-    {
+    match create_users(db_user.user_id, Some(db_user.password.clone()), client).await {
         Ok(_) => {
             return Ok(());
         }
@@ -302,13 +301,13 @@ pub async fn init_state(
     }
 }
 
-pub async fn restore_trial_users(state: Arc<Mutex<State>>, clients: XrayClients) {
+pub async fn restore_trial_users(state: Arc<Mutex<State>>, client: HandlerClient) {
     let trial_users = state.lock().await.get_all_trial_users(UserStatus::Expired);
     let now = Utc::now();
 
     for (user_id, user) in trial_users {
         let state = state.clone();
-        let clients = clients.clone();
+        let client = client.clone();
 
         tokio::spawn(async move {
             let mut state = state.lock().await;
@@ -327,7 +326,7 @@ pub async fn restore_trial_users(state: Arc<Mutex<State>>, clients: XrayClients)
 
                 let vmess_restore = {
                     let user_info = vmess::UserInfo::new(user_id);
-                    vmess::add_user(clients.clone(), user_info.clone())
+                    vmess::add_user(client.clone(), user_info.clone())
                         .await
                         .map(|_| debug!("User restored in VMess: {}", user_info.uuid))
                         .map_err(|e| error!("Failed to restore user in VMess: {}", e))
@@ -335,7 +334,7 @@ pub async fn restore_trial_users(state: Arc<Mutex<State>>, clients: XrayClients)
 
                 let xtls_vless_restore = {
                     let user_info = vless::UserInfo::new(user_id, vless::UserFlow::Vision);
-                    vless::add_user(clients.clone(), user_info.clone())
+                    vless::add_user(client.clone(), user_info.clone())
                         .await
                         .map(|_| debug!("User restored in Vless: {}", user_info.uuid))
                         .map_err(|e| error!("Failed to restore user in VlessXtls: {}", e))
@@ -343,7 +342,7 @@ pub async fn restore_trial_users(state: Arc<Mutex<State>>, clients: XrayClients)
 
                 let grpc_vless_restore = {
                     let user_info = vless::UserInfo::new(user_id, vless::UserFlow::Direct);
-                    vless::add_user(clients.clone(), user_info.clone())
+                    vless::add_user(client.clone(), user_info.clone())
                         .await
                         .map(|_| debug!("User restored in VLess: {}", user_info.uuid))
                         .map_err(|e| error!("Failed to restore user in VlessGrpc: {}", e))
@@ -365,7 +364,7 @@ pub async fn restore_trial_users(state: Arc<Mutex<State>>, clients: XrayClients)
 
 pub async fn block_trial_users_by_limit(
     state: Arc<Mutex<State>>,
-    clients: XrayClients,
+    client: HandlerClient,
     env: String,
     node_id: Uuid,
     endpoint: String,
@@ -380,7 +379,7 @@ pub async fn block_trial_users_by_limit(
         let state = state.clone();
         let user_id = user_id.clone();
         let user = user.clone();
-        let clients = clients.clone();
+        let client = client.clone();
         let env = env.clone();
         let endpoint = endpoint.clone();
         let token = token.clone();
@@ -412,7 +411,7 @@ pub async fn block_trial_users_by_limit(
                 let remove_tasks: Vec<_> = inbounds
                     .into_iter()
                     .map(|inbound| {
-                        tokio::spawn(remove_user(clients.clone(), user_id.clone(), inbound))
+                        tokio::spawn(remove_user(client.clone(), user_id.clone(), inbound))
                     })
                     .collect();
 

@@ -9,15 +9,30 @@ use crate::xray_api::xray::app::{
     stats::command::stats_service_client::StatsServiceClient,
 };
 
-#[derive(Clone)]
-pub struct XrayClients {
-    pub handler_client: Arc<Mutex<HandlerServiceClient<Channel>>>,
-    pub stats_client: Arc<Mutex<StatsServiceClient<Channel>>>,
+pub trait XrayClient {
+    type Client;
+
+    fn new(
+        endpoint: &str,
+    ) -> impl std::future::Future<Output = Result<Self, Box<dyn Error>>> + Send
+    where
+        Self: Sized;
+
+    fn lock(
+        &self,
+    ) -> impl std::future::Future<Output = tokio::sync::MutexGuard<'_, Self::Client>> + Send;
 }
 
-impl XrayClients {
-    pub async fn new(endpoint: String) -> Result<Self, Box<dyn Error>> {
-        let channel = Channel::from_shared(endpoint.clone())?
+#[derive(Clone)]
+pub struct HandlerClient {
+    pub client: Arc<Mutex<HandlerServiceClient<Channel>>>,
+}
+
+impl XrayClient for HandlerClient {
+    type Client = HandlerServiceClient<Channel>;
+
+    async fn new(endpoint: &str) -> Result<Self, Box<dyn Error>> {
+        let channel = Channel::from_shared(endpoint.to_string())?
             .connect()
             .await
             .map_err(|e| {
@@ -25,12 +40,38 @@ impl XrayClients {
                 e
             })?;
 
-        let handler_client = Arc::new(Mutex::new(HandlerServiceClient::new(channel.clone())));
-        let stats_client = Arc::new(Mutex::new(StatsServiceClient::new(channel)));
+        Ok(Self {
+            client: Arc::new(HandlerServiceClient::new(channel).into()),
+        })
+    }
+
+    async fn lock(&self) -> tokio::sync::MutexGuard<'_, HandlerServiceClient<Channel>> {
+        self.client.lock().await
+    }
+}
+
+#[derive(Clone)]
+pub struct StatsClient {
+    pub client: Arc<Mutex<StatsServiceClient<Channel>>>,
+}
+
+impl XrayClient for StatsClient {
+    type Client = StatsServiceClient<Channel>;
+    async fn new(endpoint: &str) -> Result<Self, Box<dyn Error>> {
+        let channel = Channel::from_shared(endpoint.to_string())?
+            .connect()
+            .await
+            .map_err(|e| {
+                error!("Couldn't connect to Xray API at {}: {}", endpoint, e);
+                e
+            })?;
 
         Ok(Self {
-            handler_client: handler_client,
-            stats_client: stats_client,
+            client: Arc::new(StatsServiceClient::new(channel).into()),
         })
+    }
+
+    async fn lock(&self) -> tokio::sync::MutexGuard<'_, StatsServiceClient<Channel>> {
+        self.client.lock().await
     }
 }

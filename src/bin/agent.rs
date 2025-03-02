@@ -24,7 +24,7 @@ use pony::{
     postgres::{postgres::postgres_client, user::users_db_request},
     state::{node::Node, state::State},
     utils::{current_timestamp, human_readable_date, level_from_settings, measure_time},
-    xray_op::client::XrayClients,
+    xray_op::client::{HandlerClient, StatsClient, XrayClient},
     zmq::subscriber::subscriber,
 };
 
@@ -101,10 +101,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     let xray_api_endpoint = format!("http://{}", xray_config.api.listen.clone());
-    let xray_api_clients = match XrayClients::new(xray_api_endpoint).await {
-        Ok(clients) => clients,
-        Err(e) => panic!("Can't create clients: {}", e),
-    };
+
+    let xray_stats_client = StatsClient::new(&xray_api_endpoint).await?;
+    let xray_handler_client = HandlerClient::new(&xray_api_endpoint).await?;
 
     // User State
     let state = {
@@ -145,7 +144,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         agent::init_state(
                             state.clone(),
                             settings.xray.xray_daily_limit_mb,
-                            xray_api_clients.clone(),
+                            xray_handler_client.clone(),
                             user,
                         )
                     })
@@ -200,14 +199,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         info!("Running Stat job");
         let stats_task = tokio::spawn({
             let state = state.clone();
-            let clients = xray_api_clients.clone();
+            let stats_client = xray_stats_client.clone();
+            let handler_client = xray_handler_client.clone();
+
             let env = env.clone();
             async move {
                 loop {
                     tokio::task::yield_now().await;
                     sleep(Duration::from_secs(settings.app.stat_jobs_timeout)).await;
                     let _ = agent::collect_stats_job(
-                        clients.clone(),
+                        stats_client.clone(),
+                        handler_client.clone(),
                         state.clone(),
                         settings.node.uuid,
                         env.clone(),
@@ -224,7 +226,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         info!("Running trial users limit by traffic job");
         let block_trial_users_by_limit_handle = tokio::spawn({
             let state = state.clone();
-            let clients = xray_api_clients.clone();
+            let clients = xray_handler_client.clone();
             let endpoint = settings.api.endpoint.clone();
             let api_token = settings.api.token.clone();
             async move {
@@ -249,7 +251,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         info!("Running restoring trial users job");
         let restore_trial_users_handle = tokio::spawn({
             let state = state.clone();
-            let clients = xray_api_clients.clone();
+            let clients = xray_handler_client.clone();
             async move {
                 loop {
                     tokio::task::yield_now().await;
@@ -266,7 +268,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let settings = settings.clone();
         let user_state = state.clone();
         tasks.push(tokio::spawn(subscriber(
-            xray_api_clients.clone(),
+            xray_handler_client,
             settings.clone(),
             user_state,
         )))

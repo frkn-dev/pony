@@ -1,17 +1,14 @@
 use crate::state::user::User;
+use crate::xray_op::client::HandlerClient;
 use log::{debug, error, info};
 use std::error::Error;
 use std::{sync::Arc, thread};
 use tokio::{sync::Mutex, time::Duration};
 use zmq;
 
-use crate::xray_op::actions::{create_users, remove_users};
-
-use crate::{
-    config::settings::AgentSettings, state::state::State, utils::measure_time, xray_op::client,
-};
-
 use super::message::{Action, Message};
+use crate::xray_op::actions::{create_users, remove_users};
+use crate::{config::settings::AgentSettings, state::state::State, utils::measure_time};
 
 fn try_connect(endpoint: &str, topic: &str) -> zmq::Socket {
     let context = zmq::Context::new();
@@ -37,11 +34,7 @@ fn try_connect(endpoint: &str, topic: &str) -> zmq::Socket {
     subscriber
 }
 
-pub async fn subscriber(
-    clients: client::XrayClients,
-    settings: AgentSettings,
-    state: Arc<Mutex<State>>,
-) {
+pub async fn subscriber(clients: HandlerClient, settings: AgentSettings, state: Arc<Mutex<State>>) {
     let subscriber = try_connect(&settings.zmq.sub_endpoint, &settings.node.env);
 
     info!(
@@ -104,7 +97,7 @@ pub async fn subscriber(
 }
 
 pub async fn process_message(
-    clients: client::XrayClients,
+    client: HandlerClient,
     message: Message,
     state: Arc<Mutex<State>>,
     config_daily_limit_mb: i64,
@@ -120,7 +113,7 @@ pub async fn process_message(
 
             println!("USER {:?}", user);
 
-            match create_users(message.user_id.clone(), message.password.clone(), clients).await {
+            match create_users(message.user_id.clone(), message.password.clone(), client).await {
                 Ok(_) => {
                     let mut state_guard = state.lock().await;
 
@@ -139,7 +132,7 @@ pub async fn process_message(
             }
         }
         Action::Delete => {
-            if let Err(e) = remove_users(message.user_id, clients.clone()).await {
+            if let Err(e) = remove_users(message.user_id, client).await {
                 return Err(format!("Couldn't remove users from Xray: {}", e).into());
             } else {
                 let mut state = state.lock().await;
@@ -155,8 +148,7 @@ pub async fn process_message(
                 if let Some(trial) = message.trial {
                     if trial != user.trial {
                         if let Err(e) =
-                            create_users(message.user_id, message.password.clone(), clients.clone())
-                                .await
+                            create_users(message.user_id, message.password.clone(), client).await
                         {
                             return Err(format!(
                                 "Couldn’t update trial for user {}: {}",

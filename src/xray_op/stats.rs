@@ -2,7 +2,10 @@ use log::debug;
 use tonic::{Request, Status};
 use uuid::Uuid;
 
-use super::{client::XrayClients, user};
+use super::{
+    client::{HandlerClient, StatsClient, XrayClient},
+    user,
+};
 use crate::state::{
     stats::{InboundStat, Stat, StatType, UserStat},
     tag::Tag,
@@ -26,13 +29,13 @@ impl Prefix {
 }
 
 async fn get_stat(
-    clients: XrayClients,
+    client: StatsClient,
     prefix: Prefix,
     stat_type: Stat,
     reset: bool,
 ) -> Result<GetStatsResponse, Status> {
     let response = {
-        let mut client = clients.stats_client.lock().await;
+        let mut stats_client = client.lock().await;
 
         let stat_name = match prefix {
             Prefix::InboundPrefix(tag) => format!("inbound>>>{}", tag),
@@ -47,7 +50,7 @@ async fn get_stat(
                     name: stat_name,
                     reset: reset,
                 });
-                client.get_stats(request).await
+                stats_client.get_stats(request).await
             }
             Stat::User(StatType::Online) => {
                 let stat_name = format!("{}>>>{}", stat_name, stat_type);
@@ -55,7 +58,7 @@ async fn get_stat(
                     name: stat_name,
                     reset: reset,
                 });
-                client.get_stats_online(request).await
+                stats_client.get_stats_online(request).await
             }
             Stat::Inbound(StatType::Downlink) | Stat::Inbound(StatType::Uplink) => {
                 let stat_name = format!("{}>>>traffic>>>{}", stat_name, stat_type);
@@ -64,7 +67,7 @@ async fn get_stat(
                     name: stat_name,
                     reset: reset,
                 });
-                client.get_stats(request).await
+                stats_client.get_stats(request).await
             }
             Stat::Inbound(StatType::Online) => {
                 Err(Status::internal("Online is not supported for inbound"))
@@ -81,28 +84,23 @@ async fn get_stat(
     }
 }
 
-pub async fn get_user_stats(clients: XrayClients, user_id: Prefix) -> Result<UserStat, Status> {
+pub async fn get_user_stats(client: StatsClient, user_id: Prefix) -> Result<UserStat, Status> {
     debug!("get_user_stats {:?}", user_id);
 
     let (downlink_result, uplink_result, online_result) = tokio::join!(
         get_stat(
-            clients.clone(),
+            client.clone(),
             user_id.clone(),
             Stat::User(StatType::Downlink),
             false
         ),
         get_stat(
-            clients.clone(),
+            client.clone(),
             user_id.clone(),
             Stat::User(StatType::Uplink),
             false
         ),
-        get_stat(
-            clients,
-            user_id.clone(),
-            Stat::User(StatType::Online),
-            false
-        )
+        get_stat(client, user_id.clone(), Stat::User(StatType::Online), false)
     );
 
     match (downlink_result, uplink_result, online_result) {
@@ -145,11 +143,12 @@ pub async fn get_user_stats(clients: XrayClients, user_id: Prefix) -> Result<Use
 }
 
 pub async fn get_inbound_stats(
-    clients: XrayClients,
+    stats_client: StatsClient,
+    handler_client: HandlerClient,
     inbound: Prefix,
 ) -> Result<InboundStat, Status> {
     let downlink_result = get_stat(
-        clients.clone(),
+        stats_client.clone(),
         inbound.clone(),
         Stat::Inbound(StatType::Downlink),
         false,
@@ -157,7 +156,7 @@ pub async fn get_inbound_stats(
     .await;
 
     let uplink_result = get_stat(
-        clients.clone(),
+        stats_client.clone(),
         inbound.clone(),
         Stat::Inbound(StatType::Uplink),
         false,
@@ -165,7 +164,7 @@ pub async fn get_inbound_stats(
     .await;
 
     let user_count_result =
-        get_user_count(clients.clone(), inbound.as_tag().unwrap().clone()).await;
+        get_user_count(handler_client.clone(), inbound.as_tag().unwrap().clone()).await;
 
     match (downlink_result, uplink_result, user_count_result) {
         (Ok(downlink), Ok(uplink), Ok(user_count)) => {
@@ -212,8 +211,8 @@ pub async fn get_inbound_stats(
     }
 }
 
-pub async fn get_user_count(clients: XrayClients, inbound: Tag) -> Result<Option<i64>, Status> {
-    match user::user_count(clients, inbound.clone()).await {
+pub async fn get_user_count(client: HandlerClient, inbound: Tag) -> Result<Option<i64>, Status> {
+    match user::user_count(client, inbound.clone()).await {
         Ok(count) => Ok(Some(count)),
         Err(e) => Err(Status::internal(format!(
             "Failed to fetch user count for inbound {}: {}",

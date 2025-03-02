@@ -2,7 +2,7 @@ use std::fmt;
 use tonic::Request;
 use uuid::Uuid;
 
-use super::client::XrayClients;
+use super::client::{HandlerClient, XrayClient};
 use crate::state::tag::Tag;
 
 use crate::xray_api::xray::{
@@ -55,7 +55,7 @@ impl fmt::Display for UserFlow {
     }
 }
 
-pub async fn add_user(clients: XrayClients, user_info: UserInfo) -> Result<(), tonic::Status> {
+pub async fn add_user(client: HandlerClient, user_info: UserInfo) -> Result<(), tonic::Status> {
     let vless_account = Account {
         id: user_info.uuid.to_string(),
         flow: user_info.flow.to_string(),
@@ -87,7 +87,7 @@ pub async fn add_user(clients: XrayClients, user_info: UserInfo) -> Result<(), t
         operation: Some(operation_message),
     };
 
-    let mut handler_client = clients.handler_client.lock().await;
+    let mut handler_client = client.lock().await;
 
     handler_client
         .alter_inbound(Request::new(request))

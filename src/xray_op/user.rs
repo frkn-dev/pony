@@ -5,11 +5,12 @@ use crate::xray_api::xray::app::proxyman::command::{
     GetInboundUserRequest, GetInboundUserResponse, GetInboundUsersCountResponse,
 };
 
-use super::client::XrayClients;
 use crate::state::tag::Tag;
 
+use super::client::{HandlerClient, XrayClient};
+
 pub async fn get_user(
-    clients: XrayClients,
+    client: HandlerClient,
     tag: Tag,
     user_id: String,
 ) -> Result<GetInboundUserResponse, Status> {
@@ -18,7 +19,7 @@ pub async fn get_user(
         email: format!("{}@pony", user_id).to_string(),
     };
 
-    let mut handler_client = clients.handler_client.lock().await;
+    let mut handler_client = client.lock().await;
 
     handler_client
         .get_inbound_users(Request::new(request))
@@ -30,13 +31,13 @@ pub async fn get_user(
         })
 }
 
-pub async fn user_count(clients: XrayClients, tag: Tag) -> Result<i64, Status> {
+pub async fn user_count(client: HandlerClient, tag: Tag) -> Result<i64, Status> {
     let request = GetInboundUserRequest {
         tag: tag.to_string(),
         email: "".to_string(),
     };
 
-    let mut handler_client = clients.handler_client.lock().await;
+    let mut handler_client = client.lock().await;
 
     match handler_client
         .get_inbound_users_count(Request::new(request))

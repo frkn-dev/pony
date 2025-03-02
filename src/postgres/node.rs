@@ -25,7 +25,7 @@ pub async fn nodes_db_request(client: Arc<Mutex<Client>>) -> Result<Vec<Node>, B
 
     let rows = client
         .query(
-            "SELECT hostname, ipv4, status, inbounds, env, uuid, created_at, modified_at 
+            "SELECT hostname, ipv4, status, inbounds, env, uuid, created_at, modified_at, label 
              FROM nodes",
             &[],
         )
@@ -42,6 +42,7 @@ pub async fn nodes_db_request(client: Arc<Mutex<Client>>) -> Result<Vec<Node>, B
             let uuid: Uuid = row.get(5);
             let created_at: DateTime<Utc> = row.get(6);
             let modified_at: DateTime<Utc> = row.get(7);
+            let label: String = row.get(8);
 
             if let Some(ipv4_addr) = to_ipv4(ipv4) {
                 Some(Node {
@@ -53,6 +54,7 @@ pub async fn nodes_db_request(client: Arc<Mutex<Client>>) -> Result<Vec<Node>, B
                     uuid,
                     created_at,
                     modified_at,
+                    label: label,
                 })
             } else {
                 None

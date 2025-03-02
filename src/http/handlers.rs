@@ -169,7 +169,12 @@ pub async fn node_register(
     }
 }
 
-fn vless_xtls_conn(user_id: Uuid, ipv4: Ipv4Addr, inbound: Inbound) -> Option<String> {
+fn vless_xtls_conn(
+    user_id: Uuid,
+    ipv4: Ipv4Addr,
+    inbound: Inbound,
+    label: String,
+) -> Option<String> {
     let port = inbound.port;
     let stream_settings = inbound.stream_settings?;
     let reality_settings = stream_settings.reality_settings?;
@@ -178,14 +183,19 @@ fn vless_xtls_conn(user_id: Uuid, ipv4: Ipv4Addr, inbound: Inbound) -> Option<St
     let sni = reality_settings.server_names.first()?;
 
     let conn = format!(
-        "vless://{user_id}@{ipv4}:{port}?security=reality&flow=xtls-rprx-vision&type=tcp&sni={sni}&fp=chrome&pbk={pbk}&sid={sid}#VLESS-XTLS"
+        "vless://{user_id}@{ipv4}:{port}?security=reality&flow=xtls-rprx-vision&type=tcp&sni={sni}&fp=chrome&pbk={pbk}&sid={sid}#{label}"
     );
     debug!("Conn XTLS Vless - {}", conn);
 
     Some(conn)
 }
 
-fn vless_grpc_conn(user_id: Uuid, ipv4: Ipv4Addr, inbound: Inbound) -> Option<String> {
+fn vless_grpc_conn(
+    user_id: Uuid,
+    ipv4: Ipv4Addr,
+    inbound: Inbound,
+    label: String,
+) -> Option<String> {
     let port = inbound.port;
     let stream_settings = inbound.stream_settings?;
     let reality_settings = stream_settings.reality_settings?;
@@ -196,14 +206,19 @@ fn vless_grpc_conn(user_id: Uuid, ipv4: Ipv4Addr, inbound: Inbound) -> Option<St
     let sni = reality_settings.server_names.first()?;
 
     let conn = format!(
-        "vless://{user_id}@{ipv4}:{port}?security=reality&type=grpc&mode=gun&serviceName={service_name}&fp=chrome&sni={sni}&pbk={pbk}&sid={sid}#VLESS-GRPC"
+        "vless://{user_id}@{ipv4}:{port}?security=reality&type=grpc&mode=gun&serviceName={service_name}&fp=chrome&sni={sni}&pbk={pbk}&sid={sid}#{label}"
     );
     debug!("Conn GRPC Vless - {}", conn);
 
     Some(conn)
 }
 
-pub fn vmess_tcp_conn(user_id: Uuid, ipv4: Ipv4Addr, inbound: Inbound) -> Option<String> {
+pub fn vmess_tcp_conn(
+    user_id: Uuid,
+    ipv4: Ipv4Addr,
+    inbound: Inbound,
+    label: String,
+) -> Option<String> {
     let mut conn: HashMap<String, String> = HashMap::new();
     let port = inbound.port;
     let stream_settings = inbound.stream_settings?;
@@ -234,7 +249,7 @@ pub fn vmess_tcp_conn(user_id: Uuid, ipv4: Ipv4Addr, inbound: Inbound) -> Option
 
     let base64_str = general_purpose::STANDARD.encode(json_str);
 
-    Some(format!("vmess://{base64_str}"))
+    Some(format!("vmess://{base64_str}#{label}"))
 }
 
 #[derive(Serialize, Deserialize)]
@@ -261,9 +276,15 @@ pub async fn get_conn(
                 .flat_map(|node| {
                     debug!("TAGS {:?}", node.inbounds.keys());
                     node.inbounds.iter().filter_map(|(tag, inbound)| match tag {
-                        Tag::VlessXtls => vless_xtls_conn(user_id, node.ipv4, inbound.clone()),
-                        Tag::VlessGrpc => vless_grpc_conn(user_id, node.ipv4, inbound.clone()),
-                        Tag::Vmess => vmess_tcp_conn(user_id, node.ipv4, inbound.clone()),
+                        Tag::VlessXtls => {
+                            vless_xtls_conn(user_id, node.ipv4, inbound.clone(), node.label.clone())
+                        }
+                        Tag::VlessGrpc => {
+                            vless_grpc_conn(user_id, node.ipv4, inbound.clone(), node.label.clone())
+                        }
+                        Tag::Vmess => {
+                            vmess_tcp_conn(user_id, node.ipv4, inbound.clone(), node.label.clone())
+                        }
                         _ => None,
                     })
                 })

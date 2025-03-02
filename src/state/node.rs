@@ -62,6 +62,7 @@ pub struct NodeRequest {
     pub ipv4: Ipv4Addr,
     pub inbounds: HashMap<Tag, Inbound>,
     pub uuid: Uuid,
+    pub label: String,
 }
 
 impl NodeRequest {
@@ -76,6 +77,7 @@ impl NodeRequest {
             status: NodeStatus::Online,
             created_at: now,
             modified_at: now,
+            label: self.label,
         }
     }
 }
@@ -100,10 +102,18 @@ pub struct Node {
     pub uuid: Uuid,
     pub created_at: DateTime<Utc>,
     pub modified_at: DateTime<Utc>,
+    pub label: String,
 }
 
 impl Node {
-    pub fn new(config: Config, hostname: String, ipv4: Ipv4Addr, env: String, uuid: Uuid) -> Self {
+    pub fn new(
+        config: Config,
+        hostname: String,
+        ipv4: Ipv4Addr,
+        env: String,
+        uuid: Uuid,
+        label: String,
+    ) -> Self {
         let now = Utc::now();
         let inbounds = config
             .inbounds
@@ -119,6 +129,7 @@ impl Node {
             uuid: uuid,
             created_at: now,
             modified_at: now,
+            label: label,
         }
     }
 

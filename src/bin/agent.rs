@@ -121,6 +121,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .unwrap_or_else(|| Ipv4Addr::new(127, 0, 0, 1)),
             env.clone(),
             node_uuid,
+            settings.node.label.clone(),
         );
 
         let mut state = State::new();

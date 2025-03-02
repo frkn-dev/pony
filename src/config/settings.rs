@@ -104,6 +104,10 @@ fn default_api_token() -> String {
     "supetsecrettoken".to_string()
 }
 
+fn default_label() -> String {
+    "🏴️️🏴️️🏴️️ dev".to_string()
+}
+
 fn default_node_health_check_timeout() -> i16 {
     60
 }
@@ -175,6 +179,8 @@ pub struct NodeConfig {
     pub ipv4: Option<Ipv4Addr>,
     #[serde(default = "default_uuid")]
     pub uuid: Uuid,
+    #[serde(default = "default_label")]
+    pub label: String,
 }
 
 impl NodeConfig {

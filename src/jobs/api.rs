@@ -74,6 +74,7 @@ pub async fn node_healthcheck(
                 }
                 None => {
                     error!("Failed to fetch heartbeat for node {:?}", node.uuid);
+                    let _ = node.update_status(NodeStatus::Offline);
                     Err("No heartbeat value found")
                 }
             }

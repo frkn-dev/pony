@@ -288,7 +288,6 @@ pub async fn init_state(
         db_user.user_id,
         Some(db_user.password.clone()),
         clients.clone(),
-        state.clone(),
     )
     .await
     {

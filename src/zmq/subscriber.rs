@@ -120,14 +120,7 @@ pub async fn process_message(
 
             println!("USER {:?}", user);
 
-            match create_users(
-                message.user_id.clone(),
-                message.password.clone(),
-                clients,
-                state.clone(),
-            )
-            .await
-            {
+            match create_users(message.user_id.clone(), message.password.clone(), clients).await {
                 Ok(_) => {
                     let mut state_guard = state.lock().await;
 
@@ -146,7 +139,7 @@ pub async fn process_message(
             }
         }
         Action::Delete => {
-            if let Err(e) = remove_users(message.user_id, state.clone(), clients.clone()).await {
+            if let Err(e) = remove_users(message.user_id, clients.clone()).await {
                 return Err(format!("Couldn't remove users from Xray: {}", e).into());
             } else {
                 let mut state = state.lock().await;
@@ -161,13 +154,9 @@ pub async fn process_message(
             if let Some(user) = state_lock.get_user(message.user_id).await {
                 if let Some(trial) = message.trial {
                     if trial != user.trial {
-                        if let Err(e) = create_users(
-                            message.user_id,
-                            message.password.clone(),
-                            clients.clone(),
-                            state.clone(),
-                        )
-                        .await
+                        if let Err(e) =
+                            create_users(message.user_id, message.password.clone(), clients.clone())
+                                .await
                         {
                             return Err(format!(
                                 "Couldn’t update trial for user {}: {}",

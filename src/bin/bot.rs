@@ -1,5 +1,8 @@
 use clap::Parser;
 use fern::Dispatch;
+use log::debug;
+use reqwest::Url;
+use std::collections::HashMap;
 use std::error::Error;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -9,14 +12,17 @@ use teloxide::{
     payloads::SendMessageSetters,
     prelude::*,
     types::{
-        InlineKeyboardButton, InlineKeyboardMarkup, InlineQueryResultArticle, InputMessageContent,
-        InputMessageContentText, Me,
+        InlineKeyboardButton, InlineKeyboardMarkup, InlineQuery, InlineQueryResultArticle,
+        InputMessageContent, InputMessageContentText, Me,
     },
     utils::command::BotCommands,
 };
 
-use pony::jobs::bot::{create_vpn_user, register};
 use pony::utils::*;
+use pony::{
+    jobs::bot::{create_vpn_user, get_conn, register},
+    user_exist,
+};
 use pony::{postgres_client, BotSettings, Settings};
 
 #[derive(BotCommands)]
@@ -74,18 +80,42 @@ async fn main() -> Result<(), Box<dyn Error>> {
         Err(e) => panic!("PG not available, {}", e),
     };
 
+    let settings = Arc::new(Mutex::new(settings));
+
     let bot = Bot::from_env();
 
+    let callback_map: Arc<Mutex<HashMap<String, String>>> = Arc::new(Mutex::new(HashMap::new()));
+
     let handler = dptree::entry()
-        .branch(
-            Update::filter_message().endpoint(move |bot: Bot, msg: Message, me: Me| {
-                let client = pg_client.clone();
-                let settings = settings.clone();
-                async move { message_handler(bot, msg, me, client, settings).await }
-            }),
-        )
-        .branch(Update::filter_callback_query().endpoint(callback_handler))
-        .branch(Update::filter_inline_query().endpoint(inline_query_handler));
+        .branch(Update::filter_message().endpoint({
+            let client = Arc::clone(&pg_client);
+            let settings = Arc::clone(&settings);
+            let callback_map = Arc::clone(&callback_map);
+            move |bot: Bot, msg: Message, me: Me| {
+                let client = Arc::clone(&client);
+                let settings = Arc::clone(&settings);
+                let callback_map = Arc::clone(&callback_map);
+                async move { message_handler(bot, msg, me, client, settings, callback_map).await }
+            }
+        }))
+        .branch(Update::filter_callback_query().endpoint({
+            let callback_map = Arc::clone(&callback_map);
+            move |bot: Bot, q: CallbackQuery| {
+                let callback_map = Arc::clone(&callback_map);
+                async move { callback_handler(bot, q, callback_map).await }
+            }
+        }))
+        .branch(Update::filter_inline_query().endpoint({
+            let client = Arc::clone(&pg_client);
+            let settings = Arc::clone(&settings);
+            let callback_map = Arc::clone(&callback_map);
+            move |bot: Bot, q: InlineQuery| {
+                let client = Arc::clone(&client);
+                let settings = Arc::clone(&settings);
+                let callback_map = Arc::clone(&callback_map);
+                async move { inline_query_handler(bot, q, client, settings, callback_map).await }
+            }
+        }));
 
     Dispatcher::builder(bot, handler)
         .enable_ctrlc_handler()
@@ -95,33 +125,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-/// Creates a keyboard made by buttons in a big column.
-fn make_keyboard() -> InlineKeyboardMarkup {
-    let mut keyboard: Vec<Vec<InlineKeyboardButton>> = vec![];
-
-    let actions = ["Vless", "Vmess"];
-
-    for action in actions.chunks(2) {
-        let row = action
-            .iter()
-            .map(|&action| InlineKeyboardButton::callback(action.to_owned(), action.to_owned()))
-            .collect();
-
-        keyboard.push(row);
-    }
-
-    InlineKeyboardMarkup::new(keyboard)
-}
-
-/// Parse the text wrote on Telegram and check if that text is a valid command
-/// or not, then match the command. If the command is `/start` it writes a
-/// markup with the `InlineKeyboardMarkup`.
 async fn message_handler(
     bot: Bot,
     msg: Message,
     me: Me,
     client: Arc<Mutex<Client>>,
-    settings: BotSettings,
+    settings: Arc<Mutex<BotSettings>>,
+    callback_map: Arc<Mutex<HashMap<String, String>>>,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     if let Some(text) = msg.text() {
         match BotCommands::parse(text, me.username()) {
@@ -140,13 +150,16 @@ async fn message_handler(
                 // Handle user registration.
                 if let Some(user) = msg.from {
                     if let Some(username) = user.username {
-                        match register(&username, client).await {
+                        let user_id = uuid::Uuid::new_v4();
+                        match register(&username, user_id, client).await {
                             Ok(_) => {
+                                let settings = settings.lock().await;
                                 let reply = format!("УСПЕХ {}", username);
                                 if let Ok(_user) = create_vpn_user(
                                     username,
-                                    settings.api.endpoint,
-                                    settings.api.token,
+                                    user_id,
+                                    settings.api.endpoint.clone(),
+                                    settings.api.token.clone(),
                                 )
                                 .await
                                 {
@@ -162,10 +175,29 @@ async fn message_handler(
                 }
             }
             Ok(Command::Getvpn) => {
-                let keyboard = make_keyboard();
-                bot.send_message(msg.chat.id, "Ok")
-                    .reply_markup(keyboard)
-                    .await?;
+                if let Some(user) = msg.from {
+                    if let Some(username) = user.username {
+                        if let Some(user_id) =
+                            user_exist(client.clone(), username.to_string()).await
+                        {
+                            let settings = settings.lock().await;
+
+                            if let Ok(conns) = get_conn(
+                                user_id,
+                                settings.api.endpoint.clone(),
+                                settings.api.token.clone(),
+                            )
+                            .await
+                            {
+                                let keyboard = make_keyboard(conns.clone(), callback_map).await;
+                                debug!("Conns {:?}", conns);
+                                bot.send_message(msg.chat.id, "Выбери VPN")
+                                    .reply_markup(keyboard)
+                                    .await?;
+                            }
+                        }
+                    }
+                }
             }
             Ok(Command::Refferal) => {
                 bot.send_message(msg.chat.id, "Поделитесь с другом").await?;
@@ -186,46 +218,102 @@ async fn message_handler(
 async fn inline_query_handler(
     bot: Bot,
     q: InlineQuery,
+    client: Arc<Mutex<Client>>,
+    settings: Arc<Mutex<BotSettings>>,
+    callback_map: Arc<Mutex<HashMap<String, String>>>,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
-    let choose_debian_version = InlineQueryResultArticle::new(
-        "0",
-        "Chose debian version",
-        InputMessageContent::Text(InputMessageContentText::new("")),
-    )
-    .reply_markup(make_keyboard());
+    if let Some(user_id) = user_exist(client.clone(), q.from.username.unwrap()).await {
+        let settings = settings.lock().await;
 
-    bot.answer_inline_query(q.id, vec![choose_debian_version.into()])
-        .await?;
+        if let Ok(conns) = get_conn(
+            user_id,
+            settings.api.endpoint.clone(),
+            settings.api.token.clone(),
+        )
+        .await
+        {
+            // Вызываем make_keyboard, который возвращает HashMap
+            let keyboard = make_keyboard(conns, callback_map.clone()).await;
+
+            println!(
+                "callback_map after update: {:?}",
+                *callback_map.lock().await
+            );
+
+            let choose_vpn = InlineQueryResultArticle::new(
+                "0",
+                "Choose vpn version",
+                InputMessageContent::Text(InputMessageContentText::new("Choose VPN ")),
+            )
+            .reply_markup(keyboard);
+
+            bot.answer_inline_query(q.id, vec![choose_vpn.into()])
+                .await?;
+        }
+    }
 
     Ok(())
 }
 
-/// When it receives a callback from a button it edits the message with all
-/// those buttons writing a text with the selected Debian version.
-///
-/// **IMPORTANT**: do not send privacy-sensitive data this way!!!
-/// Anyone can read data stored in the callback button.
-async fn callback_handler(bot: Bot, q: CallbackQuery) -> Result<(), Box<dyn Error + Send + Sync>> {
-    if let Some(ref version) = q.data {
-        let text = format!("You chose: {version}");
+async fn callback_handler(
+    bot: Bot,
+    q: CallbackQuery,
+    callback_map: Arc<Mutex<HashMap<String, String>>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    if let Some(ref key) = q.data {
+        let map_lock = callback_map.lock().await;
+        if let Some(conn) = map_lock.get(key) {
+            let text = format!("🔗 Ваша VPN ссылка:\n{}", conn);
 
-        println!("{:?}", q);
+            bot.answer_callback_query(&q.id).await?;
 
-        // Tell telegram that we've seen this query, to remove 🕑 icons from the
-        // clients. You could also use `answer_callback_query`'s optional
-        // parameters to tweak what happens on the client side.
-        bot.answer_callback_query(&q.id).await?;
+            if let Some(message) = q.clone().regular_message() {
+                bot.edit_message_text(message.chat.id, message.id, text)
+                    .await?;
+            } else if let Some(id) = q.inline_message_id {
+                bot.edit_message_text_inline(id, text).await?;
+            }
 
-        // Edit text of the message to which the buttons were attached
-        if let Some(message) = q.clone().regular_message() {
-            bot.edit_message_text(message.chat.id, message.id, text)
-                .await?;
-        } else if let Some(id) = q.inline_message_id {
-            bot.edit_message_text_inline(id, text).await?;
+            log::info!("User chose: {}", conn);
         }
-
-        log::info!("You chose: {}", version);
     }
 
     Ok(())
+}
+fn extract_info(conn: &str) -> (String, String) {
+    if let Ok(url) = Url::parse(conn) {
+        let scheme = url.scheme().to_uppercase(); // "VLESS", "VMESS"
+        let name = url.fragment().unwrap_or("UNKNOWN").to_string(); // "VLESS-XTLS" или "VLESS-GRPC"
+        (scheme, name)
+    } else {
+        ("UNKNOWN".to_string(), "INVALID".to_string())
+    }
+}
+
+async fn make_keyboard(
+    conns: Vec<String>,
+    callback_map: Arc<Mutex<HashMap<String, String>>>,
+) -> InlineKeyboardMarkup {
+    let mut keyboard = Vec::new();
+    let mut new_entries = HashMap::new();
+
+    for (i, conn) in conns.iter().enumerate() {
+        let key = format!("conn_{}", i);
+        let (protocol, name) = extract_info(conn);
+        new_entries.insert(key.clone(), conn.clone());
+
+        keyboard.push(vec![InlineKeyboardButton::callback(
+            format!("{} - {}", protocol, name),
+            key,
+        )]);
+    }
+
+    {
+        let mut map_lock = callback_map.lock().await;
+        map_lock.extend(new_entries);
+    }
+
+    println!("Updated callback_map: {:?}", callback_map.lock().await);
+
+    InlineKeyboardMarkup::new(keyboard)
 }

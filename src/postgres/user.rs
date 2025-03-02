@@ -24,9 +24,9 @@ pub struct UserRow {
 }
 
 impl UserRow {
-    pub fn new(username: &str) -> Self {
+    pub fn new(username: &str, user_id: Uuid) -> Self {
         Self {
-            user_id: Uuid::new_v4(),
+            user_id: user_id,
             username: Some(username.to_string()),
             trial: true,
             password: "random123".to_string(),

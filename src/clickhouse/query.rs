@@ -18,15 +18,17 @@ pub async fn fetch_heartbeat_value(
     uuid: Uuid,
 ) -> Option<MetricValue> {
     let metric_value_req = format!(
-        "SELECT toInt64(toUnixTimestamp(toDateTime(anyLast(Timestamp)))) AS latest,
-                Path AS metric,
-                toFloat64(anyLast(Value)) AS value
+        "SELECT 
+            toInt64(toUnixTimestamp(toDateTime(anyLast(Timestamp)))) AS latest,
+            Path AS metric,
+            toFloat64(anyLast(Value)) AS value
         FROM default.graphite_data
-        WHERE metric LIKE '{env}.{uuid}.heartbeat'
-        GROUP BY metric"
+        WHERE Path LIKE '{}.{}.heartbeat'
+        GROUP BY Path",
+        env, uuid
     );
 
-    debug!("Running query - {metric_value_req}");
+    debug!("Running query - {}", metric_value_req);
 
     let client = client.lock().await;
 
@@ -35,12 +37,10 @@ pub async fn fetch_heartbeat_value(
         .fetch_all::<MetricValue>()
         .await;
 
-    while let Ok(row) = &result {
-        debug!("{:?}", row);
+    match &result {
+        Ok(rows) => debug!("Query result: {:?}", rows),
+        Err(err) => debug!("Query error: {:?}", err),
     }
 
-    match result {
-        Ok(hb) => hb.first().cloned(),
-        Err(_) => None,
-    }
+    result.ok().and_then(|hb| hb.into_iter().next())
 }

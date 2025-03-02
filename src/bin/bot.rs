@@ -176,10 +176,13 @@ async fn message_handler(
             }
             Ok(Command::Getvpn) => {
                 if let Some(user) = msg.from {
+                    debug!("GETVPN COMMAND START");
                     if let Some(username) = user.username {
                         if let Some(user_id) =
                             user_exist(client.clone(), username.to_string()).await
                         {
+                            debug!("GETVPN user_id {}", user_id);
+
                             let settings = settings.lock().await;
 
                             if let Ok(conns) = get_conn(
@@ -232,7 +235,6 @@ async fn inline_query_handler(
         )
         .await
         {
-            // Вызываем make_keyboard, который возвращает HashMap
             let keyboard = make_keyboard(conns, callback_map.clone()).await;
 
             println!(
@@ -260,6 +262,8 @@ async fn callback_handler(
     q: CallbackQuery,
     callback_map: Arc<Mutex<HashMap<String, String>>>,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
+    println!("Callback data {:?}", q.data);
+
     if let Some(ref key) = q.data {
         let map_lock = callback_map.lock().await;
         if let Some(conn) = map_lock.get(key) {
@@ -282,8 +286,8 @@ async fn callback_handler(
 }
 fn extract_info(conn: &str) -> (String, String) {
     if let Ok(url) = Url::parse(conn) {
-        let scheme = url.scheme().to_uppercase(); // "VLESS", "VMESS"
-        let name = url.fragment().unwrap_or("UNKNOWN").to_string(); // "VLESS-XTLS" или "VLESS-GRPC"
+        let scheme = url.scheme().to_uppercase();
+        let name = url.fragment().unwrap_or("UNKNOWN").to_string();
         (scheme, name)
     } else {
         ("UNKNOWN".to_string(), "INVALID".to_string())

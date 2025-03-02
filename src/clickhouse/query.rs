@@ -42,5 +42,8 @@ pub async fn fetch_heartbeat_value(
         Err(err) => debug!("Query error: {:?}", err),
     }
 
-    result.ok().and_then(|hb| hb.into_iter().next())
+    match result {
+        Ok(hb) => hb.first().cloned(),
+        Err(_) => None,
+    }
 }

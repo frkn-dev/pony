@@ -105,7 +105,7 @@ fn default_api_token() -> String {
 }
 
 fn default_label() -> String {
-    "🏴️️🏴️️🏴️️ dev".to_string()
+    "🏴‍☠️🏴‍☠️🏴‍☠️ dev".to_string()
 }
 
 fn default_node_health_check_timeout() -> i16 {

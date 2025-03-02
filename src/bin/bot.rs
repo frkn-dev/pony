@@ -7,6 +7,7 @@ use std::error::Error;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio_postgres::Client;
+use urlencoding::decode;
 
 use teloxide::{
     payloads::SendMessageSetters,
@@ -284,10 +285,14 @@ async fn callback_handler(
 
     Ok(())
 }
+
 fn extract_info(conn: &str) -> (String, String) {
     if let Ok(url) = Url::parse(conn) {
         let scheme = url.scheme().to_uppercase();
         let name = url.fragment().unwrap_or("UNKNOWN").to_string();
+
+        // Декодируем URL
+        let name = decode(&name).map(|cow| cow.into_owned()).unwrap_or(name);
         (scheme, name)
     } else {
         ("UNKNOWN".to_string(), "INVALID".to_string())

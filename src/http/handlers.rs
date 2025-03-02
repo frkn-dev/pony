@@ -183,7 +183,7 @@ fn vless_xtls_conn(
     let sni = reality_settings.server_names.first()?;
 
     let conn = format!(
-        "vless://{user_id}@{ipv4}:{port}?security=reality&flow=xtls-rprx-vision&type=tcp&sni={sni}&fp=chrome&pbk={pbk}&sid={sid}#{label}"
+        "vless://{user_id}@{ipv4}:{port}?security=reality&flow=xtls-rprx-vision&type=tcp&sni={sni}&fp=chrome&pbk={pbk}&sid={sid}#{label} XTLS"
     );
     debug!("Conn XTLS Vless - {}", conn);
 
@@ -206,7 +206,7 @@ fn vless_grpc_conn(
     let sni = reality_settings.server_names.first()?;
 
     let conn = format!(
-        "vless://{user_id}@{ipv4}:{port}?security=reality&type=grpc&mode=gun&serviceName={service_name}&fp=chrome&sni={sni}&pbk={pbk}&sid={sid}#{label}"
+        "vless://{user_id}@{ipv4}:{port}?security=reality&type=grpc&mode=gun&serviceName={service_name}&fp=chrome&sni={sni}&pbk={pbk}&sid={sid}#{label} GRPC"
     );
     debug!("Conn GRPC Vless - {}", conn);
 

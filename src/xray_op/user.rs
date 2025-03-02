@@ -1,4 +1,6 @@
 use log::error;
+use std::sync::Arc;
+use tokio::sync::Mutex;
 use tonic::{Request, Status};
 
 use crate::xray_api::xray::app::proxyman::command::{
@@ -7,10 +9,10 @@ use crate::xray_api::xray::app::proxyman::command::{
 
 use crate::state::tag::Tag;
 
-use super::client::{HandlerClient, XrayClient};
+use super::client::HandlerClient;
 
 pub async fn get_user(
-    client: HandlerClient,
+    client: Arc<Mutex<HandlerClient>>,
     tag: Tag,
     user_id: String,
 ) -> Result<GetInboundUserResponse, Status> {
@@ -22,6 +24,7 @@ pub async fn get_user(
     let mut handler_client = client.lock().await;
 
     handler_client
+        .client
         .get_inbound_users(Request::new(request))
         .await
         .map(|res| res.into_inner())
@@ -31,7 +34,7 @@ pub async fn get_user(
         })
 }
 
-pub async fn user_count(client: HandlerClient, tag: Tag) -> Result<i64, Status> {
+pub async fn user_count(client: Arc<Mutex<HandlerClient>>, tag: Tag) -> Result<i64, Status> {
     let request = GetInboundUserRequest {
         tag: tag.to_string(),
         email: "".to_string(),
@@ -40,6 +43,7 @@ pub async fn user_count(client: HandlerClient, tag: Tag) -> Result<i64, Status> 
     let mut handler_client = client.lock().await;
 
     match handler_client
+        .client
         .get_inbound_users_count(Request::new(request))
         .await
     {

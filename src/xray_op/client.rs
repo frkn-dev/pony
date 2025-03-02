@@ -1,7 +1,5 @@
 use log::error;
 use std::error::Error;
-use std::sync::Arc;
-use tokio::sync::Mutex;
 use tonic::transport::Channel;
 
 use crate::xray_api::xray::app::{
@@ -17,15 +15,11 @@ pub trait XrayClient {
     ) -> impl std::future::Future<Output = Result<Self, Box<dyn Error>>> + Send
     where
         Self: Sized;
-
-    fn lock(
-        &self,
-    ) -> impl std::future::Future<Output = tokio::sync::MutexGuard<'_, Self::Client>> + Send;
 }
 
 #[derive(Clone)]
 pub struct HandlerClient {
-    pub client: Arc<Mutex<HandlerServiceClient<Channel>>>,
+    pub client: HandlerServiceClient<Channel>,
 }
 
 impl XrayClient for HandlerClient {
@@ -41,18 +35,14 @@ impl XrayClient for HandlerClient {
             })?;
 
         Ok(Self {
-            client: Arc::new(HandlerServiceClient::new(channel).into()),
+            client: HandlerServiceClient::new(channel),
         })
-    }
-
-    async fn lock(&self) -> tokio::sync::MutexGuard<'_, HandlerServiceClient<Channel>> {
-        self.client.lock().await
     }
 }
 
 #[derive(Clone)]
 pub struct StatsClient {
-    pub client: Arc<Mutex<StatsServiceClient<Channel>>>,
+    pub client: StatsServiceClient<Channel>,
 }
 
 impl XrayClient for StatsClient {
@@ -67,11 +57,7 @@ impl XrayClient for StatsClient {
             })?;
 
         Ok(Self {
-            client: Arc::new(StatsServiceClient::new(channel).into()),
+            client: StatsServiceClient::new(channel),
         })
-    }
-
-    async fn lock(&self) -> tokio::sync::MutexGuard<'_, StatsServiceClient<Channel>> {
-        self.client.lock().await
     }
 }

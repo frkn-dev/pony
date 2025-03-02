@@ -4,7 +4,6 @@ use futures::future::join_all;
 use log::debug;
 use log::error;
 use log::info;
-
 use std::net::Ipv4Addr;
 use std::sync::Arc;
 use tokio::{
@@ -102,8 +101,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let xray_api_endpoint = format!("http://{}", xray_config.api.listen.clone());
 
-    let xray_stats_client = StatsClient::new(&xray_api_endpoint).await?;
-    let xray_handler_client = HandlerClient::new(&xray_api_endpoint).await?;
+    let xray_stats_client = Arc::new(Mutex::new(StatsClient::new(&xray_api_endpoint).await?));
+    let xray_handler_client = Arc::new(Mutex::new(HandlerClient::new(&xray_api_endpoint).await?));
 
     // User State
     let state = {

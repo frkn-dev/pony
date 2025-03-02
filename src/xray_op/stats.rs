@@ -1,9 +1,11 @@
 use log::debug;
+use std::sync::Arc;
+use tokio::sync::Mutex;
 use tonic::{Request, Status};
 use uuid::Uuid;
 
 use super::{
-    client::{HandlerClient, StatsClient, XrayClient},
+    client::{HandlerClient, StatsClient},
     user,
 };
 use crate::state::{
@@ -29,7 +31,7 @@ impl Prefix {
 }
 
 async fn get_stat(
-    client: StatsClient,
+    client: Arc<Mutex<StatsClient>>,
     prefix: Prefix,
     stat_type: Stat,
     reset: bool,
@@ -50,7 +52,7 @@ async fn get_stat(
                     name: stat_name,
                     reset: reset,
                 });
-                stats_client.get_stats(request).await
+                stats_client.client.get_stats(request).await
             }
             Stat::User(StatType::Online) => {
                 let stat_name = format!("{}>>>{}", stat_name, stat_type);
@@ -58,7 +60,7 @@ async fn get_stat(
                     name: stat_name,
                     reset: reset,
                 });
-                stats_client.get_stats_online(request).await
+                stats_client.client.get_stats_online(request).await
             }
             Stat::Inbound(StatType::Downlink) | Stat::Inbound(StatType::Uplink) => {
                 let stat_name = format!("{}>>>traffic>>>{}", stat_name, stat_type);
@@ -67,7 +69,7 @@ async fn get_stat(
                     name: stat_name,
                     reset: reset,
                 });
-                stats_client.get_stats(request).await
+                stats_client.client.get_stats(request).await
             }
             Stat::Inbound(StatType::Online) => {
                 Err(Status::internal("Online is not supported for inbound"))
@@ -84,7 +86,10 @@ async fn get_stat(
     }
 }
 
-pub async fn get_user_stats(client: StatsClient, user_id: Prefix) -> Result<UserStat, Status> {
+pub async fn get_user_stats(
+    client: Arc<Mutex<StatsClient>>,
+    user_id: Prefix,
+) -> Result<UserStat, Status> {
     debug!("get_user_stats {:?}", user_id);
 
     let (downlink_result, uplink_result, online_result) = tokio::join!(
@@ -143,8 +148,8 @@ pub async fn get_user_stats(client: StatsClient, user_id: Prefix) -> Result<User
 }
 
 pub async fn get_inbound_stats(
-    stats_client: StatsClient,
-    handler_client: HandlerClient,
+    stats_client: Arc<Mutex<StatsClient>>,
+    handler_client: Arc<Mutex<HandlerClient>>,
     inbound: Prefix,
 ) -> Result<InboundStat, Status> {
     let downlink_result = get_stat(
@@ -211,7 +216,10 @@ pub async fn get_inbound_stats(
     }
 }
 
-pub async fn get_user_count(client: HandlerClient, inbound: Tag) -> Result<Option<i64>, Status> {
+pub async fn get_user_count(
+    client: Arc<Mutex<HandlerClient>>,
+    inbound: Tag,
+) -> Result<Option<i64>, Status> {
     match user::user_count(client, inbound.clone()).await {
         Ok(count) => Ok(Some(count)),
         Err(e) => Err(Status::internal(format!(

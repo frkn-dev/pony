@@ -34,7 +34,11 @@ fn try_connect(endpoint: &str, topic: &str) -> zmq::Socket {
     subscriber
 }
 
-pub async fn subscriber(clients: HandlerClient, settings: AgentSettings, state: Arc<Mutex<State>>) {
+pub async fn subscriber(
+    client: Arc<Mutex<HandlerClient>>,
+    settings: AgentSettings,
+    state: Arc<Mutex<State>>,
+) {
     let subscriber = try_connect(&settings.zmq.sub_endpoint, &settings.node.env);
 
     info!(
@@ -48,7 +52,7 @@ pub async fn subscriber(clients: HandlerClient, settings: AgentSettings, state: 
             Ok(Ok(data)) => {
                 let data = data.to_string();
                 tokio::spawn({
-                    let clients = clients.clone();
+                    let clients = client.clone();
                     let state = state.clone();
                     let settings = settings.clone();
 
@@ -97,7 +101,7 @@ pub async fn subscriber(clients: HandlerClient, settings: AgentSettings, state: 
 }
 
 pub async fn process_message(
-    client: HandlerClient,
+    client: Arc<Mutex<HandlerClient>>,
     message: Message,
     state: Arc<Mutex<State>>,
     config_daily_limit_mb: i64,

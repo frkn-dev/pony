@@ -24,8 +24,8 @@ use crate::xray_op::{
 };
 
 pub async fn collect_stats_job(
-    stats_client: StatsClient,
-    handler_client: HandlerClient,
+    stats_client: Arc<Mutex<StatsClient>>,
+    handler_client: Arc<Mutex<HandlerClient>>,
     state: Arc<Mutex<State>>,
     node_id: Uuid,
     env: String,
@@ -263,7 +263,7 @@ pub async fn register_node(
 pub async fn init_state(
     state: Arc<Mutex<State>>,
     limit: i64,
-    client: HandlerClient,
+    client: Arc<Mutex<HandlerClient>>,
     db_user: UserRow,
 ) -> Result<(), Box<dyn Error>> {
     let user = User::new(
@@ -301,7 +301,7 @@ pub async fn init_state(
     }
 }
 
-pub async fn restore_trial_users(state: Arc<Mutex<State>>, client: HandlerClient) {
+pub async fn restore_trial_users(state: Arc<Mutex<State>>, client: Arc<Mutex<HandlerClient>>) {
     let trial_users = state.lock().await.get_all_trial_users(UserStatus::Expired);
     let now = Utc::now();
 
@@ -364,7 +364,7 @@ pub async fn restore_trial_users(state: Arc<Mutex<State>>, client: HandlerClient
 
 pub async fn block_trial_users_by_limit(
     state: Arc<Mutex<State>>,
-    client: HandlerClient,
+    client: Arc<Mutex<HandlerClient>>,
     env: String,
     node_id: Uuid,
     endpoint: String,

@@ -1,9 +1,11 @@
 use log::{debug, error};
 use std::error::Error;
+use std::sync::Arc;
+use tokio::sync::Mutex;
 use tonic::{Request, Status};
 use uuid::Uuid;
 
-use super::{client::HandlerClient, client::XrayClient, shadowsocks, vless, vmess};
+use super::{client::HandlerClient, shadowsocks, vless, vmess};
 use crate::state::tag::Tag;
 use crate::xray_api::xray::{
     app::proxyman::command::{AlterInboundRequest, RemoveUserOperation},
@@ -13,49 +15,14 @@ use crate::xray_api::xray::{
 pub async fn create_users(
     user_id: Uuid,
     password: Option<String>,
-    client: HandlerClient,
+    client: Arc<Mutex<HandlerClient>>,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     println!("CREATE USER");
 
-    let user_info = vmess::UserInfo::new(user_id);
-    match vmess::add_user(client.clone(), user_info.clone()).await {
-        Ok(_) => debug!(
-            "Create: Success to add {:?} user: {:?}",
-            user_info.in_tag, user_info.uuid
-        ),
-        Err(e) => error!(
-            "Create: Error to add {}  user: {:?}: {:?}",
-            user_info.in_tag, user_info.uuid, e
-        ),
-    }
-
-    let user_info = vless::UserInfo::new(user_id, vless::UserFlow::Vision);
-    match vless::add_user(client.clone(), user_info.clone()).await {
-        Ok(_) => debug!(
-            "Create: Success to add {:?} user: {:?}",
-            user_info.in_tag, user_info.uuid
-        ),
-        Err(e) => error!(
-            "Create: Error to add {}  user: {:?}: {:?}",
-            user_info.in_tag, user_info.uuid, e
-        ),
-    }
-
-    let user_info = vless::UserInfo::new(user_id, vless::UserFlow::Direct);
-    match vless::add_user(client.clone(), user_info.clone()).await {
-        Ok(_) => debug!(
-            "Create: Success to add {:?} user: {:?}",
-            user_info.in_tag, user_info.uuid
-        ),
-        Err(e) => error!(
-            "Create: Error to add {}  user: {:?}: {:?}",
-            user_info.in_tag, user_info.uuid, e
-        ),
-    }
-
-    if let Some(password) = password {
-        let user_info = shadowsocks::UserInfo::new(user_id, Some(password));
-        match shadowsocks::add_user(client.clone(), user_info.clone()).await {
+    let _ = {
+        let client = client.clone();
+        let user_info = vmess::UserInfo::new(user_id);
+        match vmess::add_user(client.clone(), user_info.clone()).await {
             Ok(_) => debug!(
                 "Create: Success to add {:?} user: {:?}",
                 user_info.in_tag, user_info.uuid
@@ -65,7 +32,54 @@ pub async fn create_users(
                 user_info.in_tag, user_info.uuid, e
             ),
         }
-    }
+    };
+
+    let _ = {
+        let client = client.clone();
+        let user_info = vless::UserInfo::new(user_id, vless::UserFlow::Vision);
+        match vless::add_user(client.clone(), user_info.clone()).await {
+            Ok(_) => debug!(
+                "Create: Success to add {:?} user: {:?}",
+                user_info.in_tag, user_info.uuid
+            ),
+            Err(e) => error!(
+                "Create: Error to add {}  user: {:?}: {:?}",
+                user_info.in_tag, user_info.uuid, e
+            ),
+        }
+    };
+
+    let _ = {
+        let client = client.clone();
+        let user_info = vless::UserInfo::new(user_id, vless::UserFlow::Direct);
+        match vless::add_user(client.clone(), user_info.clone()).await {
+            Ok(_) => debug!(
+                "Create: Success to add {:?} user: {:?}",
+                user_info.in_tag, user_info.uuid
+            ),
+            Err(e) => error!(
+                "Create: Error to add {}  user: {:?}: {:?}",
+                user_info.in_tag, user_info.uuid, e
+            ),
+        }
+    };
+
+    let _ = {
+        let client = client.clone();
+        if let Some(password) = password {
+            let user_info = shadowsocks::UserInfo::new(user_id, Some(password));
+            match shadowsocks::add_user(client.clone(), user_info.clone()).await {
+                Ok(_) => debug!(
+                    "Create: Success to add {:?} user: {:?}",
+                    user_info.in_tag, user_info.uuid
+                ),
+                Err(e) => error!(
+                    "Create: Error to add {}  user: {:?}: {:?}",
+                    user_info.in_tag, user_info.uuid, e
+                ),
+            }
+        }
+    };
 
     println!("user created {}", user_id);
 
@@ -74,7 +88,7 @@ pub async fn create_users(
 
 pub async fn remove_users(
     user_id: Uuid,
-    client: HandlerClient,
+    client: Arc<Mutex<HandlerClient>>,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     if let Err(e) = remove_user(client.clone(), user_id, Tag::Vmess).await {
         error!("Delete: Failed to remove Vmess user: {:?}", e);
@@ -95,7 +109,11 @@ pub async fn remove_users(
     Ok(())
 }
 
-pub async fn remove_user<Tag>(client: HandlerClient, user_id: Uuid, tag: Tag) -> Result<(), Status>
+pub async fn remove_user<Tag>(
+    client: Arc<Mutex<HandlerClient>>,
+    user_id: Uuid,
+    tag: Tag,
+) -> Result<(), Status>
 where
     Tag: ToString,
 {
@@ -116,6 +134,7 @@ where
     let mut handler_client = client.lock().await;
 
     handler_client
+        .client
         .alter_inbound(Request::new(request))
         .await
         .map(|_| ())

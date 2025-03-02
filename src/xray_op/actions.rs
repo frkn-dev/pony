@@ -3,24 +3,12 @@ use std::error::Error;
 use tonic::{Request, Status};
 use uuid::Uuid;
 
-use super::user;
 use super::{client::HandlerClient, client::XrayClient, shadowsocks, vless, vmess};
 use crate::state::tag::Tag;
 use crate::xray_api::xray::{
     app::proxyman::command::{AlterInboundRequest, RemoveUserOperation},
     common::serial::TypedMessage,
 };
-
-async fn user_exist(client: HandlerClient, uuid: Uuid, in_tag: Tag) -> bool {
-    match user::get_user(client, in_tag, uuid.to_string()).await {
-        Ok(user_exist) => user_exist
-            .users
-            .iter()
-            .find(|user| user.email.is_empty())
-            .is_some(),
-        Err(_) => false,
-    }
-}
 
 pub async fn create_users(
     user_id: Uuid,
@@ -30,84 +18,52 @@ pub async fn create_users(
     println!("CREATE USER");
 
     let user_info = vmess::UserInfo::new(user_id);
-    if user_exist(client.clone(), user_info.uuid, user_info.in_tag.clone()).await {
-        match vmess::add_user(client.clone(), user_info.clone()).await {
-            Ok(_) => debug!(
-                "Create: Success to add {:?} user: {:?}",
-                user_info.in_tag, user_info.uuid
-            ),
-            Err(e) => error!(
-                "Create: Error to add {}  user: {:?}: {:?}",
-                user_info.in_tag, user_info.uuid, e
-            ),
-        }
-    } else {
-        debug!(
-            "User already exist: {} {:?}",
-            user_id,
-            user_info.in_tag.clone()
-        );
+    match vmess::add_user(client.clone(), user_info.clone()).await {
+        Ok(_) => debug!(
+            "Create: Success to add {:?} user: {:?}",
+            user_info.in_tag, user_info.uuid
+        ),
+        Err(e) => error!(
+            "Create: Error to add {}  user: {:?}: {:?}",
+            user_info.in_tag, user_info.uuid, e
+        ),
     }
 
     let user_info = vless::UserInfo::new(user_id, vless::UserFlow::Vision);
-    if user_exist(client.clone(), user_info.uuid, user_info.in_tag.clone()).await {
-        match vless::add_user(client.clone(), user_info.clone()).await {
-            Ok(_) => debug!(
-                "Create: Success to add {:?} user: {:?}",
-                user_info.in_tag, user_info.uuid
-            ),
-            Err(e) => error!(
-                "Create: Error to add {}  user: {:?}: {:?}",
-                user_info.in_tag, user_info.uuid, e
-            ),
-        }
-    } else {
-        debug!(
-            "User already exist: {} {:?}",
-            user_id,
-            user_info.in_tag.clone()
-        );
+    match vless::add_user(client.clone(), user_info.clone()).await {
+        Ok(_) => debug!(
+            "Create: Success to add {:?} user: {:?}",
+            user_info.in_tag, user_info.uuid
+        ),
+        Err(e) => error!(
+            "Create: Error to add {}  user: {:?}: {:?}",
+            user_info.in_tag, user_info.uuid, e
+        ),
     }
 
     let user_info = vless::UserInfo::new(user_id, vless::UserFlow::Direct);
-    if user_exist(client.clone(), user_info.uuid, user_info.in_tag.clone()).await {
-        match vless::add_user(client.clone(), user_info.clone()).await {
-            Ok(_) => debug!(
-                "Create: Success to add {:?} user: {:?}",
-                user_info.in_tag, user_info.uuid
-            ),
-            Err(e) => error!(
-                "Create: Error to add {}  user: {:?}: {:?}",
-                user_info.in_tag, user_info.uuid, e
-            ),
-        }
-    } else {
-        debug!(
-            "User already exist: {} {:?}",
-            user_id,
-            user_info.in_tag.clone()
-        );
+    match vless::add_user(client.clone(), user_info.clone()).await {
+        Ok(_) => debug!(
+            "Create: Success to add {:?} user: {:?}",
+            user_info.in_tag, user_info.uuid
+        ),
+        Err(e) => error!(
+            "Create: Error to add {}  user: {:?}: {:?}",
+            user_info.in_tag, user_info.uuid, e
+        ),
     }
 
     if let Some(password) = password {
         let user_info = shadowsocks::UserInfo::new(user_id, Some(password));
-        if user_exist(client.clone(), user_info.uuid, user_info.in_tag.clone()).await {
-            match shadowsocks::add_user(client, user_info.clone()).await {
-                Ok(_) => debug!(
-                    "Create: Success to add {:?} user: {:?}",
-                    user_info.in_tag, user_info.uuid
-                ),
-                Err(e) => error!(
-                    "Create: Error to add {}  user: {:?}: {:?}",
-                    user_info.in_tag, user_info.uuid, e
-                ),
-            }
-        } else {
-            debug!(
-                "User already exist: {} {:?}",
-                user_id,
-                user_info.in_tag.clone()
-            );
+        match shadowsocks::add_user(client.clone(), user_info.clone()).await {
+            Ok(_) => debug!(
+                "Create: Success to add {:?} user: {:?}",
+                user_info.in_tag, user_info.uuid
+            ),
+            Err(e) => error!(
+                "Create: Error to add {}  user: {:?}: {:?}",
+                user_info.in_tag, user_info.uuid, e
+            ),
         }
     }
 

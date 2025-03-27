@@ -7,7 +7,8 @@ on:
 env:
   CARGO_TERM_COLOR: always
   REGISTRY: frknorg
-  IMAGE_NAME: pony-api
+  API_IMAGE_NAME: pony-api
+  BOT_IMAGE_NAME: pony-bot
   DOCKER_TAG: latest
 
 jobs:
@@ -148,7 +149,7 @@ jobs:
         uses: docker/metadata-action@9ec57ed1fcdbf14dcef7dfbe97b2010124a938b7
         with:
           images: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME}}
+            ${{ env.REGISTRY }}/${{ env.API_IMAGE_NAME}}
       - name: Build and push Docker images
         id: push
         uses: docker/build-push-action@3b5e8027fcad23fda98b2e3ac259d8d67585f671
@@ -159,7 +160,7 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
 
   publish-bot:
-    name: Build Bot Docker image
+    name: Push Bot Docker image
     runs-on: ubuntu-latest
     permissions:
       packages: write

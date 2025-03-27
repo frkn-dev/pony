@@ -12,6 +12,10 @@ fn default_enabled() -> bool {
     true
 }
 
+fn default_disabled() -> bool {
+    false
+}
+
 fn default_env() -> String {
     "dev".to_string()
 }
@@ -110,6 +114,20 @@ fn default_label() -> String {
 
 fn default_node_health_check_timeout() -> i16 {
     60
+}
+
+fn default_tg_token() -> String {
+    "".to_string()
+}
+
+fn default_shop_id() -> String {
+    "".to_string()
+}
+fn default_secret_key() -> String {
+    "".to_string()
+}
+fn default_price() -> String {
+    "5.00".to_string()
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]
@@ -244,6 +262,24 @@ pub struct PostgresConfig {
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]
+pub struct YookassaConfig {
+    #[serde(default = "default_disabled")]
+    pub enabled: bool,
+    #[serde(default = "default_shop_id")]
+    pub shop_id: String,
+    #[serde(default = "default_secret_key")]
+    pub secret_key: String,
+    #[serde(default = "default_price")]
+    pub price: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Default)]
+pub struct PaymentConfig {
+    #[serde(default)]
+    pub yookassa: YookassaConfig,
+}
+
+#[derive(Clone, Debug, Deserialize, Default)]
 pub struct XrayConfig {
     #[serde(default = "default_xray_daily_limit_mb")]
     pub xray_daily_limit_mb: i64,
@@ -359,6 +395,19 @@ impl Settings for AgentSettings {
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]
+pub struct BotConfig {
+    #[serde(default = "default_tg_token")]
+    pub token: String,
+    pub address: String,
+    #[serde(default = "default_api_token")]
+    pub webhook_token: String,
+    #[serde(default = "default_api_web_listen")]
+    pub bind_addr: Option<Ipv4Addr>,
+
+    pub bind_port: u16,
+}
+
+#[derive(Clone, Debug, Deserialize, Default)]
 pub struct BotSettings {
     #[serde(default)]
     pub logging: LoggingConfig,
@@ -366,6 +415,10 @@ pub struct BotSettings {
     pub pg: PostgresConfig,
     #[serde(default)]
     pub api: ApiConfig,
+    #[serde(default)]
+    pub bot: BotConfig,
+    #[serde(default)]
+    pub pay: PaymentConfig,
 }
 
 impl Settings for BotSettings {

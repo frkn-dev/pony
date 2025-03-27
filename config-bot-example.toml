@@ -1,0 +1,30 @@
+
+[logging]
+# level = "debug"
+# file = "pony.log"
+ 
+[pg]
+# host = "localhost"
+# port = 5432
+# db = "postgres"
+# username = "postgres"
+# password = "password"
+ 
+[api]
+endpoint = "https://example.com/api"
+
+[bot]
+token = "TG BOT TOKEN"
+address = "https://t.me/example_bot"
+bind_addr = "0.0.0.0"
+bind_port = 8085
+
+[pay.yookassa]
+enabled = true
+shop_id = "[SHOP_ID]"
+secret_key = "[SECRET_KEY]"
+
+
+
+
+

@@ -15,6 +15,9 @@ pub mod xray_api;
 #[cfg(feature = "agent")]
 pub mod xray_op;
 
+#[cfg(feature = "bot")]
+pub mod payment;
+
 pub use config::settings::{AgentSettings, ApiSettings, BotSettings, Settings};
 pub use postgres::{
     postgres::postgres_client,

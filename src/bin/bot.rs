@@ -1,9 +1,11 @@
 use clap::Parser;
 use fern::Dispatch;
 use log::debug;
+use log::error;
 use reqwest::Url;
 use std::collections::HashMap;
 use std::error::Error;
+use std::net::Ipv4Addr;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio_postgres::Client;
@@ -12,16 +14,15 @@ use urlencoding::decode;
 use teloxide::{
     payloads::SendMessageSetters,
     prelude::*,
-    types::{
-        InlineKeyboardButton, InlineKeyboardMarkup, InlineQuery, InlineQueryResultArticle,
-        InputMessageContent, InputMessageContentText, Me,
-    },
+    types::{InlineKeyboardButton, InlineKeyboardMarkup, Me},
     utils::command::BotCommands,
 };
 
+use pony::payment::yookassa::create_payment;
 use pony::utils::*;
 use pony::{
     jobs::bot::{create_vpn_user, get_conn, register},
+    payment::webhook::run_webhook_server,
     user_exist,
 };
 use pony::{postgres_client, BotSettings, Settings};
@@ -76,15 +77,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .apply()
         .unwrap();
 
-    let pg_client = match postgres_client(settings.pg.clone()).await {
-        Ok(client) => client,
-        Err(e) => panic!("PG not available, {}", e),
-    };
+    let pg_client = postgres_client(settings.pg.clone())
+        .await
+        .expect("PG not available");
 
+    let token = settings.bot.token.clone();
     let settings = Arc::new(Mutex::new(settings));
-
-    let bot = Bot::from_env();
-
+    let bot = Bot::new(token);
     let callback_map: Arc<Mutex<HashMap<String, String>>> = Arc::new(Mutex::new(HashMap::new()));
 
     let handler = dptree::entry()
@@ -105,24 +104,35 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 let callback_map = Arc::clone(&callback_map);
                 async move { callback_handler(bot, q, callback_map).await }
             }
-        }))
-        .branch(Update::filter_inline_query().endpoint({
-            let client = Arc::clone(&pg_client);
-            let settings = Arc::clone(&settings);
-            let callback_map = Arc::clone(&callback_map);
-            move |bot: Bot, q: InlineQuery| {
-                let client = Arc::clone(&client);
-                let settings = Arc::clone(&settings);
-                let callback_map = Arc::clone(&callback_map);
-                async move { inline_query_handler(bot, q, client, settings, callback_map).await }
-            }
         }));
 
-    Dispatcher::builder(bot, handler)
-        .enable_ctrlc_handler()
-        .build()
-        .dispatch()
-        .await;
+    let (bind_addr, bind_port) = {
+        let settings = settings.lock().await;
+        (
+            settings
+                .bot
+                .bind_addr
+                .unwrap_or(Ipv4Addr::new(127, 0, 0, 1)),
+            settings.bot.bind_port,
+        )
+    };
+
+    let web_task = tokio::spawn(run_webhook_server(
+        Arc::clone(&pg_client),
+        bind_addr,
+        bind_port,
+    ));
+
+    let dispatcher_task = tokio::spawn(async move {
+        Dispatcher::builder(bot, handler)
+            .enable_ctrlc_handler()
+            .build()
+            .dispatch()
+            .await;
+    });
+
+    tokio::try_join!(web_task, dispatcher_task)?;
+
     Ok(())
 }
 
@@ -155,7 +165,7 @@ async fn message_handler(
                         match register(&username, user_id, client).await {
                             Ok(_) => {
                                 let settings = settings.lock().await;
-                                let reply = format!("УСПЕХ {}", username);
+                                let reply = format!("Спасибо за регистрацию {}", username);
                                 if let Ok(_user) = create_vpn_user(
                                     username,
                                     user_id,
@@ -168,7 +178,7 @@ async fn message_handler(
                                 }
                             }
                             Err(_) => {
-                                let reply = format!("Упс, ошибка при регистрации {}", username);
+                                let reply = format!("Упс, уже зарегистрирован {}", username);
                                 bot.send_message(msg.chat.id, reply).await?;
                             }
                         }
@@ -177,13 +187,10 @@ async fn message_handler(
             }
             Ok(Command::Getvpn) => {
                 if let Some(user) = msg.from {
-                    debug!("GETVPN COMMAND START");
                     if let Some(username) = user.username {
                         if let Some(user_id) =
                             user_exist(client.clone(), username.to_string()).await
                         {
-                            debug!("GETVPN user_id {}", user_id);
-
                             let settings = settings.lock().await;
 
                             if let Ok(conns) = get_conn(
@@ -207,51 +214,42 @@ async fn message_handler(
                 bot.send_message(msg.chat.id, "Поделитесь с другом").await?;
             }
             Ok(Command::Payment) => {
-                bot.send_message(msg.chat.id, "Ссылка на оплату").await?;
+                if let Some(user) = msg.from {
+                    if let Some(username) = user.username {
+                        if let Some(user_id) =
+                            user_exist(client.clone(), username.to_string()).await
+                        {
+                            match create_payment(settings, user_id).await {
+                                Ok(payment_url) => {
+                                    let url = Url::parse(&payment_url)
+                                        .expect("Invalid URL from YooKassa");
+                                    let keyboard = InlineKeyboardMarkup::new(vec![vec![
+                                        InlineKeyboardButton::url("Оплатить", url),
+                                    ]]);
+                                    bot.send_message(
+                                        msg.chat.id,
+                                        "Перейдите по ссылке для оплаты:",
+                                    )
+                                    .reply_markup(keyboard)
+                                    .await?;
+                                }
+                                Err(e) => {
+                                    error!("Ошибка при создании платежа: {:?}", e);
+                                    bot.send_message(
+                                        msg.chat.id,
+                                        "Ошибка при создании платежа, попробуйте позже.",
+                                    )
+                                    .await?;
+                                }
+                            }
+                        }
+                    }
+                }
             }
 
             Err(_) => {
                 bot.send_message(msg.chat.id, "Command not found!").await?;
             }
-        }
-    }
-
-    Ok(())
-}
-
-async fn inline_query_handler(
-    bot: Bot,
-    q: InlineQuery,
-    client: Arc<Mutex<Client>>,
-    settings: Arc<Mutex<BotSettings>>,
-    callback_map: Arc<Mutex<HashMap<String, String>>>,
-) -> Result<(), Box<dyn Error + Send + Sync>> {
-    if let Some(user_id) = user_exist(client.clone(), q.from.username.unwrap()).await {
-        let settings = settings.lock().await;
-
-        if let Ok(conns) = get_conn(
-            user_id,
-            settings.api.endpoint.clone(),
-            settings.api.token.clone(),
-        )
-        .await
-        {
-            let keyboard = make_keyboard(conns, callback_map.clone()).await;
-
-            println!(
-                "callback_map after update: {:?}",
-                *callback_map.lock().await
-            );
-
-            let choose_vpn = InlineQueryResultArticle::new(
-                "0",
-                "Choose vpn version",
-                InputMessageContent::Text(InputMessageContentText::new("Choose VPN ")),
-            )
-            .reply_markup(keyboard);
-
-            bot.answer_inline_query(q.id, vec![choose_vpn.into()])
-                .await?;
         }
     }
 
@@ -291,7 +289,6 @@ fn extract_info(conn: &str) -> (String, String) {
         let scheme = url.scheme().to_uppercase();
         let name = url.fragment().unwrap_or("UNKNOWN").to_string();
 
-        // Декодируем URL
         let name = decode(&name).map(|cow| cow.into_owned()).unwrap_or(name);
         (scheme, name)
     } else {

@@ -8,7 +8,7 @@ use warp::reject;
 use warp::Filter;
 
 use super::yookassa::{Amount, Metadata};
-use crate::postgres::subscription::{insert_subscription, SubscriptionRow};
+use crate::postgres::subscription::*;
 
 #[derive(Deserialize, Debug)]
 struct WebhookPayload {
@@ -34,34 +34,60 @@ async fn handle_webhook(
     payload: WebhookPayload,
     client: Arc<Mutex<Client>>,
 ) -> Result<impl warp::Reply, warp::Rejection> {
-    debug!("Webhook recieved: {:?}", payload);
+    debug!("Webhook received: {:?}", payload);
 
     if payload.status == "succeeded" && payload.paid {
         if let Some(metadata) = payload.metadata {
-            let subscription = SubscriptionRow {
-                id: Uuid::new_v4(),
-                user_id: Uuid::parse_str(&metadata.user_id).map_err(|e| {
-                    eprintln!("Error parse UUID: {:?}", e);
-                    warp::reject::custom(JsonError("UUID parse error".to_string()))
-                })?,
-                payment_id: payload.id,
-                amount: payload.amount.value.parse::<f64>().unwrap_or(0.0),
-                currency: payload.amount.currency,
-                created_at: chrono::Utc::now().naive_utc(),
-            };
+            let user_id = Uuid::parse_str(&metadata.user_id).map_err(|e| {
+                log::error!("UUID parse error: {:?}", e);
+                warp::reject::custom(JsonError("UUID parse error".to_string()))
+            })?;
 
-            insert_subscription(client, subscription)
+            let amount = payload.amount.value.parse::<f64>().map_err(|e| {
+                log::error!("Amount parse error: {:?}", e);
+                warp::reject::custom(JsonError("Amount parse error".to_string()))
+            })?;
+
+            let has_active = has_active_subscription(Arc::clone(&client), user_id)
                 .await
                 .map_err(|e| {
-                    eprintln!("Ошибка записи в БД: {:?}", e);
-                    warp::reject::custom(JsonError("DB Write Error".to_string()))
+                    log::error!("DB query error: {:?}", e);
+                    warp::reject::custom(JsonError("DB query error".to_string()))
                 })?;
+
+            let existing_expired_at = subscription_exist(Arc::clone(&client), user_id).await;
+
+            let subscription = SubscriptionRow {
+                id: Uuid::new_v4(),
+                user_id,
+                payment_id: payload.id,
+                amount,
+                currency: payload.amount.currency,
+                created_at: chrono::Utc::now().naive_utc(),
+                expired_at: chrono::Utc::now().naive_utc(), // placeholder
+            };
+
+            if has_active {
+                add_subscription(client, subscription, existing_expired_at)
+                    .await
+                    .map_err(|e| {
+                        log::error!("Error extending subscription: {:?}", e);
+                        warp::reject::custom(JsonError("DB extend subscription error".to_string()))
+                    })?;
+            } else {
+                insert_subscription(client, subscription)
+                    .await
+                    .map_err(|e| {
+                        log::error!("Error inserting subscription: {:?}", e);
+                        warp::reject::custom(JsonError("DB insert subscription error".to_string()))
+                    })?;
+            }
         }
     }
 
     let response = ResponseMessage {
         status: 200,
-        message: "Subscription Created".to_string(),
+        message: "Subscription Created or Extended".to_string(),
     };
 
     Ok(warp::reply::with_status(

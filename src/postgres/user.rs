@@ -19,8 +19,6 @@ pub struct UserRow {
     pub password: String, //ToDo Option<>
     pub cluster: String,  //ToDo Option<>
     pub created: NaiveDateTime,
-    pub paid_at: Option<NaiveDateTime>,
-    pub paid_days: Option<i32>,
 }
 
 impl UserRow {
@@ -32,8 +30,6 @@ impl UserRow {
             password: "random123".to_string(),
             cluster: "dev".to_string(),
             created: Utc::now().naive_utc(),
-            paid_at: None,
-            paid_days: None,
         }
     }
 
@@ -90,8 +86,6 @@ pub async fn users_db_request(
                 password,
                 cluster,
                 created,
-                paid_at: None,
-                paid_days: None,
             }
         })
         .collect();
@@ -124,8 +118,8 @@ pub async fn insert_user(
     let client = client.lock().await;
 
     let query = "
-        INSERT INTO users (id, username, trial, password, cluster, created, paid_at, paid_days)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        INSERT INTO users (id, username, trial, password, cluster, created)
+        VALUES ($1, $2, $3, $4, $5, $6)
     ";
 
     client
@@ -138,8 +132,6 @@ pub async fn insert_user(
                 &user.password,
                 &user.cluster,
                 &user.created,
-                &user.paid_at,
-                &user.paid_days,
             ],
         )
         .await?;

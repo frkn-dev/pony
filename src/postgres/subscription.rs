@@ -1,5 +1,7 @@
 use anyhow::Result;
+use chrono::Duration;
 use chrono::NaiveDateTime;
+use chrono::Utc;
 use log;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -14,6 +16,7 @@ pub struct SubscriptionRow {
     pub amount: f64,
     pub currency: String,
     pub created_at: NaiveDateTime,
+    pub expired_at: NaiveDateTime,
 }
 
 pub async fn subscriptions_db_request(
@@ -24,13 +27,13 @@ pub async fn subscriptions_db_request(
 
     let query = if user_id.is_some() {
         "
-        SELECT id, user_id, payment_id, amount, currency, created_at 
+        SELECT id, user_id, payment_id, amount, currency, created_at, expired_at 
         FROM subscriptions 
         WHERE user_id = $1
         "
     } else {
         "
-        SELECT id, user_id, payment_id, amount, currency, created_at 
+        SELECT id, user_id, payment_id, amount, currency, created_at, expired_at 
         FROM subscriptions
         "
     };
@@ -50,22 +53,28 @@ pub async fn subscriptions_db_request(
             amount: row.get(3),
             currency: row.get(4),
             created_at: row.get(5),
+            expired_at: row.get(6),
         })
         .collect();
 
     Ok(subscriptions)
 }
 
-pub async fn subscription_exist(client: Arc<Mutex<Client>>, payment_id: String) -> Option<Uuid> {
+pub async fn subscription_exist(
+    client: Arc<Mutex<Client>>,
+    user_id: Uuid,
+) -> Option<NaiveDateTime> {
     let client = client.lock().await;
 
     let query = "
-        SELECT id 
+        SELECT expired_at 
         FROM subscriptions 
-        WHERE payment_id = $1
+        WHERE user_id = $1
+        ORDER BY expired_at DESC
+        LIMIT 1
     ";
 
-    match client.query(query, &[&payment_id]).await {
+    match client.query(query, &[&user_id]).await {
         Ok(rows) => rows.first().map(|row| row.get(0)),
         Err(err) => {
             log::error!("Database query failed: {}", err);
@@ -78,11 +87,13 @@ pub async fn insert_subscription(
     client: Arc<Mutex<Client>>,
     subscription: SubscriptionRow,
 ) -> Result<()> {
+    let expired_at = subscription.created_at + Duration::days(30);
+
     let client = client.lock().await;
 
     let query = "
-        INSERT INTO subscriptions (id, user_id, payment_id, amount, currency, created_at)
-        VALUES ($1, $2, $3, $4, $5, $6)
+        INSERT INTO subscriptions (id, user_id, payment_id, amount, currency, created_at, expired_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
     ";
 
     client
@@ -95,9 +106,50 @@ pub async fn insert_subscription(
                 &subscription.amount,
                 &subscription.currency,
                 &subscription.created_at,
+                &expired_at,
             ],
         )
         .await?;
 
     Ok(())
+}
+
+pub async fn add_subscription(
+    client: Arc<Mutex<Client>>,
+    subscription: SubscriptionRow,
+    existing_expired_at: Option<NaiveDateTime>,
+) -> Result<()> {
+    let new_expired_at = if let Some(current_expired_at) = existing_expired_at {
+        if current_expired_at > Utc::now().naive_utc() {
+            current_expired_at + Duration::days(30)
+        } else {
+            Utc::now().naive_utc() + Duration::days(30)
+        }
+    } else {
+        Utc::now().naive_utc() + Duration::days(30)
+    };
+
+    let subscription = SubscriptionRow {
+        expired_at: new_expired_at,
+        ..subscription
+    };
+
+    insert_subscription(client, subscription).await
+}
+
+pub async fn has_active_subscription(client: Arc<Mutex<Client>>, user_id: Uuid) -> Result<bool> {
+    let client = client.lock().await;
+
+    let query = "
+        SELECT EXISTS(
+            SELECT 1 FROM subscriptions
+            WHERE user_id = $1 AND expired_at > $2
+        )
+    ";
+
+    let now = Utc::now().naive_utc();
+    let row = client.query_one(query, &[&user_id, &now]).await?;
+
+    let exists: bool = row.get(0);
+    Ok(exists)
 }

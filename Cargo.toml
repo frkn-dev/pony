@@ -4,6 +4,16 @@ version = "0.0.20-dev"
 edition = "2021"
 build = "build.rs" 
 
+[profile.release]
+strip = true 
+debug = false
+lto = true
+codegen-units = 1
+panic = "abort"
+
+[profile.release.package."*"]
+strip = true
+
 [dependencies]
 anyhow = "1"
 base64 = "0.22"

@@ -128,7 +128,7 @@ jobs:
 
   publish-api:
     name: Push Api Docker image 
-    needs: [build-api, build-agent, build-bot]
+    needs: [build-api]
     runs-on: ubuntu-latest
     permissions:
       packages: write
@@ -161,6 +161,7 @@ jobs:
 
   publish-bot:
     name: Push Bot Docker image
+    needs: [build-bot]
     runs-on: ubuntu-latest
     permissions:
       packages: write
@@ -184,9 +185,6 @@ jobs:
         with:
           images: |
             ${{ env.REGISTRY }}/${{ env.BOT_IMAGE_NAME }}
-          tags: |
-            type=sha,format=short
-            type=ref,event=branch
   
       - name: Build and push bot image
         uses: docker/build-push-action@v5

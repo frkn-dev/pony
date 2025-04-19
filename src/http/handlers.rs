@@ -1,36 +1,52 @@
-use base64::{engine::general_purpose, Engine as _};
-use log::debug;
-use serde::Deserialize;
-use serde::Serialize;
-use serde_json::to_string;
 use std::collections::HashMap;
 use std::net::Ipv4Addr;
 use std::sync::Arc;
+
+use base64::{engine::general_purpose, Engine as _};
+use log::debug;
+use serde::{Deserialize, Serialize};
+use serde_json::to_string;
 use tokio::sync::Mutex;
-use tokio_postgres::Client;
 use uuid::Uuid;
-use warp::http::StatusCode;
-use warp::reject;
-use warp::Rejection;
-use warp::Reply;
-use zmq::Socket;
+use warp::{http::StatusCode, reject, Rejection, Reply};
 
 use crate::config::xray::Inbound;
+use crate::http::JsonError;
+use crate::postgres::DbContext;
+use crate::state::state::NodeStorage;
+use crate::state::state::UserStorage;
 use crate::state::{
-    node::Node,
     node::NodeStatus,
     node::{NodeRequest, NodeResponse},
     state::State,
     tag::Tag,
     user::User,
 };
-use crate::zmq::{message::Message, publisher};
+use crate::zmq::message::{Action, Message};
+use crate::ZmqPublisher;
 
-pub type UserRequest = Message;
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct UserRequest {
+    pub user_id: Uuid,
+    pub action: Action,
+    pub env: String,
+    pub trial: Option<bool>,
+    pub limit: Option<i64>,
+    pub password: Option<String>,
+}
 
-#[derive(Debug)]
-struct JsonError(String);
-impl reject::Reject for JsonError {}
+impl UserRequest {
+    pub fn as_message(&self, limit: i64) -> Message {
+        Message {
+            user_id: self.user_id,
+            action: self.action.clone(),
+            env: self.env.clone(),
+            trial: self.trial.unwrap_or(true),
+            limit: self.limit.unwrap_or(limit),
+            password: self.password.clone(),
+        }
+    }
+}
 
 #[derive(Debug)]
 pub struct AuthError(pub String);
@@ -40,40 +56,31 @@ impl warp::reject::Reject for AuthError {}
 struct MethodError;
 impl reject::Reject for MethodError {}
 
-#[derive(Serialize)]
-struct ResponseMessage<T> {
-    status: u16,
-    message: T,
+#[derive(Serialize, Debug, Deserialize)]
+pub struct ResponseMessage<T> {
+    pub status: u16,
+    pub message: T,
 }
 
-pub async fn user_request(
+pub async fn user_request<T>(
     user_req: UserRequest,
-    publisher: Arc<Mutex<Socket>>,
-    state: Arc<Mutex<State>>,
-) -> Result<impl warp::Reply, warp::Rejection> {
-    match publisher::send_message(publisher, &user_req.env, user_req.clone()).await {
+    publisher: ZmqPublisher,
+    state: Arc<Mutex<State<T>>>,
+    limit: i64,
+) -> Result<impl warp::Reply, warp::Rejection>
+where
+    T: NodeStorage + Sync + Send + Clone + 'static,
+{
+    let message = user_req.as_message(limit);
+    println!("{}", message);
+    match publisher.send(&user_req.env, message).await {
         Ok(_) => {
-            let trial = match user_req.trial {
-                Some(trial) => trial,
-                None => {
-                    return Err(warp::reject::custom(JsonError(
-                        "Missing 'trial' value".to_string(),
-                    )))
-                }
-            };
-
-            let limit = match user_req.limit {
-                Some(limit) => limit,
-                None => {
-                    return Err(warp::reject::custom(JsonError(
-                        "Missing 'limit' value".to_string(),
-                    )))
-                }
-            };
+            let trial = user_req.trial.unwrap_or(true);
+            let limit = user_req.limit.unwrap_or(limit);
 
             let mut state = state.lock().await;
             let user = User::new(trial, limit, user_req.env, user_req.password);
-            let _ = state.add_user(user_req.user_id, user).await;
+            let _ = state.add_or_update_user(user_req.user_id, user);
 
             let response = ResponseMessage {
                 status: 200,
@@ -101,13 +108,16 @@ pub struct NodesQueryParams {
     pub env: String,
 }
 
-pub async fn get_nodes(
+pub async fn get_nodes<T>(
     node_req: NodesQueryParams,
-    state: Arc<Mutex<State>>,
-) -> Result<impl warp::Reply, warp::Rejection> {
+    state: Arc<Mutex<State<T>>>,
+) -> Result<impl warp::Reply, warp::Rejection>
+where
+    T: NodeStorage + Sync + Send + Clone + 'static,
+{
     let state = state.lock().await;
 
-    match state.get_nodes(node_req.env) {
+    match state.nodes.get_nodes(Some(node_req.env)) {
         Some(nodes) => {
             let node_response: Vec<NodeResponse> = nodes
                 .into_iter()
@@ -136,23 +146,33 @@ pub async fn get_nodes(
     }
 }
 
-pub async fn node_register(
+pub async fn node_register<T>(
     node_req: NodeRequest,
-    state: Arc<Mutex<State>>,
-    client: Arc<Mutex<Client>>,
-    _publisher: Arc<Mutex<Socket>>,
-) -> Result<impl Reply, Rejection> {
+    state: Arc<Mutex<State<T>>>,
+    db: DbContext,
+) -> Result<impl Reply, Rejection>
+where
+    T: NodeStorage + Sync + Send + Clone + 'static,
+{
     log::debug!("Received: {:?}", node_req);
 
     let node = node_req.clone().as_node();
     let mut state = state.lock().await;
 
-    if state.add_node(node.clone()).await.is_ok() {
-        let _ = Node::insert_node(client, node).await;
+    if state.nodes.add_node(node.clone()).is_ok() {
+        let _ = db.node().insert_node(node.clone()).await;
+        let _ = db
+            .node()
+            .update_node_status(node.uuid, NodeStatus::Online)
+            .await;
+
         let response = ResponseMessage::<String> {
             status: 200,
             message: format!("node {} is added", node_req.uuid),
         };
+
+        debug!("Sending JSON response: {:?}", response);
+
         Ok(warp::reply::with_status(
             warp::reply::json(&response),
             StatusCode::OK,
@@ -162,6 +182,14 @@ pub async fn node_register(
             status: 304,
             message: format!("node {} is not added", node_req.uuid),
         };
+
+        let _ = db
+            .node()
+            .update_node_status(node.uuid, NodeStatus::Online)
+            .await;
+
+        debug!("Sending JSON response: {:?}", response);
+
         Ok(warp::reply::with_status(
             warp::reply::json(&response),
             StatusCode::NOT_MODIFIED,
@@ -257,19 +285,22 @@ pub struct UserQueryParams {
     pub id: Uuid,
 }
 
-pub async fn get_conn(
+pub async fn get_conn<T>(
     user_req: UserQueryParams,
-    state: Arc<Mutex<State>>,
-) -> Result<impl warp::Reply, warp::Rejection> {
+    state: Arc<Mutex<State<T>>>,
+) -> Result<impl warp::Reply, warp::Rejection>
+where
+    T: NodeStorage + Sync + Send + Clone + 'static,
+{
     let state = state.lock().await;
 
     let user_id = user_req.id;
 
-    let user = state.get_user(user_id).await;
+    let user = state.get_user(user_id);
     if let Some(user) = user {
         let env = user.env;
 
-        if let Some(nodes) = state.get_nodes(env) {
+        if let Some(nodes) = state.nodes.get_nodes(Some(env)) {
             let connections: Vec<String> = nodes
                 .iter()
                 .filter(|node| node.status == NodeStatus::Online)

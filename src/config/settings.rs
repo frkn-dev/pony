@@ -20,7 +20,7 @@ fn default_env() -> String {
     "dev".to_string()
 }
 
-fn default_xray_daily_limit_mb() -> i64 {
+fn default_user_daily_limit_mb() -> i64 {
     1000
 }
 
@@ -68,11 +68,7 @@ fn default_pg_password() -> String {
     "password".to_string()
 }
 
-fn default_trial_users_jobs_timeout_sec() -> u64 {
-    60
-}
-
-fn default_stat_jobs_timeout_sec() -> u64 {
+fn default_stat_job_timeout_sec() -> u64 {
     60
 }
 
@@ -112,7 +108,11 @@ fn default_label() -> String {
     "🏴‍☠️🏴‍☠️🏴‍☠️ dev".to_string()
 }
 
-fn default_node_health_check_timeout() -> i16 {
+fn default_node_healthcheck_timeout() -> i16 {
+    60
+}
+
+fn default_healthcheck_interval() -> u64 {
     60
 }
 
@@ -138,26 +138,26 @@ pub struct ApiConfig {
     pub port: u16,
     #[serde(default = "default_api_endpoint_address")]
     pub endpoint: String,
-    #[serde(default = "default_node_health_check_timeout")]
+    #[serde(default = "default_node_healthcheck_timeout")]
     pub node_health_check_timeout: i16,
     #[serde(default = "default_api_token")]
     pub token: String,
+    #[serde(default = "default_user_daily_limit_mb")]
+    pub user_limit_mb: i64,
+    #[serde(default = "default_healthcheck_interval")]
+    pub healthcheck_interval: u64,
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]
 pub struct AppConfig {
+    #[serde(default = "default_enabled")]
+    pub metrics_enabled: bool,
     #[serde(default = "default_metrics_timeout")]
     pub metrics_timeout: u64,
     #[serde(default = "default_enabled")]
-    pub trial_users_enabled: bool,
-    #[serde(default = "default_enabled")]
     pub stat_enabled: bool,
-    #[serde(default = "default_enabled")]
-    pub metrics_enabled: bool,
-    #[serde(default = "default_trial_users_jobs_timeout_sec")]
-    pub trial_jobs_timeout: u64,
-    #[serde(default = "default_stat_jobs_timeout_sec")]
-    pub stat_jobs_timeout: u64,
+    #[serde(default = "default_stat_job_timeout_sec")]
+    pub stat_job_timeout: u64,
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]
@@ -281,8 +281,6 @@ pub struct PaymentConfig {
 
 #[derive(Clone, Debug, Deserialize, Default)]
 pub struct XrayConfig {
-    #[serde(default = "default_xray_daily_limit_mb")]
-    pub xray_daily_limit_mb: i64,
     #[serde(default = "default_xray_config_path")]
     pub xray_config_path: String,
 }
@@ -373,8 +371,6 @@ pub struct AgentSettings {
     pub zmq: ZmqConfig,
     #[serde(default)]
     pub node: NodeConfig,
-    #[serde(default)]
-    pub pg: PostgresConfig,
     #[serde(default)]
     pub api: ApiConfig,
 }

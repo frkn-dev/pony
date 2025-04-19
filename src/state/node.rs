@@ -1,15 +1,10 @@
+use std::fmt;
+use std::str::FromStr;
+use std::{collections::HashMap, net::Ipv4Addr};
+
 use chrono::DateTime;
 use chrono::Utc;
-use log::{debug, error};
 use serde::{Deserialize, Serialize};
-use std::error::Error;
-use std::fmt;
-use std::net::IpAddr;
-use std::str::FromStr;
-use std::sync::Arc;
-use std::{collections::HashMap, net::Ipv4Addr};
-use tokio::sync::Mutex;
-use tokio_postgres::Client;
 use uuid::Uuid;
 
 use super::tag::Tag;
@@ -63,6 +58,7 @@ pub struct NodeRequest {
     pub inbounds: HashMap<Tag, Inbound>,
     pub uuid: Uuid,
     pub label: String,
+    pub iface: String,
 }
 
 impl NodeRequest {
@@ -72,6 +68,7 @@ impl NodeRequest {
             env: self.env,
             uuid: self.uuid,
             hostname: self.hostname,
+            iface: self.iface,
             ipv4: self.ipv4,
             inbounds: self.inbounds,
             status: NodeStatus::Online,
@@ -99,6 +96,7 @@ pub struct Node {
     pub status: NodeStatus,
     pub inbounds: HashMap<Tag, Inbound>,
     pub env: String,
+    pub iface: String,
     pub uuid: Uuid,
     pub created_at: DateTime<Utc>,
     pub modified_at: DateTime<Utc>,
@@ -111,6 +109,7 @@ impl Node {
         hostname: String,
         ipv4: Ipv4Addr,
         env: String,
+        iface: String,
         uuid: Uuid,
         label: String,
     ) -> Self {
@@ -126,46 +125,12 @@ impl Node {
             status: NodeStatus::Online,
             ipv4: ipv4,
             env: env,
+            iface: iface,
             uuid: uuid,
             created_at: now,
             modified_at: now,
             label: label,
         }
-    }
-
-    pub async fn insert_node(client: Arc<Mutex<Client>>, node: Node) -> Result<(), Box<dyn Error>> {
-        let client = client.lock().await;
-
-        let query = "
-            INSERT INTO nodes (hostname, ipv4, status, inbounds, env, uuid, created_at, modified_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-        ";
-
-        let status_str = node.status.to_string();
-        let ip: IpAddr = IpAddr::V4(node.ipv4);
-        let inbounds_json = serde_json::to_value(&node.inbounds)?;
-
-        let result = client
-            .execute(
-                query,
-                &[
-                    &node.hostname,
-                    &ip,
-                    &status_str,
-                    &inbounds_json,
-                    &node.env,
-                    &node.uuid,
-                    &node.created_at,
-                    &node.modified_at,
-                ],
-            )
-            .await;
-        match result {
-            Ok(_) => debug!("Node inserted successfully"),
-            Err(e) => error!("Error inserting node: {}", e),
-        }
-
-        Ok(())
     }
 
     pub fn as_node_response(&self) -> NodeResponse {

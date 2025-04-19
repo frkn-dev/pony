@@ -1,29 +1,40 @@
+use std::error::Error;
+use std::sync::Arc;
+
 use chrono::Duration;
 use chrono::LocalResult;
 use chrono::TimeZone;
 use chrono::Utc;
-use clickhouse::Client;
+use clickhouse::Client as ChClient;
 use futures::future::join_all;
 use log::debug;
 use log::error;
-use std::error::Error;
-use std::sync::Arc;
+use log::warn;
 use tokio::sync::Mutex;
 
+use crate::state::state::NodeStorage;
+use crate::state::state::UserStorage;
+use crate::DbContext;
 use crate::{
     clickhouse::query::fetch_heartbeat_value,
     postgres::user::UserRow,
     state::{node::Node, node::NodeStatus, state::State, user::User},
 };
 
-pub async fn node_healthcheck(
-    state: Arc<Mutex<State>>,
-    ch_client: Arc<Mutex<Client>>,
+pub async fn node_healthcheck<T>(
+    state: Arc<Mutex<State<T>>>,
+    ch_client: Arc<Mutex<ChClient>>,
+    db: DbContext,
     timeout: i16,
-) -> Result<(), Box<dyn Error + Send + Sync>> {
+) -> Result<(), Box<dyn Error + Send + Sync>>
+where
+    T: NodeStorage + Send + Sync + Clone + 'static,
+{
     let state = state.lock().await;
 
-    let nodes = match state.get_all_nodes() {
+    debug!("Running healthcheck...");
+
+    let nodes = match state.nodes.get_all_nodes() {
         Some(nodes) => nodes,
         None => {
             debug!("No nodes found for health check");
@@ -35,6 +46,8 @@ pub async fn node_healthcheck(
 
     let tasks = nodes.into_iter().map(|mut node| {
         let client = ch_client.clone();
+        let db = db.clone();
+
         async move {
             let result = fetch_heartbeat_value(client, &node.env, node.uuid).await;
             match result {
@@ -51,14 +64,27 @@ pub async fn node_healthcheck(
                                 NodeStatus::Online => {
                                     if time_diff > timeout_duration {
                                         let _ = node.update_status(NodeStatus::Offline);
+                                        let _ = db
+                                            .node()
+                                            .update_node_status(node.uuid, NodeStatus::Offline)
+                                            .await;
                                     }
                                 }
                                 NodeStatus::Offline => {
                                     if time_diff <= timeout_duration {
                                         let _ = node.update_status(NodeStatus::Online);
+                                        let _ = db
+                                            .node()
+                                            .update_node_status(node.uuid, NodeStatus::Online)
+                                            .await;
                                     }
                                 }
-                                NodeStatus::Unknown => {}
+                                NodeStatus::Unknown => {
+                                    warn!(
+                                        "Node Status for {} {} is UNKNOWN ",
+                                        node.uuid, node.hostname
+                                    )
+                                }
                             }
                             Ok(())
                         }
@@ -75,6 +101,10 @@ pub async fn node_healthcheck(
                 None => {
                     error!("Failed to fetch heartbeat for node {:?}", node.uuid);
                     let _ = node.update_status(NodeStatus::Offline);
+                    let _ = db
+                        .node()
+                        .update_node_status(node.uuid, NodeStatus::Offline)
+                        .await;
                     Err("No heartbeat value found")
                 }
             }
@@ -93,10 +123,13 @@ pub async fn node_healthcheck(
     Ok(())
 }
 
-pub async fn init_state(state: Arc<Mutex<State>>, db_node: Node) -> Result<(), Box<dyn Error>> {
+pub async fn init_state<T>(state: Arc<Mutex<State<T>>>, db_node: Node) -> Result<(), Box<dyn Error>>
+where
+    T: NodeStorage + Sync + Send + Clone + 'static,
+{
     let _ = {
         let mut user_state = state.lock().await;
-        match user_state.add_node(db_node.clone()).await {
+        match user_state.nodes.add_node(db_node.clone()) {
             Ok(user) => {
                 debug!("Node added to State {:?}", user);
                 return Ok(());
@@ -112,11 +145,14 @@ pub async fn init_state(state: Arc<Mutex<State>>, db_node: Node) -> Result<(), B
     };
 }
 
-pub async fn sync_users(
-    state: Arc<Mutex<State>>,
+pub async fn sync_users<T>(
+    state: Arc<Mutex<State<T>>>,
     db_user: UserRow,
     limit: i64,
-) -> Result<(), Box<dyn Error>> {
+) -> Result<(), Box<dyn Error>>
+where
+    T: NodeStorage + Send + Sync + Clone + 'static,
+{
     let user = User::new(
         db_user.trial,
         limit,
@@ -125,8 +161,8 @@ pub async fn sync_users(
     );
 
     let _ = {
-        let mut user_state = state.lock().await;
-        match user_state.add_user(db_user.user_id, user.clone()).await {
+        let mut state = state.lock().await;
+        match state.add_or_update_user(db_user.user_id, user.clone()) {
             Ok(user) => {
                 debug!("User added to State {:?}", user);
             }

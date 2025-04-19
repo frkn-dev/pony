@@ -1,13 +1,11 @@
 .DS_Store
 */.DS_Store
-config-metrics.toml
-config-metrics2.toml
 dev/config-bot.toml
+dev/config-agent.toml
+dev/config-api.toml
 query.txt
 target
 pony.log
-config.toml
-config-api.toml
 deploy/servers
 query.txt
 query2.txt

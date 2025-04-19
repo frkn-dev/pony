@@ -63,7 +63,7 @@
     const userElement = document.getElementById('user-info');
     const userIdInput = document.getElementById('userId');
 
-    const socket = new WebSocket('ws://127.0.0.1:3000/ws');
+    const socket = new WebSocket('ws://127.0.0.1:3033/ws');
 
     socket.onopen = () => {
         console.log("Connected to WebSocket server.");
@@ -171,12 +171,12 @@
 
     function displayNodes(state) {
         console.log("Displaying nodes state:", state);
-        nodesContainer.style.display = 'block';  // Ensure it is visible
+        nodesContainer.style.display = 'block';  
         nodesElement.innerHTML = "";    
         let data = state.data;
         if (typeof data === 'string') {
             try {
-                data = JSON.parse(data);  // If data is string, parse it to JSON
+                data = JSON.parse(data);
             } catch (e) {
                 console.error("Error parsing nodes JSON:", e);
             }
@@ -215,8 +215,8 @@
         }
     });
 
-    setInterval(requestUsers, 5000); 
-    setInterval(requestNodes, 5000); 
+    setInterval(requestUsers, 1000); 
+    setInterval(requestNodes, 1000); 
 
 </script>
 

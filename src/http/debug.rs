@@ -1,14 +1,17 @@
-use core::fmt;
-use futures::{SinkExt, StreamExt};
-use log::info;
-use serde::{Deserialize, Serialize};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
+
+use core::fmt;
+use futures::{SinkExt, StreamExt};
+use log::error;
+use log::info;
+use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 use uuid::Uuid;
 use warp::ws::Message;
 use warp::Filter;
 
+use crate::state::state::NodeStorage;
 use crate::state::state::State;
 
 enum Kind {
@@ -41,7 +44,10 @@ pub struct Response {
     pub len: usize,
 }
 
-pub async fn start_ws_server(state: Arc<Mutex<State>>, ipaddr: Ipv4Addr, port: u16) {
+pub async fn start_ws_server<T>(state: Arc<Mutex<State<T>>>, ipaddr: Ipv4Addr, port: u16)
+where
+    T: NodeStorage + Sync + Send + Clone + 'static,
+{
     let health_check = warp::path("health-check").map(|| format!("Server OK"));
 
     let ws = warp::path("ws")
@@ -60,7 +66,10 @@ pub async fn start_ws_server(state: Arc<Mutex<State>>, ipaddr: Ipv4Addr, port: u
         .await;
 }
 
-pub async fn handle_debug_connection(socket: warp::ws::WebSocket, state: Arc<Mutex<State>>) {
+pub async fn handle_debug_connection<T>(socket: warp::ws::WebSocket, state: Arc<Mutex<State<T>>>)
+where
+    T: NodeStorage + Sync + Send + Clone + 'static,
+{
     let (mut sender, mut receiver) = socket.split();
 
     while let Some(Ok(msg)) = receiver.next().await {
@@ -84,14 +93,16 @@ pub async fn handle_debug_connection(socket: warp::ws::WebSocket, state: Arc<Mut
             sender.send(Message::text(response_str)).await.unwrap();
         } else if req.kind == "get_nodes" {
             let state = state.lock().await;
-            let nodes: Vec<_> = state
-                .nodes
-                .values()
-                .flat_map(|v| v.iter())
-                .cloned()
-                .collect();
+            let nodes = state.nodes.get_nodes(None).unwrap_or_default();
 
-            let data = serde_json::to_string(&*nodes).unwrap();
+            let data = match serde_json::to_string(&nodes) {
+                Ok(json) => json,
+                Err(err) => {
+                    error!("Failed to serialize nodes: {}", err);
+                    continue;
+                }
+            };
+
             let response = Response {
                 kind: Kind::Nodes.to_string(),
                 data: serde_json::Value::String(data),

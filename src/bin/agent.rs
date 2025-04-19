@@ -1,11 +1,12 @@
+use std::net::Ipv4Addr;
+use std::sync::Arc;
+
 use clap::Parser;
 use fern::Dispatch;
-use futures::future::join_all;
 use log::debug;
 use log::error;
 use log::info;
-use std::net::Ipv4Addr;
-use std::sync::Arc;
+
 use tokio::{
     sync::Mutex,
     task::JoinHandle,
@@ -13,18 +14,8 @@ use tokio::{
 };
 
 use pony::{
-    config::{
-        settings::{AgentSettings, Settings},
-        xray,
-    },
-    http::debug::start_ws_server,
-    jobs::agent,
-    metrics::metrics::MetricType,
-    postgres::{postgres::postgres_client, user::users_db_request},
-    state::{node::Node, state::State},
-    utils::{current_timestamp, human_readable_date, level_from_settings, measure_time},
-    xray_op::client::{HandlerClient, StatsClient, XrayClient},
-    zmq::subscriber::subscriber,
+    http::debug::start_ws_server, jobs::agent, utils::*, AgentSettings, HandlerClient, Node,
+    Settings, State, StatsClient, XrayClient, XrayConfig, ZmqSubscriber,
 };
 
 #[derive(Parser)]
@@ -36,6 +27,8 @@ struct Cli {
     #[arg(short, long, default_value = "config.toml")]
     config: String,
 }
+
+type AgentState = State<Node>;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -75,14 +68,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut tasks: Vec<JoinHandle<()>> = vec![];
 
-    // Clients
-    let pg_client = match postgres_client(settings.pg.clone()).await {
-        Ok(client) => client,
-        Err(e) => panic!("PG not available, {}", e),
-    };
-
     // Xray-core Config Validation
-    let xray_config = match xray::Config::new(&settings.xray.xray_config_path) {
+    let xray_config = match XrayConfig::new(&settings.xray.xray_config_path) {
         Ok(config) => {
             info!(
                 "Xray Config: Successfully read Xray config file: {:?}",
@@ -120,50 +107,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .ipv4
                 .unwrap_or_else(|| Ipv4Addr::new(127, 0, 0, 1)),
             env.clone(),
+            settings
+                .node
+                .default_interface
+                .clone()
+                .unwrap_or("eth0".to_string()),
             node_uuid,
             settings.node.label.clone(),
         );
 
-        let mut state = State::new();
-        if let Err(e) = state.add_node(node).await {
-            error!("Failed to add node: {}", e);
-            return Err(e);
-        }
+        let state: AgentState = State::with_node(node);
         let state = Arc::new(Mutex::new(state));
-
-        match measure_time(
-            users_db_request(pg_client.clone(), Some(env.clone())),
-            "db query".to_string(),
-        )
-        .await
-        {
-            Ok(users) => {
-                let futures: Vec<_> = users
-                    .into_iter()
-                    .map(|user| {
-                        agent::init_state(
-                            state.clone(),
-                            settings.xray.xray_daily_limit_mb,
-                            xray_handler_client.clone(),
-                            user,
-                        )
-                    })
-                    .collect();
-
-                if let Some(Err(e)) = measure_time(join_all(futures), "Init state".to_string())
-                    .await
-                    .into_iter()
-                    .find(Result::is_err)
-                {
-                    error!("Error during user state initialization: {}", e);
-                }
-            }
-            Err(e) => {
-                error!("Failed to fetch users from DB: {}", e);
-                return Err(e);
-            }
-        }
-
         state
     };
 
@@ -171,9 +125,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let settings = settings.clone();
         debug!("----->>>>> Register node");
         if let Err(e) = agent::register_node(
-            state.clone(),
+            Arc::clone(&state),
             settings.api.endpoint,
-            settings.node.env.clone(),
             settings.api.token,
         )
         .await
@@ -193,6 +146,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ));
     }
 
+    // METRICS TASKS
+    if settings.app.metrics_enabled {
+        info!("Running metrics send job");
+        let metrics_handle = tokio::spawn({
+            let state = Arc::clone(&state);
+            let settings = settings.clone();
+
+            async move {
+                loop {
+                    sleep(Duration::from_secs(settings.app.metrics_timeout)).await;
+                    let _ = agent::send_metrics_job(
+                        Arc::clone(&state),
+                        settings.carbon.address.clone(),
+                    )
+                    .await;
+                }
+            }
+        });
+        tasks.push(metrics_handle);
+    }
+
     // ++ Recurent Jobs ++
     if settings.app.stat_enabled {
         // Statistics
@@ -202,17 +176,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let stats_client = xray_stats_client.clone();
             let handler_client = xray_handler_client.clone();
 
-            let env = env.clone();
             async move {
                 loop {
                     tokio::task::yield_now().await;
-                    sleep(Duration::from_secs(settings.app.stat_jobs_timeout)).await;
+                    sleep(Duration::from_secs(settings.app.stat_job_timeout)).await;
                     let _ = agent::collect_stats_job(
                         stats_client.clone(),
                         handler_client.clone(),
                         state.clone(),
-                        settings.node.uuid,
-                        env.clone(),
                     )
                     .await;
                 }
@@ -221,81 +192,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         tasks.push(stats_task);
     }
 
-    if settings.app.trial_users_enabled {
-        // Block trial users by traffic limit
-        info!("Running trial users limit by traffic job");
-        let block_trial_users_by_limit_handle = tokio::spawn({
-            let state = state.clone();
-            let clients = xray_handler_client.clone();
-            let endpoint = settings.api.endpoint.clone();
-            let api_token = settings.api.token.clone();
-            async move {
-                loop {
-                    tokio::task::yield_now().await;
-                    sleep(Duration::from_secs(settings.app.trial_jobs_timeout)).await;
-                    agent::block_trial_users_by_limit(
-                        state.clone(),
-                        clients.clone(),
-                        env.clone(),
-                        node_uuid.clone(),
-                        endpoint.clone(),
-                        api_token.clone(),
-                    )
-                    .await;
-                }
-            }
-        });
-        tasks.push(block_trial_users_by_limit_handle);
-
-        // Restore trial user
-        info!("Running restoring trial users job");
-        let restore_trial_users_handle = tokio::spawn({
-            let state = state.clone();
-            let clients = xray_handler_client.clone();
-            async move {
-                loop {
-                    tokio::task::yield_now().await;
-                    agent::restore_trial_users(state.clone(), clients.clone()).await;
-                    sleep(Duration::from_secs(settings.app.trial_jobs_timeout)).await;
-                }
-            }
-        });
-        tasks.push(restore_trial_users_handle);
-    }
-
     // zeromq SUB messages listener
-    let _ = {
+    let zmq_task = tokio::spawn({
+        let state = Arc::clone(&state);
+        let client = Arc::clone(&xray_handler_client);
         let settings = settings.clone();
-        let user_state = state.clone();
-        tasks.push(tokio::spawn(subscriber(
-            xray_handler_client,
-            settings.clone(),
-            user_state,
-        )))
-    };
 
-    // METRICS TASKS
-    if settings.app.metrics_enabled {
-        info!("Running metrics send job");
-        let metrics_handle = tokio::spawn({
-            let state = state.clone();
-            let settings = settings.clone();
-
-            async move {
-                loop {
-                    tokio::task::yield_now().await;
-                    sleep(Duration::from_secs(settings.app.metrics_timeout)).await;
-                    let _ = agent::send_metrics_job::<MetricType>(
-                        state.clone(),
-                        settings.clone(),
-                        node_uuid.clone(),
-                    )
-                    .await;
-                }
+        async move {
+            let sub = ZmqSubscriber::new(&settings.zmq.sub_endpoint, &settings.node.env);
+            if let Err(e) = sub.run(client, settings, state).await {
+                error!("ZMQ subscriber error: {}", e);
             }
-        });
-        tasks.push(metrics_handle);
-    }
+        }
+    });
+
+    tasks.push(zmq_task);
 
     // Run all tasks
     let _ = futures::future::join_all(tasks).await;

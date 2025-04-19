@@ -46,7 +46,7 @@ impl AsMetric for MemUsage {
     }
 }
 
-pub async fn mem_metrics(env: &str, hostname: &str) -> Vec<MetricType> {
+pub fn mem_metrics(env: &str, hostname: &str) -> Vec<MetricType> {
     let mut system = System::new();
 
     let _ = system.refresh_memory_specifics(MemoryRefreshKind::nothing().with_ram());

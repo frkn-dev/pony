@@ -39,7 +39,7 @@ impl AsMetric for LoadAvgWrapper {
     }
 }
 
-pub async fn loadavg_metrics(env: &str, hostname: &str) -> Vec<MetricType> {
+pub fn loadavg_metrics(env: &str, hostname: &str) -> Vec<MetricType> {
     let load_avg = System::load_average();
     let wrapper = LoadAvgWrapper { load_avg };
 

@@ -5,7 +5,7 @@ use serde::Serialize;
 use std::error::Error;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use tokio_postgres::Client;
+use tokio_postgres::Client as PgClient;
 use uuid::Uuid;
 
 use crate::zmq::message::Action;
@@ -16,8 +16,9 @@ pub struct UserRow {
     pub user_id: Uuid,
     pub username: Option<String>,
     pub trial: bool,
-    pub password: String, //ToDo Option<>
-    pub cluster: String,  //ToDo Option<>
+    pub limit: i64,
+    pub password: String,
+    pub cluster: String,
     pub created: NaiveDateTime,
 }
 
@@ -27,6 +28,7 @@ impl UserRow {
             user_id: user_id,
             username: Some(username.to_string()),
             trial: true,
+            limit: 1000,
             password: "random123".to_string(),
             cluster: "dev".to_string(),
             created: Utc::now().naive_utc(),
@@ -38,103 +40,113 @@ impl UserRow {
             user_id: self.user_id,
             action: Action::Create,
             env: self.cluster.clone(),
-            trial: Some(self.trial),
-            limit: Some(1000), //Todo fix
+            trial: self.trial,
+            limit: self.limit,
             password: Some(self.password.clone()),
         }
     }
 }
 
-pub async fn users_db_request(
-    client: Arc<Mutex<Client>>,
-    cluster: Option<String>,
-) -> Result<Vec<UserRow>, Box<dyn Error>> {
-    let client = client.lock().await;
+pub struct PgUserRequest {
+    pub client: Arc<Mutex<PgClient>>,
+}
 
-    let query = if let Some(_) = cluster {
-        "
-        SELECT id, trial, password, cluster, created 
+impl PgUserRequest {
+    pub fn new(client: Arc<Mutex<PgClient>>) -> Self {
+        Self { client }
+    }
+
+    pub async fn get_users_by_cluster(
+        &self,
+        cluster: Option<String>,
+    ) -> Result<Vec<UserRow>, Box<dyn Error>> {
+        let client = self.client.lock().await;
+
+        let query = if let Some(_) = cluster {
+            "
+        SELECT id, trial, data_limit_mb, password, cluster, created 
         FROM users 
         WHERE cluster = $1
         "
-    } else {
-        "
-        SELECT id, trial, password, cluster, created 
+        } else {
+            "
+        SELECT id, trial, data_limit_mb, password, cluster, created 
         FROM users
         "
-    };
+        };
 
-    let rows = if let Some(env) = cluster {
-        client.query(query, &[&env]).await?
-    } else {
-        client.query(query, &[]).await?
-    };
+        let rows = if let Some(env) = cluster {
+            client.query(query, &[&env]).await?
+        } else {
+            client.query(query, &[]).await?
+        };
 
-    let users: Vec<UserRow> = rows
-        .into_iter()
-        .map(|row| {
-            let user_id: Uuid = row.get(0);
-            let trial: bool = row.get(1);
-            let password: String = row.get(2);
-            let cluster: String = row.get(3);
-            let created: NaiveDateTime = row.get(4);
+        let users: Vec<UserRow> = rows
+            .into_iter()
+            .map(|row| {
+                let user_id: Uuid = row.get(0);
+                let trial: bool = row.get(1);
+                let limit: i64 = row.get(2);
+                let password: String = row.get(3);
+                let cluster: String = row.get(4);
+                let created: NaiveDateTime = row.get(5);
 
-            UserRow {
-                user_id,
-                username: None,
-                trial,
-                password,
-                cluster,
-                created,
-            }
-        })
-        .collect();
+                UserRow {
+                    user_id,
+                    username: None,
+                    trial,
+                    limit,
+                    password,
+                    cluster,
+                    created,
+                }
+            })
+            .collect();
 
-    Ok(users)
-}
+        Ok(users)
+    }
 
-pub async fn user_exist(client: Arc<Mutex<Client>>, username: String) -> Option<Uuid> {
-    let client = client.lock().await;
+    pub async fn user_exist(&self, username: String) -> Option<Uuid> {
+        let client = self.client.lock().await;
 
-    let query = "
+        let query = "
         SELECT id 
         FROM users 
         WHERE username = $1
     ";
 
-    match client.query(query, &[&username]).await {
-        Ok(rows) => rows.first().map(|row| row.get(0)),
-        Err(err) => {
-            log::error!("Database query failed: {}", err);
-            None
+        match client.query(query, &[&username]).await {
+            Ok(rows) => rows.first().map(|row| row.get(0)),
+            Err(err) => {
+                log::error!("Database query failed: {}", err);
+                None
+            }
         }
     }
-}
 
-pub async fn insert_user(
-    client: Arc<Mutex<Client>>,
-    user: UserRow,
-) -> Result<(), Box<dyn Error + Send + Sync>> {
-    let client = client.lock().await;
+    pub async fn insert_user(&self, user: UserRow) -> Result<(), Box<dyn Error + Send + Sync>> {
+        let client = self.client.lock().await;
 
-    let query = "
-        INSERT INTO users (id, username, trial, password, cluster, created)
-        VALUES ($1, $2, $3, $4, $5, $6)
+        let query = "
+        INSERT INTO users (id, username, trial, data_limit_mb, password, cluster, created)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
     ";
 
-    client
-        .execute(
-            query,
-            &[
-                &user.user_id,
-                &user.username,
-                &user.trial,
-                &user.password,
-                &user.cluster,
-                &user.created,
-            ],
-        )
-        .await?;
+        client
+            .execute(
+                query,
+                &[
+                    &user.user_id,
+                    &user.username,
+                    &user.trial,
+                    &user.limit,
+                    &user.password,
+                    &user.cluster,
+                    &user.created,
+                ],
+            )
+            .await?;
 
-    Ok(())
+        Ok(())
+    }
 }

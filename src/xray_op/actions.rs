@@ -17,8 +17,6 @@ pub async fn create_users(
     password: Option<String>,
     client: Arc<Mutex<HandlerClient>>,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
-    println!("CREATE USER");
-
     let _ = {
         let client = client.clone();
         let user_info = vmess::UserInfo::new(user_id);

@@ -1,14 +1,15 @@
-use clap::Parser;
-use fern::Dispatch;
-use log::debug;
-use log::error;
-use reqwest::Url;
 use std::collections::HashMap;
 use std::error::Error;
 use std::net::Ipv4Addr;
 use std::sync::Arc;
+
+use clap::Parser;
+use fern::Dispatch;
+use log::debug;
+use log::error;
+use pony::postgres::DbContext;
+use reqwest::Url;
 use tokio::sync::Mutex;
-use tokio_postgres::Client;
 use urlencoding::decode;
 
 use teloxide::{
@@ -23,7 +24,6 @@ use pony::utils::*;
 use pony::{
     jobs::bot::{create_vpn_user, get_conn, register},
     payment::webhook::run_webhook_server,
-    user_exist,
 };
 use pony::{postgres_client, BotSettings, Settings};
 
@@ -91,11 +91,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
             let client = Arc::clone(&pg_client);
             let settings = Arc::clone(&settings);
             let callback_map = Arc::clone(&callback_map);
+            let db = DbContext::new(client);
             move |bot: Bot, msg: Message, me: Me| {
-                let client = Arc::clone(&client);
+                let db = db.clone();
                 let settings = Arc::clone(&settings);
                 let callback_map = Arc::clone(&callback_map);
-                async move { message_handler(bot, msg, me, client, settings, callback_map).await }
+                async move { message_handler(bot, msg, me, db, settings, callback_map).await }
             }
         }))
         .branch(Update::filter_callback_query().endpoint({
@@ -140,7 +141,7 @@ async fn message_handler(
     bot: Bot,
     msg: Message,
     me: Me,
-    client: Arc<Mutex<Client>>,
+    db: DbContext,
     settings: Arc<Mutex<BotSettings>>,
     callback_map: Arc<Mutex<HashMap<String, String>>>,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
@@ -162,7 +163,7 @@ async fn message_handler(
                 if let Some(user) = msg.from {
                     if let Some(username) = user.username {
                         let user_id = uuid::Uuid::new_v4();
-                        match register(&username, user_id, client).await {
+                        match register(&username, user_id, db).await {
                             Ok(_) => {
                                 let settings = settings.lock().await;
                                 let reply = format!("Спасибо за регистрацию {}", username);
@@ -188,9 +189,7 @@ async fn message_handler(
             Ok(Command::Getvpn) => {
                 if let Some(user) = msg.from {
                     if let Some(username) = user.username {
-                        if let Some(user_id) =
-                            user_exist(client.clone(), username.to_string()).await
-                        {
+                        if let Some(user_id) = db.user().user_exist(username.to_string()).await {
                             let settings = settings.lock().await;
 
                             if let Ok(conns) = get_conn(
@@ -216,9 +215,7 @@ async fn message_handler(
             Ok(Command::Payment) => {
                 if let Some(user) = msg.from {
                     if let Some(username) = user.username {
-                        if let Some(user_id) =
-                            user_exist(client.clone(), username.to_string()).await
-                        {
+                        if let Some(user_id) = db.user().user_exist(username.to_string()).await {
                             match create_payment(settings, user_id).await {
                                 Ok(payment_url) => {
                                     let url = Url::parse(&payment_url)

@@ -1,22 +1,26 @@
-use log::debug;
 use std::{net::Ipv4Addr, sync::Arc};
+
+use log::debug;
 use tokio::sync::Mutex;
-use tokio_postgres::Client;
 use warp::Filter;
-use zmq::Socket;
 
-use super::handlers::AuthError;
-use super::handlers::{self, NodesQueryParams, UserQueryParams};
+use super::handlers::{self, AuthError, NodesQueryParams, UserQueryParams};
+use crate::postgres::DbContext;
+use crate::state::state::NodeStorage;
 use crate::state::{node::NodeRequest, state::State};
+use crate::ZmqPublisher;
 
-pub async fn run_api_server(
-    state: Arc<Mutex<State>>,
-    client: Arc<Mutex<Client>>,
-    publisher: Arc<Mutex<Socket>>,
+pub async fn run_api_server<T>(
+    state: Arc<Mutex<State<T>>>,
+    db: DbContext,
+    publisher: ZmqPublisher,
     listen: Ipv4Addr,
     port: u16,
     token: String,
-) {
+    limit: i64,
+) where
+    T: NodeStorage + Send + Sync + Clone + 'static,
+{
     let auth = warp::header::<String>("authorization").and_then(move |auth_header: String| {
         let expected_token = format!("Bearer {}", token.clone());
         debug!("Received Token: {}", auth_header);
@@ -33,8 +37,8 @@ pub async fn run_api_server(
         .and(warp::body::json())
         .and(with_publisher(publisher.clone()))
         .and(with_state(state.clone()))
-        .and_then(|_auth, user_req, publisher, state| {
-            handlers::user_request(user_req, publisher, state)
+        .and_then(move |_auth, user_req, publisher, state| {
+            handlers::user_request(user_req, publisher, state, limit)
         });
 
     let nodes_route = warp::get()
@@ -57,11 +61,8 @@ pub async fn run_api_server(
         .and(auth)
         .and(warp::body::json::<NodeRequest>())
         .and(with_state(state))
-        .and(with_pg_client(client))
-        .and(with_publisher(publisher))
-        .and_then(|_auth, node_req, state, client, publisher| {
-            handlers::node_register(node_req, state, client, publisher)
-        });
+        .and(with_db(db))
+        .and_then(|_auth, node_req, state, db| handlers::node_register(node_req, state, db));
 
     let routes = user_route
         .or(nodes_route)
@@ -72,26 +73,23 @@ pub async fn run_api_server(
     warp::serve(routes).run((listen, port)).await;
 }
 
-fn with_state(
-    state: Arc<Mutex<State>>,
-) -> impl Filter<Extract = (Arc<Mutex<State>>,), Error = std::convert::Infallible> + Clone {
+fn with_state<T>(
+    state: Arc<Mutex<State<T>>>,
+) -> impl Filter<Extract = (Arc<Mutex<State<T>>>,), Error = std::convert::Infallible> + Clone
+where
+    T: NodeStorage + Sync + Send + Clone + 'static,
+{
     warp::any().map(move || state.clone())
 }
 
-fn with_pg_client(
-    client: Arc<Mutex<Client>>,
-) -> impl Filter<Extract = (Arc<Mutex<Client>>,), Error = std::convert::Infallible> + Clone {
-    warp::any().map(move || client.clone())
+fn with_db(
+    db: DbContext,
+) -> impl Filter<Extract = (DbContext,), Error = std::convert::Infallible> + Clone {
+    warp::any().map(move || db.clone())
 }
 
 fn with_publisher(
-    publisher: Arc<Mutex<Socket>>,
-) -> impl Filter<Extract = (Arc<Mutex<Socket>>,), Error = std::convert::Infallible> + Clone {
+    publisher: ZmqPublisher,
+) -> impl Filter<Extract = (ZmqPublisher,), Error = std::convert::Infallible> + Clone {
     warp::any().map(move || publisher.clone())
-}
-
-fn with_debug(
-    debug: Arc<bool>,
-) -> impl Filter<Extract = (Arc<bool>,), Error = std::convert::Infallible> + Clone {
-    warp::any().map(move || debug.clone())
 }

@@ -1,26 +1,25 @@
+use std::error::Error;
+
 use log::debug;
 use reqwest::Client as HttpClient;
 use reqwest::StatusCode;
 use reqwest::Url;
-use std::error::Error;
-use std::sync::Arc;
-use tokio::sync::Mutex;
-use tokio_postgres::Client as PgClient;
 use uuid::Uuid;
 
-use crate::{insert_user, user_exist, UserRow};
+use crate::postgres::DbContext;
+use crate::UserRow;
 
 pub async fn register(
     username: &str,
     user_id: Uuid,
-    client: Arc<Mutex<PgClient>>,
+    db: DbContext,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
-    if let Some(_user) = user_exist(client.clone(), username.to_string()).await {
+    if let Some(_user) = db.user().user_exist(username.to_string()).await {
         Err("User already exist".into())
     } else {
         log::info!("Registering user");
         let user = UserRow::new(username, user_id);
-        insert_user(client, user).await
+        db.user().insert_user(user).await
     }
 }
 
@@ -87,9 +86,8 @@ pub async fn get_conn(
         .await?;
 
     if res.status().is_success() || res.status() == StatusCode::NOT_MODIFIED {
-        let body = res.text().await?; // получаем тело ответа как строку
-        let data: Vec<String> = serde_json::from_str(&body)?; // десериализуем как Vec<String>
-
+        let body = res.text().await?;
+        let data: Vec<String> = serde_json::from_str(&body)?;
         return Ok(data);
     } else {
         return Err(format!("Req error: {} {:?}", res.status(), res).into());

@@ -1,67 +1,51 @@
-use chrono::{Duration, Utc};
+use std::{error::Error, sync::Arc};
+
 use log::{debug, error};
 use reqwest::Url;
 use reqwest::{Client, StatusCode};
-
-use std::{error::Error, sync::Arc};
 use tokio::sync::Mutex;
-use uuid::Uuid;
 
-use crate::config::settings::AgentSettings;
+use crate::http::handlers::ResponseMessage;
 use crate::metrics::metrics::{collect_metrics, send_to_carbon, MetricType};
-use crate::postgres::user::UserRow;
-use crate::state::{
-    state::State,
-    stats::StatType,
-    user::{User, UserStatus},
-};
+use crate::state::state::NodeStorage;
+use crate::state::state::State;
+use crate::state::state::UserStorage;
 use crate::xray_op::client::{HandlerClient, StatsClient};
-use crate::zmq::message::Action;
-use crate::zmq::message::Message;
+use crate::xray_op::{stats, stats::Prefix};
 
-use crate::xray_op::{
-    actions::create_users, actions::remove_user, stats, stats::Prefix, vless, vmess,
-};
-
-pub async fn collect_stats_job(
+pub async fn collect_stats_job<T>(
     stats_client: Arc<Mutex<StatsClient>>,
     handler_client: Arc<Mutex<HandlerClient>>,
-    state: Arc<Mutex<State>>,
-    node_id: Uuid,
-    env: String,
-) -> Result<(), Box<dyn Error>> {
+    state: Arc<Mutex<State<T>>>,
+) -> Result<(), Box<dyn Error>>
+where
+    T: NodeStorage + Sync + Send + Clone + 'static,
+{
     let mut tasks = vec![];
 
+    debug!("Running xray stat job");
+
     let user_ids = {
-        let state_guard = state.lock().await;
-        state_guard.users.keys().cloned().collect::<Vec<_>>()
+        let state = state.lock().await;
+        state.users.keys().cloned().collect::<Vec<_>>()
     };
 
     for user_id in user_ids {
-        let stats_client = stats_client.clone();
+        let stats_client = Arc::clone(&stats_client);
         let state = state.clone();
 
         tasks.push(tokio::spawn(async move {
             if let Ok(user_stat) =
                 stats::get_user_stats(stats_client, Prefix::UserPrefix(user_id)).await
             {
-                let mut state_guard = state.lock().await;
-                if let Err(e) = state_guard
-                    .update_user_downlink(user_id, user_stat.downlink)
-                    .await
-                {
+                let mut state = state.lock().await;
+                if let Err(e) = state.update_user_downlink(user_id, user_stat.downlink) {
                     error!("Failed to update user downlink: {}", e);
                 }
-                if let Err(e) = state_guard
-                    .update_user_uplink(user_id, user_stat.uplink)
-                    .await
-                {
+                if let Err(e) = state.update_user_uplink(user_id, user_stat.uplink) {
                     error!("Failed to update user uplink: {}", e);
                 }
-                if let Err(e) = state_guard
-                    .update_user_online(user_id, user_stat.online)
-                    .await
-                {
+                if let Err(e) = state.update_user_online(user_id, user_stat.online) {
                     error!("Failed to update user online: {}", e);
                 }
             } else {
@@ -70,21 +54,17 @@ pub async fn collect_stats_job(
         }));
     }
 
-    let (node_tags, node_exists) = {
-        let state_guard = state.lock().await;
-        if let Some(node) = state_guard.get_node(env.clone(), node_id) {
-            (node.inbounds.keys().cloned().collect::<Vec<_>>(), true)
-        } else {
-            (vec![], false)
-        }
-    };
+    if let Some(node) = {
+        let state = state.lock().await;
+        state.nodes.get_node()
+    } {
+        let node_tags = node.inbounds.keys().cloned().collect::<Vec<_>>();
 
-    if node_exists {
         for tag in node_tags {
             let stats_client = stats_client.clone();
             let handler_client = handler_client.clone();
             let state = state.clone();
-            let env = env.clone();
+            let env = node.env.clone();
 
             tasks.push(tokio::spawn(async move {
                 if let Ok(inbound_stat) = stats::get_inbound_stats(
@@ -94,33 +74,29 @@ pub async fn collect_stats_job(
                 )
                 .await
                 {
-                    let mut state_guard = state.lock().await;
-                    if let Err(e) = state_guard
-                        .update_node_downlink(
-                            tag.clone(),
-                            inbound_stat.downlink,
-                            env.clone(),
-                            node_id,
-                        )
-                        .await
-                    {
+                    let mut state = state.lock().await;
+                    if let Err(e) = state.nodes.update_node_downlink(
+                        tag.clone(),
+                        inbound_stat.downlink,
+                        env.clone(),
+                        node.uuid,
+                    ) {
                         error!("Failed to update inbound downlink: {}", e);
                     }
-                    if let Err(e) = state_guard
-                        .update_node_uplink(tag.clone(), inbound_stat.uplink, env.clone(), node_id)
-                        .await
-                    {
+                    if let Err(e) = state.nodes.update_node_uplink(
+                        tag.clone(),
+                        inbound_stat.uplink,
+                        env.clone(),
+                        node.uuid,
+                    ) {
                         error!("Failed to update inbound uplink: {}", e);
                     }
-                    if let Err(e) = state_guard
-                        .update_node_user_count(
-                            tag.clone(),
-                            inbound_stat.user_count,
-                            env.clone(),
-                            node_id,
-                        )
-                        .await
-                    {
+                    if let Err(e) = state.nodes.update_node_user_count(
+                        tag.clone(),
+                        inbound_stat.user_count,
+                        env.clone(),
+                        node.uuid,
+                    ) {
                         error!("Failed to update user_count: {}", e);
                     }
                 }
@@ -139,309 +115,79 @@ pub async fn collect_stats_job(
 }
 
 pub async fn send_metrics_job<T>(
-    state: Arc<Mutex<State>>,
-    settings: AgentSettings,
-    node_id: Uuid,
-) -> Result<(), Box<dyn Error>> {
-    let hostname = settings.node.hostname.unwrap_or("localhost".to_string());
-    let interface = settings
-        .node
-        .default_interface
-        .unwrap_or("eth0".to_string());
-    let metrics = collect_metrics::<T>(
-        state.clone(),
-        &settings.node.env,
-        &hostname,
-        &interface,
-        node_id,
-    )
-    .await;
+    state: Arc<Mutex<State<T>>>,
+    carbon_address: String,
+) -> Result<(), Box<dyn Error>>
+where
+    T: NodeStorage + Sync + Send + Clone + 'static,
+{
+    let metrics = collect_metrics::<T>(Arc::clone(&state)).await;
 
     for metric in metrics {
         match metric {
-            MetricType::F32(m) => send_to_carbon(&m, &settings.carbon.address).await?,
-            MetricType::F64(m) => send_to_carbon(&m, &settings.carbon.address).await?,
-            MetricType::I64(m) => send_to_carbon(&m, &settings.carbon.address).await?,
-            MetricType::U64(m) => send_to_carbon(&m, &settings.carbon.address).await?,
-            MetricType::U8(m) => send_to_carbon(&m, &settings.carbon.address).await?,
+            MetricType::F32(m) => send_to_carbon(&m, &carbon_address).await?,
+            MetricType::F64(m) => send_to_carbon(&m, &carbon_address).await?,
+            MetricType::I64(m) => send_to_carbon(&m, &carbon_address).await?,
+            MetricType::U64(m) => send_to_carbon(&m, &carbon_address).await?,
+            MetricType::U8(m) => send_to_carbon(&m, &carbon_address).await?,
         }
     }
     Ok(())
 }
 
-async fn block_user_req(
-    user_id: Uuid,
-    env: String,
+pub async fn register_node<T>(
+    state: Arc<Mutex<State<T>>>,
     endpoint: String,
     token: String,
-) -> Result<(), Box<dyn Error>> {
-    let msg = Message {
-        user_id: user_id,
-        action: Action::Delete,
-        env: env,
-        trial: None,
-        limit: None,
-        password: None,
-    };
+) -> Result<(), Box<dyn Error>>
+where
+    T: NodeStorage + Send + Sync + Clone + 'static,
+{
+    let state = state.lock().await;
 
-    let mut endpoint = Url::parse(&endpoint)?;
-    endpoint
-        .path_segments_mut()
-        .map_err(|_| "Invalid API endpoint")?
-        .push("user");
-    let endpoint = endpoint.to_string();
+    let node = state
+        .nodes
+        .get_nodes(None)
+        .and_then(|mut nodes| nodes.pop())
+        .ok_or("No node available to register")?;
 
-    debug!("ENDPOINT: {}", endpoint);
-
-    match serde_json::to_string_pretty(&msg) {
-        Ok(json) => debug!("Serialized Message for user '{}': {}", user_id, json),
-        Err(e) => error!("Error serializing Message for user_id '{}': {}", user_id, e),
-    }
-
-    let res = Client::new()
-        .post(&endpoint)
-        .header("Content-Type", "application/json")
-        .header("Authorization", format!("Bearer {}", token))
-        .json(&msg)
-        .send()
-        .await?;
-
-    if res.status().is_success() || res.status() == StatusCode::NOT_MODIFIED {
-        return Ok(());
-    } else {
-        return Err(format!("Req error: {} {:?}", res.status(), res).into());
-    }
-}
-
-pub async fn register_node(
-    state: Arc<Mutex<State>>,
-    endpoint: String,
-    env: String,
-    token: String,
-) -> Result<(), Box<dyn Error>> {
-    let node_state = state.lock().await;
-    let node = node_state.nodes.get(&env).clone();
-
-    let mut endpoint = Url::parse(&endpoint)?;
-    endpoint
+    let mut endpoint_url = Url::parse(&endpoint)?;
+    endpoint_url
         .path_segments_mut()
         .map_err(|_| "Invalid API endpoint")?
         .push("node")
         .push("register");
-    let endpoint = endpoint.to_string();
 
-    debug!("ENDPOINT: {}", endpoint);
+    let endpoint_str = endpoint_url.to_string();
+    debug!("ENDPOINT: {}", endpoint_str);
 
     match serde_json::to_string_pretty(&node) {
-        Ok(json) => debug!("Serialized node for environment '{}': {}", env, json),
-        Err(e) => error!("Error serializing node for environment '{}': {}", env, e),
+        Ok(json) => debug!("Serialized node for environment '{}': {}", node.env, json),
+        Err(e) => error!("Error serializing node '{}': {}", node.hostname, e),
     }
 
-    if let Some(env) = node {
-        if let Some(node) = env.first() {
-            let res = Client::new()
-                .post(&endpoint)
-                .header("Content-Type", "application/json")
-                .header("Authorization", format!("Bearer {}", token))
-                .json(&node)
-                .send()
-                .await?;
+    let res = Client::new()
+        .post(&endpoint_str)
+        .header("Content-Type", "application/json")
+        .header("Authorization", format!("Bearer {}", token))
+        .json(&node)
+        .send()
+        .await?;
 
-            if res.status().is_success() || res.status() == StatusCode::NOT_MODIFIED {
-                return Ok(());
-            } else {
-                return Err(format!("Req error: {} {:?}", res.status(), res).into());
-            }
+    let status = res.status();
+    let body = res.text().await?;
+
+    if status.is_success() || status == StatusCode::NOT_MODIFIED {
+        if body.trim().is_empty() {
+            debug!("Node is already registered");
+            Ok(())
         } else {
-            return Err("No nodes found in environment".into());
+            let parsed: ResponseMessage<String> = serde_json::from_str(&body)?;
+            debug!("Node is already registered: {:?}", parsed);
+            Ok(())
         }
     } else {
-        return Err("No data found for the given environment".into());
-    }
-}
-
-pub async fn init_state(
-    state: Arc<Mutex<State>>,
-    limit: i64,
-    client: Arc<Mutex<HandlerClient>>,
-    db_user: UserRow,
-) -> Result<(), Box<dyn Error>> {
-    let user = User::new(
-        db_user.trial,
-        limit,
-        db_user.cluster,
-        Some(db_user.password.clone()),
-    );
-
-    let _ = {
-        let mut user_state = state.lock().await;
-        match user_state.add_user(db_user.user_id, user.clone()).await {
-            Ok(user) => {
-                debug!("User added to State {:?}", user);
-            }
-            Err(e) => {
-                return Err(format!(
-                    "Create: Failed to add user {} to state: {}",
-                    db_user.user_id, e
-                )
-                .into());
-            }
-        }
-    };
-
-    match create_users(db_user.user_id, Some(db_user.password.clone()), client).await {
-        Ok(_) => {
-            return Ok(());
-        }
-        Err(_e) => {
-            let mut user_state = state.lock().await;
-            let _ = user_state.remove_user(db_user.user_id).await;
-            return Err(format!("Create: Failed to add user {} to state", db_user.user_id).into());
-        }
-    }
-}
-
-pub async fn restore_trial_users(state: Arc<Mutex<State>>, client: Arc<Mutex<HandlerClient>>) {
-    let trial_users = state.lock().await.get_all_trial_users(UserStatus::Expired);
-    let now = Utc::now();
-
-    for (user_id, user) in trial_users {
-        let state = state.clone();
-        let client = client.clone();
-
-        tokio::spawn(async move {
-            let mut state = state.lock().await;
-
-            let user_to_restore = if let Some(modified_at) = user.modified_at {
-                now.signed_duration_since(modified_at) >= Duration::hours(24)
-            } else {
-                now.signed_duration_since(user.created_at) >= Duration::hours(24)
-            };
-
-            if user_to_restore {
-                debug!(
-                    "Restoring user {}: checking expiration, modified_at = {:?}, created_at = {:?}",
-                    user_id, user.modified_at, user.created_at
-                );
-
-                let vmess_restore = {
-                    let user_info = vmess::UserInfo::new(user_id);
-                    vmess::add_user(client.clone(), user_info.clone())
-                        .await
-                        .map(|_| debug!("User restored in VMess: {}", user_info.uuid))
-                        .map_err(|e| error!("Failed to restore user in VMess: {}", e))
-                };
-
-                let xtls_vless_restore = {
-                    let user_info = vless::UserInfo::new(user_id, vless::UserFlow::Vision);
-                    vless::add_user(client.clone(), user_info.clone())
-                        .await
-                        .map(|_| debug!("User restored in Vless: {}", user_info.uuid))
-                        .map_err(|e| error!("Failed to restore user in VlessXtls: {}", e))
-                };
-
-                let grpc_vless_restore = {
-                    let user_info = vless::UserInfo::new(user_id, vless::UserFlow::Direct);
-                    vless::add_user(client.clone(), user_info.clone())
-                        .await
-                        .map(|_| debug!("User restored in VLess: {}", user_info.uuid))
-                        .map_err(|e| error!("Failed to restore user in VlessGrpc: {}", e))
-                };
-
-                if vmess_restore.is_ok() && xtls_vless_restore.is_ok() && grpc_vless_restore.is_ok()
-                {
-                    if let Err(e) = state.restore_user(user_id).await {
-                        error!("Failed to update user state: {:?}", e);
-                    } else {
-                        state.reset_user_stat(user_id, StatType::Downlink);
-                        debug!("Successfully restored user in state: {}", user_id);
-                    }
-                }
-            }
-        });
-    }
-}
-
-pub async fn block_trial_users_by_limit(
-    state: Arc<Mutex<State>>,
-    client: Arc<Mutex<HandlerClient>>,
-    env: String,
-    node_id: Uuid,
-    endpoint: String,
-    token: String,
-) {
-    let trial_users = {
-        let state_guard = state.lock().await;
-        state_guard.get_all_trial_users(UserStatus::Active)
-    };
-
-    for (user_id, user) in trial_users {
-        let state = state.clone();
-        let user_id = user_id.clone();
-        let user = user.clone();
-        let client = client.clone();
-        let env = env.clone();
-        let endpoint = endpoint.clone();
-        let token = token.clone();
-
-        tokio::spawn(async move {
-            let user_exceeds_limit = {
-                let limit_in_bytes = user.limit * 1_048_576;
-                user.downlink
-                    .map_or(false, |downlink| downlink > limit_in_bytes)
-            };
-
-            if user_exceeds_limit {
-                let downlink_mb = user.downlink.unwrap() / 1_048_576;
-                debug!(
-                    "User {} exceeds the limit: downlink={} > limit={}",
-                    user_id, downlink_mb, user.limit
-                );
-
-                let inbounds = {
-                    let state_guard = state.lock().await;
-
-                    if let Some(node) = state_guard.get_node(env.clone(), node_id) {
-                        node.inbounds.keys().cloned().collect::<Vec<_>>()
-                    } else {
-                        vec![]
-                    }
-                };
-
-                let remove_tasks: Vec<_> = inbounds
-                    .into_iter()
-                    .map(|inbound| {
-                        tokio::spawn(remove_user(client.clone(), user_id.clone(), inbound))
-                    })
-                    .collect();
-
-                if let Some(Err(e)) = futures::future::join_all(remove_tasks)
-                    .await
-                    .into_iter()
-                    .find(|r| r.is_err())
-                {
-                    error!("Failed to block user {}: {:?}", user_id, e);
-                } else {
-                    let _ =
-                        block_user_req(user_id.clone(), user.env.clone(), endpoint, token).await;
-                    debug!("Successfully blocked user: {}", user_id);
-                }
-
-                if let Err(e) = {
-                    let mut state_guard = state.lock().await;
-                    state_guard.expire_user(user_id).await
-                } {
-                    error!("Failed to update status for user {}: {:?}", user_id, e);
-                }
-            } else {
-                let downlink_mb = user.downlink.unwrap() / 1_048_576;
-                debug!(
-                    "Check limit: Left free mb {} for user {} {:?}",
-                    user.limit - downlink_mb,
-                    user_id,
-                    user
-                );
-            }
-        });
+        error!("Registration failed: {} - {}", status, body);
+        Err(format!("Registration failed: {} - {}", status, body).into())
     }
 }

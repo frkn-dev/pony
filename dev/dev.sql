@@ -2,7 +2,8 @@ CREATE TABLE users (
     id UUID PRIMARY KEY,               
     password TEXT NOT NULL,       
     created TIMESTAMP DEFAULT NOW(),
-    trial BOOLEAN DEFAULT false,       
+    trial BOOLEAN DEFAULT true,
+    data_limit_mb NUMERIC DEFAULT 1000,       
     cluster VARCHAR(255)               
 );
 
@@ -27,7 +28,9 @@ CREATE TABLE nodes (
     uuid UUID NOT NULL UNIQUE,
     inbounds JSONB NOT NULL, 
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    modified_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    modified_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    label TEXT NOT NULL,
+    iface TEXT NOT NULL
 );
 
 

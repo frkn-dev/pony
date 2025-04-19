@@ -1,10 +1,14 @@
+use std::collections::HashMap;
+use std::net::Ipv4Addr;
+use std::sync::Arc;
+
+use tokio::time::Duration;
+
 use clap::Parser;
-use clickhouse::Client;
+use clickhouse::Client as ChClient;
 use fern::Dispatch;
 use futures::future::join_all;
 use log::{debug, error};
-use std::net::Ipv4Addr;
-use std::sync::Arc;
 use tokio::sync::Mutex;
 
 use pony::{
@@ -12,10 +16,9 @@ use pony::{
     http,
     http::debug::start_ws_server,
     jobs::api,
-    postgres::{node::nodes_db_request, postgres::postgres_client, user::users_db_request},
-    state::state::State,
-    utils::{current_timestamp, human_readable_date, level_from_settings, measure_time},
-    zmq::publisher::publisher,
+    postgres::{postgres::postgres_client, DbContext},
+    utils::*,
+    Node, State, ZmqPublisher,
 };
 
 #[derive(Parser)]
@@ -27,6 +30,8 @@ struct Cli {
     #[arg(short, long, default_value = "config.toml")]
     config: String,
 }
+
+type ApiState = State<HashMap<String, Vec<Node>>>;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -67,16 +72,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Err(e) => panic!("PG not available, {}", e),
     };
 
+    let db = DbContext::new(pg_client);
+
     let ch_client = Arc::new(Mutex::new(
-        Client::default().with_url(&settings.clickhouse.address),
+        ChClient::default().with_url(&settings.clickhouse.address),
     ));
-    let publisher = publisher(&settings.zmq.pub_endpoint).await;
+    let publisher = ZmqPublisher::new(&settings.zmq.pub_endpoint).await;
 
     let state = {
-        let state = State::new();
+        let state: ApiState = State::new();
         let state = Arc::new(Mutex::new(state));
 
-        match measure_time(nodes_db_request(pg_client.clone()), "db query".to_string()).await {
+        match measure_time(db.node().get_nodes(), "get_nodes()".to_string()).await {
             Ok(nodes) => {
                 let futures: Vec<_> = nodes
                     .into_iter()
@@ -97,12 +104,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
 
-        match measure_time(
-            users_db_request(pg_client.clone(), None),
-            "db query".to_string(),
-        )
-        .await
-        {
+        match measure_time(db.user().get_users_by_cluster(None), "db query".to_string()).await {
             Ok(users) => {
                 let futures: Vec<_> = users
                     .into_iter()
@@ -139,19 +141,36 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ));
     }
 
-    tokio::spawn(api::node_healthcheck(
-        state.clone(),
-        ch_client,
-        settings.api.node_health_check_timeout,
-    ));
+    let _ = tokio::spawn({
+        let state = state.clone();
+        let ch_client = ch_client.clone();
+        let db = db.clone();
+        let timeout = settings.api.node_health_check_timeout;
+        let job_timeout = settings.api.healthcheck_interval;
+        let interval = Duration::from_secs(job_timeout);
+
+        async move {
+            loop {
+                if let Err(e) =
+                    api::node_healthcheck(state.clone(), ch_client.clone(), db.clone(), timeout)
+                        .await
+                {
+                    error!("Healthcheck failed: {:?}", e);
+                }
+
+                tokio::time::sleep(interval).await;
+            }
+        }
+    });
 
     tokio::spawn(http::api::run_api_server(
         state.clone(),
-        pg_client.clone(),
+        db,
         publisher.clone(),
         settings.api.address.unwrap_or(Ipv4Addr::new(127, 0, 0, 1)),
         settings.api.port,
         settings.api.token,
+        settings.api.user_limit_mb,
     ));
     tokio::signal::ctrl_c()
         .await

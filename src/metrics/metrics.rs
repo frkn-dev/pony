@@ -1,11 +1,11 @@
-use log::{debug, error, warn};
-use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::io;
 use std::sync::Arc;
+
+use log::{debug, error, warn};
+use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 use tokio::{io::AsyncWriteExt, net::TcpStream};
-use uuid::Uuid;
 
 use super::bandwidth::bandwidth_metrics;
 use super::cpuusage::cpu_metrics;
@@ -13,6 +13,7 @@ use super::heartbeat::heartbeat_metrics;
 use super::loadavg::loadavg_metrics;
 use super::memory::mem_metrics;
 use super::xray::{xray_stat_metrics, xray_user_metrics};
+use crate::state::state::NodeStorage;
 use crate::state::state::State;
 
 pub trait AsMetric {
@@ -78,29 +79,35 @@ pub enum MetricType {
     U8(Metric<u8>),
 }
 
-pub async fn collect_metrics<T>(
-    state: Arc<Mutex<State>>,
-    env: &str,
-    hostname: &str,
-    interface: &str,
-    node_id: Uuid,
-) -> Vec<MetricType> {
+pub async fn collect_metrics<T>(state: Arc<Mutex<State<T>>>) -> Vec<MetricType>
+where
+    T: NodeStorage + Sync + Send + Clone + 'static,
+{
     let mut metrics: Vec<MetricType> = Vec::new();
-    let bandwidth: Vec<MetricType> = bandwidth_metrics(env, hostname, interface).await;
-    let cpuusage: Vec<MetricType> = cpu_metrics(env, hostname).await;
-    let loadavg: Vec<MetricType> = loadavg_metrics(env, hostname).await;
-    let memory: Vec<MetricType> = mem_metrics(env, hostname).await;
-    let xray: Vec<MetricType> = xray_stat_metrics(state.clone(), env, hostname, node_id).await;
-    let users: Vec<MetricType> = xray_user_metrics(state, env, hostname).await;
-    let heartbeat: Vec<MetricType> = heartbeat_metrics(env, node_id);
+    let state = state.lock().await;
+    let users = state.users.clone();
 
-    metrics.extend(bandwidth);
-    metrics.extend(cpuusage);
-    metrics.extend(loadavg);
-    metrics.extend(memory);
-    metrics.extend(xray);
-    metrics.extend(users);
-    metrics.extend(heartbeat);
+    let node = state.nodes.get_node();
+
+    if let Some(node) = node {
+        let bandwidth: Vec<MetricType> = bandwidth_metrics(&node.env, &node.hostname, &node.iface);
+        let cpuusage: Vec<MetricType> = cpu_metrics(&node.env, &node.hostname);
+        let loadavg: Vec<MetricType> = loadavg_metrics(&node.env, &node.hostname);
+        let memory: Vec<MetricType> = mem_metrics(&node.env, &node.hostname);
+        let heartbeat: Vec<MetricType> = heartbeat_metrics(&node.env, node.uuid);
+        let xray_stat: Vec<MetricType> = xray_stat_metrics(node.clone());
+        let users_stat: Vec<MetricType> = xray_user_metrics(users, &node.env, &node.hostname);
+
+        metrics.extend(bandwidth);
+        metrics.extend(cpuusage);
+        metrics.extend(loadavg);
+        metrics.extend(memory);
+        metrics.extend(xray_stat);
+        metrics.extend(users_stat);
+        metrics.extend(heartbeat);
+    }
+
+    debug!("Total metrics collected: {}", metrics.len());
 
     metrics
 }

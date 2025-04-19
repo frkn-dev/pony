@@ -1,14 +1,13 @@
-use std::sync::Arc;
-use tokio::sync::Mutex;
+use std::collections::HashMap;
+
+use log::debug;
 use uuid::Uuid;
 
-use super::metrics::{AsMetric, Metric, MetricType};
+use crate::state::stats::{InboundStat, UserStat};
+use crate::state::user::User;
 use crate::utils::current_timestamp;
-
-use crate::state::{
-    state::State,
-    stats::{InboundStat, UserStat},
-};
+use crate::Node;
+use crate::{AsMetric, Metric, MetricType};
 
 impl AsMetric for InboundStat {
     type Output = i64;
@@ -66,51 +65,34 @@ impl AsMetric for UserStat {
     }
 }
 
-pub async fn xray_stat_metrics(
-    state: Arc<Mutex<State>>,
-    env: &str,
-    hostname: &str,
-    node_id: Uuid,
-) -> Vec<MetricType> {
-    let state = state.lock().await;
-    if let Some(node) = state.get_node(env.to_string(), node_id) {
-        let xray_stat_metrics: Vec<_> = node
-            .inbounds
-            .clone()
-            .into_iter()
-            .map(|(tag, inbound)| {
-                inbound
-                    .as_inbound_stat()
-                    .as_metric(&tag.to_string(), env, hostname)
-            })
-            .flatten()
-            .collect();
+pub fn xray_stat_metrics(node: Node) -> Vec<MetricType> {
+    let xray_stat_metrics: Vec<_> = node
+        .inbounds
+        .clone()
+        .into_iter()
+        .flat_map(|(tag, inbound)| {
+            inbound
+                .as_inbound_stat()
+                .as_metric(&tag.to_string(), &node.env, &node.hostname)
+        })
+        .collect();
 
-        xray_stat_metrics
-            .iter()
-            .map(|metric| MetricType::I64(metric.clone()))
-            .collect()
-    } else {
-        vec![]
-    }
+    xray_stat_metrics.into_iter().map(MetricType::I64).collect()
 }
 
-pub async fn xray_user_metrics(
-    state: Arc<Mutex<State>>,
-    env: &str,
-    hostname: &str,
-) -> Vec<MetricType> {
-    let state = state.lock().await;
-    let users = state.users.clone();
-
+pub fn xray_user_metrics(users: HashMap<Uuid, User>, env: &str, hostname: &str) -> Vec<MetricType> {
     let user_stat_metrics: Vec<_> = users
+        .clone()
         .into_iter()
         .map(|(user_id, user)| {
+            debug!("user {:?}", user_id);
             user.as_user_stat()
                 .as_metric(&user_id.to_string(), env, hostname)
         })
         .flatten()
         .collect();
+
+    debug!("user_stat_metrics {:?}", user_stat_metrics);
 
     user_stat_metrics
         .iter()

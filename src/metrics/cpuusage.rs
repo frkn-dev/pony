@@ -45,7 +45,7 @@ impl AsMetric for CpuUsage<'_> {
     }
 }
 
-pub async fn cpu_metrics(env: &str, hostname: &str) -> Vec<MetricType> {
+pub fn cpu_metrics(env: &str, hostname: &str) -> Vec<MetricType> {
     let mut s =
         System::new_with_specifics(RefreshKind::nothing().with_cpu(CpuRefreshKind::everything()));
 

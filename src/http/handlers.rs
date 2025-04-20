@@ -12,6 +12,7 @@ use warp::{http::StatusCode, reject, Rejection, Reply};
 
 use crate::config::xray::Inbound;
 use crate::http::JsonError;
+use crate::measure_time;
 use crate::postgres::DbContext;
 use crate::state::state::NodeStorage;
 use crate::state::state::UserStorage;
@@ -22,8 +23,8 @@ use crate::state::{
     tag::Tag,
     user::User,
 };
-use crate::zmq::message::{Action, Message};
 use crate::ZmqPublisher;
+use crate::{Action, Message};
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct UserRequest {
@@ -150,6 +151,7 @@ pub async fn node_register<T>(
     node_req: NodeRequest,
     state: Arc<Mutex<State<T>>>,
     db: DbContext,
+    publisher: ZmqPublisher,
 ) -> Result<impl Reply, Rejection>
 where
     T: NodeStorage + Sync + Send + Clone + 'static,
@@ -159,42 +161,51 @@ where
     let node = node_req.clone().as_node();
     let mut state = state.lock().await;
 
-    if state.nodes.add_node(node.clone()).is_ok() {
-        let _ = db.node().insert_node(node.clone()).await;
-        let _ = db
-            .node()
-            .update_node_status(node.uuid, NodeStatus::Online)
-            .await;
+    let was_added = state.nodes.add_node(node.clone()).is_ok();
+    let _ = db.node().insert_node(node.clone()).await;
+    let _ = db
+        .node()
+        .update_node_status(node.uuid, NodeStatus::Online)
+        .await;
 
-        let response = ResponseMessage::<String> {
+    if let Ok(users_map) = db.user().get_users_by_cluster(&node.env).await {
+        let send_task = async {
+            for user in users_map {
+                let message = Message {
+                    user_id: user.user_id,
+                    action: Action::Create,
+                    env: node.env.clone(),
+                    trial: user.trial,
+                    limit: user.limit,
+                    password: Some(user.password.clone()),
+                };
+
+                if let Err(e) = publisher.send(&node.uuid.to_string(), message).await {
+                    log::error!("Failed to send init user {}: {}", user.user_id, e);
+                }
+            }
+        };
+        measure_time(send_task, format!("Init node {}", node.hostname)).await;
+    }
+
+    let response = if was_added {
+        ResponseMessage::<String> {
             status: 200,
             message: format!("node {} is added", node_req.uuid),
-        };
-
-        debug!("Sending JSON response: {:?}", response);
-
-        Ok(warp::reply::with_status(
-            warp::reply::json(&response),
-            StatusCode::OK,
-        ))
+        }
     } else {
-        let response = ResponseMessage::<String> {
-            status: 304,
-            message: format!("node {} is not added", node_req.uuid),
-        };
+        ResponseMessage::<String> {
+            status: 200,
+            message: format!("node {} is already known", node_req.uuid),
+        }
+    };
 
-        let _ = db
-            .node()
-            .update_node_status(node.uuid, NodeStatus::Online)
-            .await;
+    debug!("Sending JSON response: {:?}", response);
 
-        debug!("Sending JSON response: {:?}", response);
-
-        Ok(warp::reply::with_status(
-            warp::reply::json(&response),
-            StatusCode::NOT_MODIFIED,
-        ))
-    }
+    Ok(warp::reply::with_status(
+        warp::reply::json(&response),
+        StatusCode::OK,
+    ))
 }
 
 fn vless_xtls_conn(

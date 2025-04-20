@@ -2,11 +2,17 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>User Info</title>
     <style>
         body {
             font-family: Arial, sans-serif;
+            padding: 20px;
+        }
+        input {
+            margin: 5px;
+        }
+        button {
+            padding: 5px 10px;
         }
         #state-container, #user-container {
             margin-top: 20px;
@@ -25,16 +31,30 @@
         }
     </style>
 </head>
-<body>    <h1>User Info</h1>
+<body>
+    <h1>User Info</h1>
 
+    <div>
+        <label for="host">Host:</label>
+        <input type="text" id="host" placeholder="127.0.0.1" value="127.0.0.1" />
 
+        <label for="port">Port:</label>
+        <input type="text" id="port" placeholder="5006" value="5006" />
+
+        <button id="connectBtn">Connect</button>
+    </div>
 
     <br>
 
     <div>
-        <label for="userId">Enter User ID:</label>
-        <input type="text" id="userId" placeholder="Enter user ID" />
+        <label for="userId">User ID:</label>
+        <input type="text" id="userId" placeholder="User ID" />
         <button id="getUserBtn">Get User Info</button>
+    </div>
+
+    <div id="nodes-container" style="display:none;">
+        <h3>Current Nodes:</h3>
+        <pre id="nodes"></pre>
     </div>
 
     <div id="user-container" style="display:none;">
@@ -43,182 +63,158 @@
     </div>
 
     <div id="users-container" style="display:none;">
-        <h3>Current users:</h3>
+        <h3>Current Users:</h3>
         <pre id="users"></pre>
     </div>
 
-    <div id="nodes-container" style="display:none;">
-        <h3>Current Nodes:</h3>
-        <pre id="nodes"></pre>
-    </div>
-
-  
-
-   <script>
-    const usersContainer = document.getElementById('users-container');
-    const nodesContainer = document.getElementById('nodes-container');
-    const userContainer = document.getElementById('user-container');
-    const usersElement = document.getElementById('users');
-    const nodesElement = document.getElementById('nodes');
-    const userElement = document.getElementById('user-info');
-    const userIdInput = document.getElementById('userId');
-
-    const socket = new WebSocket('ws://127.0.0.1:3033/ws');
-
-    socket.onopen = () => {
-        console.log("Connected to WebSocket server.");
-        requestUsers(); 
-        requestNodes(); 
-
-    };
-
-    socket.onmessage = (event) => {
-        const data = event.data;
-        console.log('Received from server:', data);
-
-        try {
-            const response = JSON.parse(data);
-            console.log('Parsed response:', response); 
-
-            if (response.kind === undefined) {
-                console.error("Error: Received response has no 'kind' field:", response);
-            } else if (response.kind === "users") {
-                displayUsers(response);  
-            } else if (response.kind === "nodes") {
-                displayNodes(response);  
-            } else if (response.kind === "user") {
-                displayUserInfo(response);  
-            } else {
-                console.log("Unknown response kind:", response.kind);
-            }
-        } catch (error) {
-            console.error("Error parsing response:", error);
-        }
-    };
-
-    socket.onerror = (error) => {
-        console.error("WebSocket error:", error);
-    };
-
-    socket.onclose = () => {
-        console.log("WebSocket connection closed.");
-    };
-
-    function requestUsers() {
-        const request = {
-            kind: "get_users",
-            message: "Requesting full state"
-        };
-        socket.send(JSON.stringify(request));
-    }
-
-    function requestNodes() {
-        const request = {
-            kind: "get_nodes",
-            message: "Requesting full state"
-        };
-        socket.send(JSON.stringify(request));
-    }
-
-
-    function requestUserInfo(userId) {
-        const request = {
-            kind: "get_nodes",
-            message: `Requesting info for nodes`,
-            user_id: userId
-        };
-        socket.send(JSON.stringify(request)); 
-    }
-
-
-    function requestUserInfo(userId) {
-        const request = {
-            kind: "get_user_info",
-            message: `Requesting info for user ${userId}`,
-            user_id: userId
-        };
-        socket.send(JSON.stringify(request)); 
-    }
-
-
-    function displayUsers(state) {
-        console.log("Displaying state:", state);
-        usersContainer.style.display = 'block';
-        usersElement.innerHTML = "";
-
-        let data = state.data;
-        if (typeof data === 'string') {
-            try {
-                data = JSON.parse(data); 
-            } catch (e) {
-                console.error("Error parsing JSON:", e);
-            }
-        }
-
-       
-        if (Array.isArray(data)) {
-            const ul = document.createElement('ul'); 
-            data.forEach(item => {
-                const li = document.createElement('li'); 
-                li.textContent = item; 
-                ul.appendChild(li); 
-            });
-            usersElement.appendChild(ul); 
-        } else {
-            usersElement.textContent = `User count: ${state.len}, Data: ${state.data}`;
-        }
-    }
-
-    function displayNodes(state) {
-        console.log("Displaying nodes state:", state);
-        nodesContainer.style.display = 'block';  
-        nodesElement.innerHTML = "";    
-        let data = state.data;
-        if (typeof data === 'string') {
-            try {
-                data = JSON.parse(data);
-            } catch (e) {
-                console.error("Error parsing nodes JSON:", e);
-            }
-        }
     
-        if (Array.isArray(data)) {
-            const ul = document.createElement('ul');
-            data.forEach(item => {
-                const li = document.createElement('li');
-                li.textContent = `Node ID: ${item.uuid}, Hostname: ${item.hostname}, IP: ${item.ipv4}, Status: ${item.status}, Env: ${item.env}`; 
-                ul.appendChild(li);
-            });
-            nodesElement.innerHTML = ""; 
-            nodesElement.appendChild(ul);
-        } else {
-            nodesElement.textContent = state.data;
+
+    <script>
+        let socket = null;
+
+        const usersContainer = document.getElementById('users-container');
+        const nodesContainer = document.getElementById('nodes-container');
+        const userContainer = document.getElementById('user-container');
+        const usersElement = document.getElementById('users');
+        const nodesElement = document.getElementById('nodes');
+        const userElement = document.getElementById('user-info');
+        const userIdInput = document.getElementById('userId');
+
+        document.getElementById('connectBtn').addEventListener('click', () => {
+            const host = document.getElementById('host').value.trim();
+            const port = document.getElementById('port').value.trim();
+
+            if (!host || !port) {
+                alert("Please enter a valid host and port");
+                return;
+            }
+
+            const url = `ws://${host}:${port}/ws`;
+            socket = new WebSocket(url);
+
+            socket.onopen = () => {
+                console.log(`Connected to WebSocket server at ${url}`);
+                requestUsers();
+                requestNodes();
+
+                setInterval(() => {
+                    if (socket && socket.readyState === WebSocket.OPEN) {
+                        requestUsers();
+                        requestNodes();
+                    }
+                }, 5000);
+            };
+
+            socket.onmessage = (event) => {
+                const data = event.data;
+                console.log('Received from server:', data);
+
+                try {
+                    const response = JSON.parse(data);
+                    if (!response.kind) return;
+
+                    switch (response.kind) {
+                        case "users": displayUsers(response); break;
+                        case "nodes": displayNodes(response); break;
+                        case "user": displayUserInfo(response); break;
+                        default: console.log("Unknown response kind:", response.kind);
+                    }
+                } catch (error) {
+                    console.error("Error parsing response:", error);
+                }
+            };
+
+            socket.onerror = (error) => {
+                console.error("WebSocket error:", error);
+            };
+
+            socket.onclose = () => {
+                console.log("WebSocket connection closed.");
+            };
+        });
+
+        function requestUsers() {
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                const request = { kind: "get_users", message: "Requesting users" };
+                socket.send(JSON.stringify(request));
+            }
         }
-}
 
-    function displayUserInfo(userInfo) {
-        console.log("Displaying user info:", userInfo); 
-        userContainer.style.display = 'block';
-
-        const userData = userInfo.data;
-        userElement.textContent = userData;
-    }
-
-
-
-    document.getElementById('getUserBtn').addEventListener('click', () => {
-        const userId = userIdInput.value.trim();
-        if (userId) {
-            requestUserInfo(userId);  
-        } else {
-            alert('Please enter a valid user ID');
+        function requestNodes() {
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                const request = { kind: "get_nodes", message: "Requesting nodes" };
+                socket.send(JSON.stringify(request));
+            }
         }
-    });
 
-    setInterval(requestUsers, 1000); 
-    setInterval(requestNodes, 1000); 
+        function requestUserInfo(userId) {
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                const request = {
+                    kind: "get_user_info",
+                    message: `Requesting info for user ${userId}`,
+                    user_id: userId
+                };
+                socket.send(JSON.stringify(request));
+            }
+        }
 
-</script>
+        function displayUsers(state) {
+            usersContainer.style.display = 'block';
+            usersElement.innerHTML = "";
 
+            let data = state.data;
+            if (typeof data === 'string') {
+                try { data = JSON.parse(data); } catch {}
+            }
+
+            if (Array.isArray(data)) {
+                const ul = document.createElement('ul');
+                data.forEach(item => {
+                    const li = document.createElement('li');
+                    li.textContent = item;
+                    ul.appendChild(li);
+                });
+                usersElement.appendChild(ul);
+            } else {
+                usersElement.textContent = `User count: ${state.len}, Data: ${state.data}`;
+            }
+        }
+
+        function displayNodes(state) {
+            nodesContainer.style.display = 'block';
+            nodesElement.innerHTML = "";
+
+            let data = state.data;
+            if (typeof data === 'string') {
+                try { data = JSON.parse(data); } catch {}
+            }
+
+            if (Array.isArray(data)) {
+                const ul = document.createElement('ul');
+                data.forEach(item => {
+                    const li = document.createElement('li');
+                    li.textContent = `Node ID: ${item.uuid}, Hostname: ${item.hostname}, IP: ${item.ipv4}, Status: ${item.status}, Env: ${item.env}`;
+                    ul.appendChild(li);
+                });
+                nodesElement.appendChild(ul);
+            } else {
+                nodesElement.textContent = state.data;
+            }
+        }
+
+        function displayUserInfo(userInfo) {
+            userContainer.style.display = 'block';
+            userElement.textContent = userInfo.data;
+        }
+
+        document.getElementById('getUserBtn').addEventListener('click', () => {
+            const userId = userIdInput.value.trim();
+            if (userId) {
+                requestUserInfo(userId);
+            } else {
+                alert('Please enter a valid user ID');
+            }
+        });
+    </script>
 </body>
 </html>

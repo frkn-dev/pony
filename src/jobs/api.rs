@@ -60,8 +60,11 @@ where
                         LocalResult::Single(latest_datetime) => {
                             let time_diff = now - latest_datetime;
 
+                            debug!("Time diff {}", time_diff);
+
                             match node.status {
                                 NodeStatus::Online => {
+                                    debug!("Time {}", time_diff > timeout_duration);
                                     if time_diff > timeout_duration {
                                         let _ = node.update_status(NodeStatus::Offline);
                                         let _ = db
@@ -71,6 +74,8 @@ where
                                     }
                                 }
                                 NodeStatus::Offline => {
+                                    debug!("Time {}", time_diff <= timeout_duration);
+
                                     if time_diff <= timeout_duration {
                                         let _ = node.update_status(NodeStatus::Online);
                                         let _ = db
@@ -148,14 +153,13 @@ where
 pub async fn sync_users<T>(
     state: Arc<Mutex<State<T>>>,
     db_user: UserRow,
-    limit: i64,
 ) -> Result<(), Box<dyn Error>>
 where
     T: NodeStorage + Send + Sync + Clone + 'static,
 {
     let user = User::new(
         db_user.trial,
-        limit,
+        db_user.limit,
         db_user.cluster,
         Some(db_user.password.clone()),
     );
@@ -163,9 +167,7 @@ where
     let _ = {
         let mut state = state.lock().await;
         match state.add_or_update_user(db_user.user_id, user.clone()) {
-            Ok(user) => {
-                debug!("User added to State {:?}", user);
-            }
+            Ok(_) => {}
             Err(e) => {
                 return Err(format!(
                     "Create: Failed to add user {} to state: {}",

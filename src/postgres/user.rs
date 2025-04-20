@@ -56,33 +56,39 @@ impl PgUserRequest {
         Self { client }
     }
 
-    pub async fn get_users_by_cluster(
-        &self,
-        cluster: Option<String>,
-    ) -> Result<Vec<UserRow>, Box<dyn Error>> {
+    pub async fn get_all_users(&self) -> Result<Vec<UserRow>, Box<dyn Error + Send + Sync>> {
         let client = self.client.lock().await;
 
-        let query = if let Some(_) = cluster {
-            "
+        let query = "
+        SELECT id, trial, data_limit_mb, password, cluster, created 
+        FROM users
+    ";
+
+        let rows = client.query(query, &[]).await?;
+        let users = self.map_rows_to_users(rows);
+        Ok(users)
+    }
+
+    pub async fn get_users_by_cluster(
+        &self,
+        cluster: &str,
+    ) -> Result<Vec<UserRow>, Box<dyn Error + Send + Sync>> {
+        let client = self.client.lock().await;
+
+        let query = "
         SELECT id, trial, data_limit_mb, password, cluster, created 
         FROM users 
         WHERE cluster = $1
-        "
-        } else {
-            "
-        SELECT id, trial, data_limit_mb, password, cluster, created 
-        FROM users
-        "
-        };
+    ";
 
-        let rows = if let Some(env) = cluster {
-            client.query(query, &[&env]).await?
-        } else {
-            client.query(query, &[]).await?
-        };
+        let rows = client.query(query, &[&cluster]).await?;
 
-        let users: Vec<UserRow> = rows
-            .into_iter()
+        let users = self.map_rows_to_users(rows);
+        Ok(users)
+    }
+
+    fn map_rows_to_users(&self, rows: Vec<tokio_postgres::Row>) -> Vec<UserRow> {
+        rows.into_iter()
             .map(|row| {
                 let user_id: Uuid = row.get(0);
                 let trial: bool = row.get(1);
@@ -101,9 +107,7 @@ impl PgUserRequest {
                     created,
                 }
             })
-            .collect();
-
-        Ok(users)
+            .collect()
     }
 
     pub async fn user_exist(&self, username: String) -> Option<Uuid> {

@@ -62,7 +62,10 @@ pub async fn run_api_server<T>(
         .and(warp::body::json::<NodeRequest>())
         .and(with_state(state))
         .and(with_db(db))
-        .and_then(|_auth, node_req, state, db| handlers::node_register(node_req, state, db));
+        .and(with_publisher(publisher.clone()))
+        .and_then(|_auth, node_req, state, db, publisher| {
+            handlers::node_register(node_req, state, db, publisher)
+        });
 
     let routes = user_route
         .or(nodes_route)

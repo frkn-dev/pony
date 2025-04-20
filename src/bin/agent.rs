@@ -93,8 +93,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // User State
     let state = {
-        info!("Running User State Sync");
-
         let node = Node::new(
             xray_config,
             settings
@@ -119,20 +117,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let state: AgentState = State::with_node(node);
         let state = Arc::new(Mutex::new(state));
         state
-    };
-
-    let _ = {
-        let settings = settings.clone();
-        debug!("----->>>>> Register node");
-        if let Err(e) = agent::register_node(
-            Arc::clone(&state),
-            settings.api.endpoint,
-            settings.api.token,
-        )
-        .await
-        {
-            panic!("Cannot register node {:?}", e);
-        }
     };
 
     if debug {
@@ -193,13 +177,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // zeromq SUB messages listener
+    info!("ZMQ task starting...");
     let zmq_task = tokio::spawn({
         let state = Arc::clone(&state);
         let client = Arc::clone(&xray_handler_client);
         let settings = settings.clone();
 
         async move {
-            let sub = ZmqSubscriber::new(&settings.zmq.sub_endpoint, &settings.node.env);
+            let sub = ZmqSubscriber::new(
+                &settings.zmq.sub_endpoint,
+                &settings.node.uuid,
+                &settings.node.env,
+            );
             if let Err(e) = sub.run(client, settings, state).await {
                 error!("ZMQ subscriber error: {}", e);
             }
@@ -207,6 +196,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     tasks.push(zmq_task);
+
+    let _ = {
+        let settings = settings.clone();
+        debug!("----->> Register node");
+        if let Err(e) = agent::register_node(
+            Arc::clone(&state),
+            settings.api.endpoint,
+            settings.api.token,
+        )
+        .await
+        {
+            panic!("Cannot register node {:?}", e);
+        }
+    };
 
     // Run all tasks
     let _ = futures::future::join_all(tasks).await;

@@ -1,7 +1,10 @@
 use std::sync::Arc;
 
+use log::debug;
+use log::warn;
 use log::{error, info};
 use tokio::sync::Mutex;
+use uuid::Uuid;
 use zmq::Socket as ZmqSocket;
 
 use crate::AgentSettings;
@@ -9,13 +12,14 @@ use crate::HandlerClient;
 use crate::Message;
 use crate::NodeStorage;
 use crate::State;
+use crate::Topic;
 
 pub struct Subscriber {
     socket: Arc<Mutex<ZmqSocket>>,
 }
 
 impl Subscriber {
-    pub fn new(endpoint: &str, topic: &str) -> Self {
+    pub fn new(endpoint: &str, uuid: &Uuid, env: &str) -> Self {
         let context = zmq::Context::new();
         let socket = context
             .socket(zmq::SUB)
@@ -24,11 +28,16 @@ impl Subscriber {
         socket
             .connect(endpoint)
             .expect("Failed to connect SUB socket");
-        socket
-            .set_subscribe(topic.as_bytes())
-            .expect("Failed to subscribe to topic");
 
-        // wrap in Arc<Mutex<>> to make it Send + Sync
+        let topics = vec![format!("{}", *uuid), format!("{}", env)];
+        info!("Subscribed to topics: {:?}", Topic::all(*uuid, env));
+
+        for topic in topics {
+            socket
+                .set_subscribe(topic.as_bytes())
+                .expect("Failed to subscribe to topic");
+        }
+
         Self {
             socket: Arc::new(Mutex::new(socket)),
         }
@@ -57,33 +66,54 @@ impl Subscriber {
         T: NodeStorage + Send + Sync + Clone + 'static,
     {
         info!(
-            "ZMQ Subscriber connected to {}:{}",
-            settings.zmq.sub_endpoint, settings.node.env
+            "ZMQ Subscriber connected to {} for topics: {:?}",
+            settings.zmq.sub_endpoint,
+            Topic::all(settings.node.uuid, &settings.node.env)
         );
 
         loop {
-            tokio::task::yield_now().await;
             if let Some(data) = self.recv().await {
+                debug!("SUB: Got raw message: {:?}", data);
                 let client = client.clone();
                 let state = state.clone();
                 let settings = settings.clone();
 
                 tokio::spawn(async move {
                     let mut parts = data.splitn(2, ' ');
-                    let topic = parts.next().unwrap_or("");
+                    let topic_str = parts.next().unwrap_or("");
                     let payload = parts.next().unwrap_or("");
 
-                    if topic != settings.node.env {
-                        return;
+                    let topic = Topic::from_raw(topic_str);
+
+                    match topic {
+                        Topic::Init(uuid) => {
+                            if uuid != settings.node.uuid.to_string() {
+                                debug!("ZMQ: Received init for another node: {}", uuid);
+                                return;
+                            }
+                        }
+                        Topic::Updates(env) => {
+                            if env != settings.node.env {
+                                debug!("ZMQ: Received update for another env: {}", env);
+                                return;
+                            }
+                        }
+                        Topic::Unknown(raw) => {
+                            warn!("ZMQ: Received unknown topic: {}", raw);
+                            return;
+                        }
                     }
 
                     if let Ok(message) = serde_json::from_str::<Message>(payload) {
+                        debug!("Message recieved {:?}", message);
                         if let Err(err) = message
                             .handle_sub_message(client.clone(), state.clone())
                             .await
                         {
                             error!("ZMQ SUB: Failed to handle message: {}", err);
                         }
+                    } else {
+                        error!("ZMQ SUB: Failed to parse message: {}", payload);
                     }
                 });
             }

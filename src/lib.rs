@@ -28,6 +28,7 @@ pub use state::state::State;
 pub use state::user::User;
 pub use utils::*;
 pub use xray_op::client::{HandlerClient, StatsClient, XrayClient};
-pub use zmq::message::Message;
+pub use zmq::message::{Action, Message};
 pub use zmq::publisher::Publisher as ZmqPublisher;
 pub use zmq::subscriber::Subscriber as ZmqSubscriber;
+pub use zmq::Topic;

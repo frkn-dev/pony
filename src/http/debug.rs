@@ -58,7 +58,7 @@ where
             ws.on_upgrade(move |socket| handle_debug_connection(socket, state))
         });
 
-    info!("Server is running on ws://{}:{}", ipaddr, port);
+    info!("Debug Server is running on ws://{}:{}", ipaddr, port);
 
     let routes = health_check.or(ws).with(warp::cors().allow_any_origin());
     warp::serve(routes)

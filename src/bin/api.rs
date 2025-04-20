@@ -104,11 +104,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
 
-        match measure_time(db.user().get_users_by_cluster(None), "db query".to_string()).await {
+        match measure_time(db.user().get_all_users(), "db query".to_string()).await {
             Ok(users) => {
                 let futures: Vec<_> = users
                     .into_iter()
-                    .map(|user| api::sync_users(state.clone(), user, 0))
+                    .map(|user| api::sync_users(state.clone(), user))
                     .collect();
 
                 if let Some(Err(e)) = measure_time(join_all(futures), "Init state".to_string())
@@ -127,8 +127,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         state
     };
-
-    debug!("STATE: {:?}", state);
 
     if debug {
         tokio::spawn(start_ws_server(

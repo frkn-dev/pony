@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 
-use log::debug;
 use uuid::Uuid;
 
 use crate::state::stats::{InboundStat, UserStat};
@@ -85,14 +84,11 @@ pub fn xray_user_metrics(users: HashMap<Uuid, User>, env: &str, hostname: &str) 
         .clone()
         .into_iter()
         .map(|(user_id, user)| {
-            debug!("user {:?}", user_id);
             user.as_user_stat()
                 .as_metric(&user_id.to_string(), env, hostname)
         })
         .flatten()
         .collect();
-
-    debug!("user_stat_metrics {:?}", user_stat_metrics);
 
     user_stat_metrics
         .iter()

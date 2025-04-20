@@ -20,6 +20,7 @@ where
 {
     pub users: HashMap<Uuid, User>,
     pub nodes: T,
+    pub unleashed: bool,
 }
 
 impl<T: Default> State<T>
@@ -30,6 +31,7 @@ where
         State {
             users: HashMap::new(),
             nodes: T::default(),
+            unleashed: false,
         }
     }
 }
@@ -39,7 +41,12 @@ impl State<Node> {
         Self {
             users: HashMap::new(),
             nodes: node,
+            unleashed: false,
         }
+    }
+
+    pub fn unleash(&mut self) {
+        self.unleashed = true
     }
 }
 

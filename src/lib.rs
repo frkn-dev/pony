@@ -1,32 +1,22 @@
+pub mod agent;
+pub mod api;
+pub mod clickhouse;
 pub mod config;
 pub mod http;
-pub mod jobs;
+pub mod metrics;
 pub mod postgres;
 pub mod state;
 pub mod utils;
+pub mod xray_api;
+pub mod xray_op;
 pub mod zmq;
 
-#[cfg(feature = "api")]
-pub mod api;
-
-#[cfg(feature = "agent")]
-pub mod agent;
-
-#[cfg(feature = "api")]
-pub mod clickhouse;
-#[cfg(feature = "agent")]
-pub mod metrics;
-#[cfg(feature = "agent")]
-pub mod xray_api;
-#[cfg(feature = "agent")]
-pub mod xray_op;
-
+#[cfg(feature = "bot")]
+pub mod jobs;
 #[cfg(feature = "bot")]
 pub mod payment;
 
-#[cfg(feature = "agent")]
 pub use agent::Agent;
-#[cfg(feature = "api")]
 pub use api::Api;
 
 pub use clickhouse::ChContext;

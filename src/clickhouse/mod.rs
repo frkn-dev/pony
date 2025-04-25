@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use clickhouse::Client;
+use clickhouse::Client as ChClient;
 use clickhouse::Row;
 use serde::Deserialize;
 use serde::Serialize;
@@ -10,19 +10,19 @@ pub mod query;
 
 #[derive(Clone)]
 pub struct ChContext {
-    inner: Arc<Mutex<Client>>,
+    inner: Arc<Mutex<ChClient>>,
 }
 
 impl ChContext {
     pub fn new(url: &str) -> Self {
-        let client = Client::default().with_url(url);
+        let client = ChClient::default().with_url(url);
 
         Self {
             inner: Arc::new(Mutex::new(client)),
         }
     }
 
-    pub fn client(&self) -> Arc<Mutex<Client>> {
+    pub fn client(&self) -> Arc<Mutex<ChClient>> {
         self.inner.clone()
     }
 }

@@ -1,11 +1,10 @@
 use warp::reject;
 
 pub mod debug;
+pub mod handlers;
 
 #[cfg(feature = "api")]
 pub mod api;
-#[cfg(feature = "api")]
-pub mod handlers;
 
 #[derive(Debug)]
 struct JsonError(String);

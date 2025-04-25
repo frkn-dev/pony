@@ -25,7 +25,7 @@ use pony::{
     jobs::bot::{create_vpn_user, get_conn, register},
     payment::webhook::run_webhook_server,
 };
-use pony::{postgres_client, BotSettings, Settings};
+use pony::{postgres::postgres::postgres_client, BotSettings, Settings};
 
 #[derive(BotCommands)]
 #[command(rename_rule = "lowercase")]
@@ -45,7 +45,7 @@ enum Command {
 }
 
 #[derive(Parser)]
-#[command(version = "0.0.23-dev", about = "pony tg-Bot")]
+#[command(version = "0.0.25-dev", about = "pony tg-Bot")]
 struct Cli {
     #[arg(short, long, default_value = "config.toml")]
     config: String,

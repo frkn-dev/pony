@@ -6,24 +6,23 @@ use fern::Dispatch;
 use log::debug;
 use log::error;
 use log::info;
-use uuid::Uuid;
-
-use pony::xray_op::actions::create_users;
-use pony::NodeStorage;
+use pony::xray_op::client::HandlerActions;
 use tokio::{
     sync::Mutex,
     task::JoinHandle,
     time::{sleep, Duration},
 };
+use uuid::Uuid;
 
 use pony::{
-    http::debug::start_ws_server, jobs::agent, utils::*, AgentSettings, HandlerClient, Node,
-    Settings, State, StatsClient, Tag, XrayClient, XrayConfig, ZmqSubscriber,
+    agent::tasks::Tasks, http::debug::start_ws_server, utils::*, Agent, AgentSettings,
+    HandlerClient, Node, NodeStorage, Settings, State, StatsClient, Tag, XrayClient, XrayConfig,
+    ZmqSubscriber,
 };
 
 #[derive(Parser)]
 #[command(
-    version = "0.0.23-dev",
+    version = "0.0.24-dev",
     about = "Pony Agent - control tool for Xray/Wireguard"
 )]
 struct Cli {
@@ -66,8 +65,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap();
 
     let debug = settings.debug.enabled;
-    let env = settings.node.env.clone();
-    let node_uuid = settings.node.uuid.clone();
 
     let mut tasks: Vec<JoinHandle<()>> = vec![];
 
@@ -93,6 +90,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let xray_stats_client = Arc::new(Mutex::new(StatsClient::new(&xray_api_endpoint).await?));
     let xray_handler_client = Arc::new(Mutex::new(HandlerClient::new(&xray_api_endpoint).await?));
+    let subscriber = ZmqSubscriber::new(
+        &settings.zmq.sub_endpoint,
+        &settings.node.uuid,
+        &settings.node.env,
+    );
 
     // User State
     let state = {
@@ -107,13 +109,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .node
                 .ipv4
                 .unwrap_or_else(|| Ipv4Addr::new(127, 0, 0, 1)),
-            env.clone(),
+            settings.node.env.clone(),
             settings
                 .node
                 .default_interface
                 .clone()
                 .unwrap_or("eth0".to_string()),
-            node_uuid,
+            settings.node.uuid.clone(),
             settings.node.label.clone(),
         );
 
@@ -121,6 +123,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let state = Arc::new(Mutex::new(state));
         state
     };
+
+    let agent = Agent::new(
+        state.clone(),
+        subscriber,
+        xray_stats_client.clone(),
+        xray_handler_client.clone(),
+    );
+
+    let agent = Arc::new(agent);
 
     if debug && !settings.agent.local {
         tokio::spawn(start_ws_server(
@@ -135,19 +146,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // METRICS TASKS
     if settings.agent.metrics_enabled && !settings.agent.local {
-        info!("Running metrics send job");
+        info!("Running metrics send task");
         let metrics_handle = tokio::spawn({
-            let state = Arc::clone(&state);
             let settings = settings.clone();
+            let agent = agent.clone();
 
             async move {
                 loop {
                     sleep(Duration::from_secs(settings.agent.metrics_interval)).await;
-                    let _ = agent::send_metrics_job(
-                        Arc::clone(&state),
-                        settings.carbon.address.clone(),
-                    )
-                    .await;
+                    let _ = agent.send_metrics(settings.carbon.address.clone()).await;
+                    debug!("Metrics send task tick");
                 }
             }
         });
@@ -157,22 +165,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // ++ Recurent Jobs ++
     if settings.agent.stat_enabled && !settings.agent.local {
         // Statistics
-        info!("Running Stat job");
+        info!("Running Stat Task");
         let stats_task = tokio::spawn({
-            let state = state.clone();
-            let stats_client = xray_stats_client.clone();
-            let handler_client = xray_handler_client.clone();
-
+            let agent = agent.clone();
             async move {
                 loop {
-                    tokio::task::yield_now().await;
                     sleep(Duration::from_secs(settings.agent.stat_job_interval)).await;
-                    let _ = agent::collect_stats_job(
-                        stats_client.clone(),
-                        handler_client.clone(),
-                        state.clone(),
-                    )
-                    .await;
+                    let _ = agent.collect_stats().await;
+                    debug!("Stat task tick");
                 }
             }
         });
@@ -181,20 +181,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     if !settings.agent.local {
         // zeromq SUB messages listener
-        info!("ZMQ task starting...");
+        info!("ZMQ listener starting...");
+
         let zmq_task = tokio::spawn({
-            let state = Arc::clone(&state);
-            let client = Arc::clone(&xray_handler_client);
-            let settings = settings.clone();
+            let agent = agent.clone();
 
             async move {
-                let sub = ZmqSubscriber::new(
-                    &settings.zmq.sub_endpoint,
-                    &settings.node.uuid,
-                    &settings.node.env,
-                );
-                if let Err(e) = sub.run(client, settings, state).await {
-                    error!("ZMQ subscriber error: {}", e);
+                if let Err(e) = agent.run_subscriber().await {
+                    error!("ZMQ subscriber failed: {}", e);
                 }
             }
         });
@@ -203,13 +197,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         let _ = {
             let settings = settings.clone();
-            debug!("----->> Register node");
-            if let Err(e) = agent::register_node(
-                Arc::clone(&state),
-                settings.api.endpoint,
-                settings.api.token,
-            )
-            .await
+            debug!("----->> Register node task");
+            if let Err(e) = agent
+                .register_node(settings.api.endpoint.clone(), settings.api.token.clone())
+                .await
             {
                 panic!("Cannot register node {:?}", e);
             }
@@ -220,13 +211,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let username = Uuid::new_v4();
 
         async move {
-            create_users(
-                username,
-                Some("password".to_string()),
-                xray_handler_client.clone(),
-            )
-            .await
-            .expect("Create local accounts FAILED");
+            let _ = agent
+                .xray_handler_client
+                .create_all(username, Some(generate_random_password(10)))
+                .await;
 
             let state = state.lock().await;
             if let Some(node) = state.nodes.get_node() {

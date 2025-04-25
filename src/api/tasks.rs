@@ -19,12 +19,14 @@ use crate::NodeStatus;
 use crate::NodeStorage;
 use crate::User;
 use crate::UserRow;
+use crate::UserStatus;
 use crate::UserStorage;
 
 #[async_trait]
 pub trait Tasks {
     async fn node_healthcheck(&self, timeout: i16) -> Result<(), Box<dyn Error + Send + Sync>>;
     async fn check_user_uplink_limits(&self) -> Result<(), Box<dyn Error + Send + Sync>>;
+    async fn reactivate_trial_users(&self) -> Result<(), Box<dyn Error + Send + Sync>>;
     async fn add_node(&self, db_node: Node) -> Result<(), Box<dyn Error + Send + Sync>>;
     async fn add_user(&self, db_user: UserRow) -> Result<(), Box<dyn Error + Send + Sync>>;
 }
@@ -141,7 +143,7 @@ impl<T: NodeStorage + std::marker::Send + std::marker::Sync + std::clone::Clone>
             state
                 .users
                 .iter()
-                .filter(|(_, user)| user.trial)
+                .filter(|(_, user)| user.trial && user.status == UserStatus::Active)
                 .map(|(k, v)| (k.clone(), v.clone()))
                 .collect::<Vec<_>>()
         };
@@ -149,6 +151,7 @@ impl<T: NodeStorage + std::marker::Send + std::marker::Sync + std::clone::Clone>
         let tasks = users_map.into_iter().map(|(user_id, user)| {
             let ch = self.ch.clone();
             let publisher = self.publisher.clone();
+            let state = self.state.clone();
             let env = user.env.clone();
             let modified_at = user.modified_at;
 
@@ -178,6 +181,15 @@ impl<T: NodeStorage + std::marker::Send + std::marker::Sync + std::clone::Clone>
                         if let Err(e) = publisher.send(&env, msg).await {
                             error!("Failed to send DELETE for {}: {}", user_id, e);
                         }
+
+                        {
+                            let mut state = state.lock().await;
+                            if let Some(user) = state.users.get_mut(&user_id) {
+                                user.status = UserStatus::Expired;
+                                user.update_modified_at();
+                                debug!("✅ Marked user {} as Expired", user_id);
+                            }
+                        }
                     } else {
                         debug!(
                             "✅ User {} uplink OK: {:.2} MB / {} MB",
@@ -197,6 +209,64 @@ impl<T: NodeStorage + std::marker::Send + std::marker::Sync + std::clone::Clone>
         for res in results {
             if let Err(e) = res {
                 error!("Error during user uplink check: {:?}", e);
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn reactivate_trial_users(&self) -> Result<(), Box<dyn Error + Send + Sync>> {
+        let users_map = {
+            let state = self.state.lock().await;
+            state
+                .users
+                .iter()
+                .filter(|(_, user)| user.trial && user.status == UserStatus::Expired)
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect::<Vec<_>>()
+        };
+
+        let tasks = users_map.into_iter().map(|(user_id, user)| {
+            let publisher = self.publisher.clone();
+            let state = self.state.clone();
+            let now = chrono::Utc::now();
+            let modified_at = user.modified_at;
+            let env = user.env.clone();
+
+            async move {
+                if now.signed_duration_since(modified_at) >= chrono::Duration::hours(24) {
+                    {
+                        let mut state = state.lock().await;
+                        if let Some(user_mut) = state.users.get_mut(&user_id) {
+                            user_mut.status = UserStatus::Active;
+                            user_mut.update_modified_at();
+                            debug!("✅ Re-activated user {}", user_id);
+                        }
+                    }
+
+                    let msg = Message {
+                        user_id: user_id.clone(),
+                        action: Action::Create,
+                        env: env.clone(),
+                        trial: user.trial,
+                        limit: user.limit,
+                        password: Some(user.password.clone().unwrap_or_default()),
+                    };
+
+                    if let Err(e) = publisher.send(&env, msg).await {
+                        error!("Failed to send CREATE for {}: {}", user_id, e);
+                    }
+                }
+
+                Ok::<(), Box<dyn Error + Send + Sync>>(())
+            }
+        });
+
+        let results = join_all(tasks).await;
+
+        for res in results {
+            if let Err(e) = res {
+                error!("Error during user reactivation: {:?}", e);
             }
         }
 

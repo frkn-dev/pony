@@ -9,9 +9,18 @@ use base64::Engine;
 use chrono::{TimeZone, Utc};
 use log::info;
 use log::LevelFilter;
+use rand::{distributions::Alphanumeric, Rng};
 use uuid::Uuid;
 
 use crate::config::xray::Inbound;
+
+pub fn generate_random_password(length: usize) -> String {
+    rand::thread_rng()
+        .sample_iter(&Alphanumeric)
+        .take(length)
+        .map(char::from)
+        .collect()
+}
 
 pub async fn measure_time<T, F>(task: F, name: String) -> T
 where

@@ -1,4 +1,3 @@
-pub mod actions;
 pub mod client;
 pub mod shadowsocks;
 pub mod stats;
@@ -23,7 +22,7 @@ pub trait ProtocolUser: Send + Sync {
     fn email(&self) -> String;
     fn to_user(&self) -> Result<User, Box<dyn std::error::Error + Send + Sync>>;
 
-    async fn send(&self, client: Arc<Mutex<HandlerClient>>) -> Result<(), tonic::Status> {
+    async fn create(&self, client: Arc<Mutex<HandlerClient>>) -> Result<(), tonic::Status> {
         let request = AlterInboundRequest {
             tag: self.tag().to_string(),
             operation: Some(TypedMessage {

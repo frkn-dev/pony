@@ -196,7 +196,7 @@ where
         }
     } else {
         ResponseMessage::<String> {
-            status: 200,
+            status: 304,
             message: format!("node {} is already known", node_req.uuid),
         }
     };

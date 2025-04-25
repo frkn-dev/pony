@@ -21,7 +21,7 @@ use pony::{
 
 #[derive(Parser)]
 #[command(
-    version = "0.0.23-dev",
+    version = "0.0.24-dev",
     about = "Pony Api - control tool for Xray/Wireguard"
 )]
 struct Cli {
@@ -149,12 +149,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let _ = tokio::spawn({
         let api = api.clone();
-        let job_interval = Duration::from_secs(settings.api.user_limit_check_timeout);
+        let job_interval = Duration::from_secs(settings.api.user_limit_check_interval);
 
         async move {
             loop {
                 if let Err(e) = api.check_user_uplink_limits().await {
                     error!("Check limits  failed: {:?}", e);
+                }
+                tokio::time::sleep(job_interval).await;
+            }
+        }
+    });
+
+    let _ = tokio::spawn({
+        let api = api.clone();
+        let job_interval = Duration::from_secs(settings.api.user_reactivate_interval);
+
+        async move {
+            loop {
+                if let Err(e) = api.reactivate_trial_users().await {
+                    error!("Reactivate trial users task failed: {:?}", e);
                 }
                 tokio::time::sleep(job_interval).await;
             }

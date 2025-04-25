@@ -116,6 +116,10 @@ fn default_user_limit_check_interval() -> u64 {
     60
 }
 
+fn default_user_reactivate_interval() -> u64 {
+    60
+}
+
 fn default_healthcheck_interval() -> u64 {
     60
 }
@@ -145,7 +149,9 @@ pub struct ApiConfig {
     #[serde(default = "default_node_healthcheck_timeout")]
     pub node_health_check_timeout: i16,
     #[serde(default = "default_user_limit_check_interval")]
-    pub user_limit_check_timeout: u64,
+    pub user_limit_check_interval: u64,
+    #[serde(default = "default_user_reactivate_interval")]
+    pub user_reactivate_interval: u64,
     #[serde(default = "default_api_token")]
     pub token: String,
     #[serde(default = "default_user_daily_limit_mb")]

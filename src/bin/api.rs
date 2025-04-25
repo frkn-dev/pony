@@ -20,10 +20,7 @@ use pony::{
 };
 
 #[derive(Parser)]
-#[command(
-    version = "0.0.25-dev",
-    about = "Pony Api - control tool for Xray/Wireguard"
-)]
+#[command(about = "Pony Api - control tool for Xray/Wireguard")]
 struct Cli {
     #[arg(short, long, default_value = "config.toml")]
     config: String,

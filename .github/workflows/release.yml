@@ -30,7 +30,7 @@ jobs:
         run: sudo apt-get install -y protobuf-compiler
 
       - name: Build
-        run: cargo build --no-default-features --bin agent --features agent
+        run: cargo build --no-default-features --bin agent 
 
   build-api:
     runs-on: ubuntu-latest
@@ -46,8 +46,11 @@ jobs:
           default: true
           override: true
 
+      - name: Install protobuf-compiler
+        run: sudo apt-get install -y protobuf-compiler
+
       - name: Build
-        run: cargo build --bin api --no-default-features --features api
+        run: cargo build --bin api --no-default-features 
         
   build-bot:
     runs-on: ubuntu-latest
@@ -62,6 +65,9 @@ jobs:
           toolchain: nightly
           default: true
           override: true
+
+      - name: Install protobuf-compiler
+        run: sudo apt-get install -y protobuf-compiler
 
       - name: Build
         run: cargo build --bin bot --no-default-features --features bot

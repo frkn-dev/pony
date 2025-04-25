@@ -45,7 +45,7 @@ enum Command {
 }
 
 #[derive(Parser)]
-#[command(version = "0.0.25-dev", about = "pony tg-Bot")]
+#[command(about = "pony tg-Bot")]
 struct Cli {
     #[arg(short, long, default_value = "config.toml")]
     config: String,

@@ -2012,6 +2012,7 @@ name = "pony"
 version = "0.0.23-dev"
 dependencies = [
  "anyhow",
+ "async-trait",
  "base64 0.22.1",
  "chrono",
  "clap",

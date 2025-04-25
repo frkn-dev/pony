@@ -1,18 +1,10 @@
 use std::fmt;
-use std::sync::Arc;
-use tokio::sync::Mutex;
-use tonic::Request;
 use uuid::Uuid;
 
-use super::client::HandlerClient;
-use crate::state::tag::Tag;
-
-use crate::xray_api::xray::{
-    app::proxyman::command::{AddUserOperation, AlterInboundRequest},
-    common::protocol::User,
-    common::serial::TypedMessage,
-    proxy::vless::Account,
-};
+use crate::xray_api::xray::proxy::vless;
+use crate::xray_api::xray::{common::protocol::User, common::serial::TypedMessage};
+use crate::ProtocolUser;
+use crate::Tag;
 
 #[derive(Clone, Debug)]
 pub struct UserInfo {
@@ -57,46 +49,28 @@ impl fmt::Display for UserFlow {
     }
 }
 
-pub async fn add_user(
-    client: Arc<Mutex<HandlerClient>>,
-    user_info: UserInfo,
-) -> Result<(), tonic::Status> {
-    let vless_account = Account {
-        id: user_info.uuid.to_string(),
-        flow: user_info.flow.to_string(),
-        encryption: user_info.encryption.unwrap_or_else(|| "none".to_string()),
-    };
+#[async_trait::async_trait]
+impl ProtocolUser for UserInfo {
+    fn tag(&self) -> Tag {
+        self.in_tag.clone()
+    }
+    fn email(&self) -> String {
+        self.email.clone()
+    }
+    fn to_user(&self) -> Result<User, Box<dyn std::error::Error + Send + Sync>> {
+        let account = vless::Account {
+            id: self.uuid.to_string(),
+            flow: self.flow.to_string(),
+            encryption: self.encryption.clone().unwrap_or("none".to_string()),
+        };
 
-    let vless_account_bytes = prost::Message::encode_to_vec(&vless_account);
-
-    let user = User {
-        level: user_info.level,
-        email: user_info.email.clone(),
-        account: Some(TypedMessage {
-            r#type: "xray.proxy.vless.Account".to_string(),
-            value: vless_account_bytes,
-        }),
-    };
-
-    let add_user_operation = AddUserOperation { user: Some(user) };
-
-    let add_user_operation_bytes = prost::Message::encode_to_vec(&add_user_operation);
-
-    let operation_message = TypedMessage {
-        r#type: "xray.app.proxyman.command.AddUserOperation".to_string(),
-        value: add_user_operation_bytes,
-    };
-
-    let request = AlterInboundRequest {
-        tag: user_info.in_tag.to_string(),
-        operation: Some(operation_message),
-    };
-
-    let mut handler_client = client.lock().await;
-
-    handler_client
-        .client
-        .alter_inbound(Request::new(request))
-        .await
-        .map(|_| ())
+        Ok(User {
+            level: self.level,
+            email: self.email.clone(),
+            account: Some(TypedMessage {
+                r#type: "xray.proxy.vless.Account".to_string(),
+                value: prost::Message::encode_to_vec(&account),
+            }),
+        })
+    }
 }

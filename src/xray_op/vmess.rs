@@ -1,17 +1,9 @@
-use std::sync::Arc;
-use tokio::sync::Mutex;
-use tonic::Request;
 use uuid::Uuid;
 
-use crate::xray_api::xray::{
-    app::proxyman::command::{AddUserOperation, AlterInboundRequest},
-    common::protocol::User,
-    common::serial::TypedMessage,
-    proxy::vmess::Account,
-};
-
-use super::client::HandlerClient;
-use crate::state::tag::Tag;
+use crate::xray_api::xray::proxy::vmess;
+use crate::xray_api::xray::{common::protocol::User, common::serial::TypedMessage};
+use crate::ProtocolUser;
+use crate::Tag;
 
 #[derive(Clone, Debug)]
 pub struct UserInfo {
@@ -32,46 +24,27 @@ impl UserInfo {
     }
 }
 
-pub async fn add_user(
-    client: Arc<Mutex<HandlerClient>>,
-    user_info: UserInfo,
-) -> Result<(), tonic::Status> {
-    let vmess_account = Account {
-        id: user_info.uuid.to_string(),
-        security_settings: None,
-        tests_enabled: String::new(),
-    };
+#[async_trait::async_trait]
+impl ProtocolUser for UserInfo {
+    fn tag(&self) -> Tag {
+        self.in_tag.clone()
+    }
+    fn email(&self) -> String {
+        self.email.clone()
+    }
+    fn to_user(&self) -> Result<User, Box<dyn std::error::Error + Send + Sync>> {
+        let account = vmess::Account {
+            id: self.uuid.to_string(),
+            ..Default::default()
+        };
 
-    let vmess_account_bytes = prost::Message::encode_to_vec(&vmess_account);
-
-    let user = User {
-        level: user_info.level,
-        email: user_info.email.clone(),
-        account: Some(TypedMessage {
-            r#type: "xray.proxy.vmess.Account".to_string(),
-            value: vmess_account_bytes,
-        }),
-    };
-
-    let add_user_operation = AddUserOperation { user: Some(user) };
-
-    let add_user_operation_bytes = prost::Message::encode_to_vec(&add_user_operation);
-
-    let operation_message = TypedMessage {
-        r#type: "xray.app.proxyman.command.AddUserOperation".to_string(),
-        value: add_user_operation_bytes,
-    };
-
-    let request = AlterInboundRequest {
-        tag: user_info.in_tag.to_string(),
-        operation: Some(operation_message),
-    };
-
-    let mut handler_client = client.lock().await;
-
-    handler_client
-        .client
-        .alter_inbound(Request::new(request))
-        .await
-        .map(|_| ())
+        Ok(User {
+            level: self.level,
+            email: self.email.clone(),
+            account: Some(TypedMessage {
+                r#type: "xray.proxy.vmess.Account".to_string(),
+                value: prost::Message::encode_to_vec(&account),
+            }),
+        })
+    }
 }

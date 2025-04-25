@@ -6,7 +6,10 @@ use fern::Dispatch;
 use log::debug;
 use log::error;
 use log::info;
+use uuid::Uuid;
 
+use pony::xray_op::actions::create_users;
+use pony::NodeStorage;
 use tokio::{
     sync::Mutex,
     task::JoinHandle,
@@ -15,7 +18,7 @@ use tokio::{
 
 use pony::{
     http::debug::start_ws_server, jobs::agent, utils::*, AgentSettings, HandlerClient, Node,
-    Settings, State, StatsClient, XrayClient, XrayConfig, ZmqSubscriber,
+    Settings, State, StatsClient, Tag, XrayClient, XrayConfig, ZmqSubscriber,
 };
 
 #[derive(Parser)]
@@ -119,7 +122,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         state
     };
 
-    if debug {
+    if debug && !settings.agent.local {
         tokio::spawn(start_ws_server(
             state.clone(),
             settings
@@ -131,7 +134,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // METRICS TASKS
-    if settings.app.metrics_enabled {
+    if settings.agent.metrics_enabled && !settings.agent.local {
         info!("Running metrics send job");
         let metrics_handle = tokio::spawn({
             let state = Arc::clone(&state);
@@ -139,7 +142,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             async move {
                 loop {
-                    sleep(Duration::from_secs(settings.app.metrics_timeout)).await;
+                    sleep(Duration::from_secs(settings.agent.metrics_interval)).await;
                     let _ = agent::send_metrics_job(
                         Arc::clone(&state),
                         settings.carbon.address.clone(),
@@ -152,7 +155,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // ++ Recurent Jobs ++
-    if settings.app.stat_enabled {
+    if settings.agent.stat_enabled && !settings.agent.local {
         // Statistics
         info!("Running Stat job");
         let stats_task = tokio::spawn({
@@ -163,7 +166,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             async move {
                 loop {
                     tokio::task::yield_now().await;
-                    sleep(Duration::from_secs(settings.app.stat_job_timeout)).await;
+                    sleep(Duration::from_secs(settings.agent.stat_job_interval)).await;
                     let _ = agent::collect_stats_job(
                         stats_client.clone(),
                         handler_client.clone(),
@@ -176,40 +179,107 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         tasks.push(stats_task);
     }
 
-    // zeromq SUB messages listener
-    info!("ZMQ task starting...");
-    let zmq_task = tokio::spawn({
-        let state = Arc::clone(&state);
-        let client = Arc::clone(&xray_handler_client);
-        let settings = settings.clone();
+    if !settings.agent.local {
+        // zeromq SUB messages listener
+        info!("ZMQ task starting...");
+        let zmq_task = tokio::spawn({
+            let state = Arc::clone(&state);
+            let client = Arc::clone(&xray_handler_client);
+            let settings = settings.clone();
+
+            async move {
+                let sub = ZmqSubscriber::new(
+                    &settings.zmq.sub_endpoint,
+                    &settings.node.uuid,
+                    &settings.node.env,
+                );
+                if let Err(e) = sub.run(client, settings, state).await {
+                    error!("ZMQ subscriber error: {}", e);
+                }
+            }
+        });
+
+        tasks.push(zmq_task);
+
+        let _ = {
+            let settings = settings.clone();
+            debug!("----->> Register node");
+            if let Err(e) = agent::register_node(
+                Arc::clone(&state),
+                settings.api.endpoint,
+                settings.api.token,
+            )
+            .await
+            {
+                panic!("Cannot register node {:?}", e);
+            }
+        };
+    }
+
+    let user_task = tokio::spawn({
+        let username = Uuid::new_v4();
 
         async move {
-            let sub = ZmqSubscriber::new(
-                &settings.zmq.sub_endpoint,
-                &settings.node.uuid,
-                &settings.node.env,
-            );
-            if let Err(e) = sub.run(client, settings, state).await {
-                error!("ZMQ subscriber error: {}", e);
+            create_users(
+                username,
+                Some("password".to_string()),
+                xray_handler_client.clone(),
+            )
+            .await
+            .expect("Create local accounts FAILED");
+
+            let state = state.lock().await;
+            if let Some(node) = state.nodes.get_node() {
+                let vless_grpc_conn = vless_grpc_conn(
+                    username,
+                    node.ipv4,
+                    node.inbounds
+                        .get(&Tag::VlessGrpc)
+                        .expect("VLESS gRPC inbound")
+                        .clone(),
+                    "🚀🚀🚀".to_string(),
+                );
+                let vless_xtls_conn = vless_xtls_conn(
+                    username,
+                    node.ipv4,
+                    node.inbounds
+                        .get(&Tag::VlessXtls)
+                        .expect("VLESS XTLS inbound")
+                        .clone(),
+                    "🚀🚀🚀".to_string(),
+                );
+                let vmess_conn = vmess_tcp_conn(
+                    username,
+                    node.ipv4,
+                    node.inbounds
+                        .get(&Tag::Vmess)
+                        .expect("VMESS inbound")
+                        .clone(),
+                );
+
+                println!(
+                    r#"
+╔════════════════════════════════════╗
+║ 🚀 Connection Details Ready 🚀     ║
+╚════════════════════════════════════╝
+"#
+                );
+                println!(
+                    "🌐 VLESS gRPC ➜ {}\n",
+                    vless_grpc_conn.expect("vless grpc conn")
+                );
+                println!(
+                    "🔒 VLESS XTLS ➜ {}\n",
+                    vless_xtls_conn.expect("vless xtls conn")
+                );
+                println!("✨ VMESS      ➜ {}\n", vmess_conn.expect("vmess conn"));
+            } else {
+                panic!("Node information is missing");
             }
         }
     });
 
-    tasks.push(zmq_task);
-
-    let _ = {
-        let settings = settings.clone();
-        debug!("----->> Register node");
-        if let Err(e) = agent::register_node(
-            Arc::clone(&state),
-            settings.api.endpoint,
-            settings.api.token,
-        )
-        .await
-        {
-            panic!("Cannot register node {:?}", e);
-        }
-    };
+    tasks.push(user_task);
 
     // Run all tasks
     let _ = futures::future::join_all(tasks).await;

@@ -5,20 +5,18 @@ use std::sync::Arc;
 use tokio::time::Duration;
 
 use clap::Parser;
-use clickhouse::Client as ChClient;
 use fern::Dispatch;
 use futures::future::join_all;
-use log::{debug, error};
+use log::error;
 use tokio::sync::Mutex;
 
 use pony::{
+    api::tasks::Tasks,
     config::settings::{ApiSettings, Settings},
-    http,
-    http::debug::start_ws_server,
-    jobs::api,
+    http::{self, debug::start_ws_server},
     postgres::{postgres::postgres_client, DbContext},
     utils::*,
-    Node, State, ZmqPublisher,
+    Api, ChContext, Node, State, ZmqPublisher,
 };
 
 #[derive(Parser)]
@@ -73,45 +71,42 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     let db = DbContext::new(pg_client);
-
-    let ch_client = Arc::new(Mutex::new(
-        ChClient::default().with_url(&settings.clickhouse.address),
-    ));
+    let ch = ChContext::new(&settings.clickhouse.address);
     let publisher = ZmqPublisher::new(&settings.zmq.pub_endpoint).await;
+    let state: ApiState = State::new();
+    let state = Arc::new(Mutex::new(state));
 
-    let state = {
-        let state: ApiState = State::new();
-        let state = Arc::new(Mutex::new(state));
+    let api = Arc::new(Api::new(
+        db.clone(),
+        ch.clone(),
+        publisher.clone(),
+        state.clone(),
+    ));
 
+    let _ = {
         match measure_time(db.node().get_nodes(), "get_nodes()".to_string()).await {
             Ok(nodes) => {
-                let futures: Vec<_> = nodes
-                    .into_iter()
-                    .map(|node| api::init_state(state.clone(), node))
-                    .collect();
+                let futures: Vec<_> = nodes.into_iter().map(|node| api.add_node(node)).collect();
 
-                if let Some(Err(e)) = measure_time(join_all(futures), "Init state".to_string())
+                if let Some(Err(e)) = measure_time(join_all(futures), "Add nodes".to_string())
                     .await
                     .into_iter()
                     .find(Result::is_err)
                 {
-                    error!("Error during user state initialization: {}", e);
+                    error!("Error during node state initialization: {}", e);
                 }
             }
             Err(e) => {
-                error!("Failed to fetch users from DB: {}", e);
+                error!("Failed to fetch nodes from DB: {}", e);
                 return Err(e);
             }
         }
 
-        match measure_time(db.user().get_all_users(), "db query".to_string()).await {
+        match measure_time(db.user().get_all_users(), "get_all_users".to_string()).await {
             Ok(users) => {
-                let futures: Vec<_> = users
-                    .into_iter()
-                    .map(|user| api::sync_users(state.clone(), user))
-                    .collect();
+                let futures: Vec<_> = users.into_iter().map(|user| api.add_user(user)).collect();
 
-                if let Some(Err(e)) = measure_time(join_all(futures), "Init state".to_string())
+                if let Some(Err(e)) = measure_time(join_all(futures), "Add users".to_string())
                     .await
                     .into_iter()
                     .find(Result::is_err)
@@ -124,8 +119,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 return Err(e);
             }
         }
-
-        state
     };
 
     if debug {
@@ -140,23 +133,30 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let _ = tokio::spawn({
-        let state = state.clone();
-        let ch_client = ch_client.clone();
-        let db = db.clone();
-        let timeout = settings.api.node_health_check_timeout;
-        let job_timeout = settings.api.healthcheck_interval;
-        let interval = Duration::from_secs(job_timeout);
+        let node_timeout = settings.api.node_health_check_timeout;
+        let job_interval = Duration::from_secs(settings.api.healthcheck_interval);
+        let api = api.clone();
 
         async move {
             loop {
-                if let Err(e) =
-                    api::node_healthcheck(state.clone(), ch_client.clone(), db.clone(), timeout)
-                        .await
-                {
+                if let Err(e) = api.node_healthcheck(node_timeout).await {
                     error!("Healthcheck failed: {:?}", e);
                 }
+                tokio::time::sleep(job_interval).await;
+            }
+        }
+    });
 
-                tokio::time::sleep(interval).await;
+    let _ = tokio::spawn({
+        let api = api.clone();
+        let job_interval = Duration::from_secs(settings.api.user_limit_check_timeout);
+
+        async move {
+            loop {
+                if let Err(e) = api.check_user_uplink_limits().await {
+                    error!("Check limits  failed: {:?}", e);
+                }
+                tokio::time::sleep(job_interval).await;
             }
         }
     });

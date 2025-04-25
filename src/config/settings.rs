@@ -68,11 +68,11 @@ fn default_pg_password() -> String {
     "password".to_string()
 }
 
-fn default_stat_job_timeout_sec() -> u64 {
+fn default_stat_job_interval() -> u64 {
     60
 }
 
-fn default_metrics_timeout() -> u64 {
+fn default_metrics_interval() -> u64 {
     60
 }
 
@@ -112,6 +112,10 @@ fn default_node_healthcheck_timeout() -> i16 {
     60
 }
 
+fn default_user_limit_check_interval() -> u64 {
+    60
+}
+
 fn default_healthcheck_interval() -> u64 {
     60
 }
@@ -140,6 +144,8 @@ pub struct ApiConfig {
     pub endpoint: String,
     #[serde(default = "default_node_healthcheck_timeout")]
     pub node_health_check_timeout: i16,
+    #[serde(default = "default_user_limit_check_interval")]
+    pub user_limit_check_timeout: u64,
     #[serde(default = "default_api_token")]
     pub token: String,
     #[serde(default = "default_user_daily_limit_mb")]
@@ -149,15 +155,17 @@ pub struct ApiConfig {
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]
-pub struct AppConfig {
+pub struct AgentConfig {
+    #[serde(default = "default_disabled")]
+    pub local: bool,
     #[serde(default = "default_enabled")]
     pub metrics_enabled: bool,
-    #[serde(default = "default_metrics_timeout")]
-    pub metrics_timeout: u64,
+    #[serde(default = "default_metrics_interval")]
+    pub metrics_interval: u64,
     #[serde(default = "default_enabled")]
     pub stat_enabled: bool,
-    #[serde(default = "default_stat_job_timeout_sec")]
-    pub stat_job_timeout: u64,
+    #[serde(default = "default_stat_job_interval")]
+    pub stat_job_interval: u64,
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]
@@ -364,7 +372,7 @@ pub struct AgentSettings {
     #[serde(default)]
     pub logging: LoggingConfig,
     #[serde(default)]
-    pub app: AppConfig,
+    pub agent: AgentConfig,
     #[serde(default)]
     pub xray: XrayConfig,
     #[serde(default)]

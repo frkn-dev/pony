@@ -93,7 +93,7 @@ where
             sender.send(Message::text(response_str)).await.unwrap();
         } else if req.kind == "get_nodes" {
             let state = state.lock().await;
-            let nodes = state.nodes.get_nodes(None).unwrap_or_default();
+            let nodes = state.nodes.get_all_nodes_json();
 
             let data = match serde_json::to_string(&nodes) {
                 Ok(json) => json,

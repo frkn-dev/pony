@@ -14,7 +14,7 @@ pub struct User {
     pub downlink: Option<i64>,
     pub online: Option<i64>,
     pub created_at: DateTime<Utc>,
-    pub modified_at: Option<DateTime<Utc>>,
+    pub modified_at: DateTime<Utc>,
     pub proto: Option<Vec<Tag>>,
     pub password: Option<String>,
 }
@@ -43,12 +43,7 @@ impl fmt::Display for User {
             write!(f, "  online: None,\n")?;
         }
         write!(f, "  created_at: {},\n", self.created_at)?;
-
-        if let Some(modified_at) = &self.modified_at {
-            write!(f, "  modified_at: {},\n", modified_at)?;
-        } else {
-            write!(f, "  modified_at: None,\n")?;
-        }
+        write!(f, "  modified_at: {},\n", self.modified_at)?;
 
         if let Some(proto) = &self.proto {
             write!(f, "  proto: {:?},\n", proto)?;
@@ -78,14 +73,14 @@ impl User {
             downlink: Some(0),
             online: Some(0),
             created_at: now,
-            modified_at: None,
+            modified_at: now,
             proto: None,
             password: password,
         }
     }
 
     pub fn update_modified_at(&mut self) {
-        self.modified_at = Some(Utc::now());
+        self.modified_at = Utc::now();
     }
 
     pub fn reset_downlink(&mut self) {

@@ -4,6 +4,7 @@ use std::{
 };
 
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use uuid::Uuid;
 
 use super::{
@@ -52,9 +53,12 @@ impl State<Node> {
 
 pub trait NodeStorage {
     fn add_node(&mut self, new_node: Node) -> Result<(), Box<dyn Error>>;
-    fn get_nodes(&self, env: Option<String>) -> Option<Vec<Node>>;
+    fn get_nodes(&self, env: String) -> Option<Vec<Node>>;
     fn get_node(&self) -> Option<Node>;
+    fn get_mut_node(&mut self, env: &str, uuid: Uuid) -> Option<&mut Node>;
     fn get_node_by_uuid(&self, env: String, uuid: Option<Uuid>) -> Option<Node>;
+    fn get_all_nodes(&self) -> Option<Vec<Node>>;
+    fn get_all_nodes_json(&self) -> serde_json::Value;
     fn update_node_uplink(
         &mut self,
         tag: Tag,
@@ -69,7 +73,6 @@ pub trait NodeStorage {
         env: String,
         node_id: Uuid,
     ) -> Result<(), Box<dyn Error>>;
-    fn get_all_nodes(&self) -> Option<Vec<Node>>;
     fn update_node_user_count(
         &mut self,
         tag: Tag,
@@ -83,15 +86,25 @@ impl NodeStorage for Node {
     fn add_node(&mut self, _new_node: Node) -> Result<(), Box<dyn Error>> {
         Err("Cannot add node to single Node instance".into())
     }
-
-    fn get_nodes(&self, _env: Option<String>) -> Option<Vec<Node>> {
+    fn get_nodes(&self, _env: String) -> Option<Vec<Node>> {
         Some(vec![self.clone()])
     }
-
+    fn get_all_nodes(&self) -> Option<Vec<Node>> {
+        Some(vec![self.clone()])
+    }
+    fn get_all_nodes_json(&self) -> serde_json::Value {
+        serde_json::to_value(vec![self]).unwrap_or_else(|_| serde_json::json!([]))
+    }
     fn get_node(&self) -> Option<Node> {
         Some(self.clone())
     }
-
+    fn get_mut_node(&mut self, env: &str, uuid: Uuid) -> Option<&mut Node> {
+        if self.uuid == uuid && self.env == env {
+            Some(self)
+        } else {
+            None
+        }
+    }
     fn get_node_by_uuid(&self, _env: String, _uuid: Option<Uuid>) -> Option<Node> {
         None
     }
@@ -124,10 +137,6 @@ impl NodeStorage for Node {
         } else {
             Err("Node ID does not match".into())
         }
-    }
-
-    fn get_all_nodes(&self) -> Option<Vec<Node>> {
-        Some(vec![self.clone()])
     }
 
     fn update_node_user_count(
@@ -178,19 +187,22 @@ impl NodeStorage for HashMap<String, Vec<Node>> {
     fn get_node(&self) -> Option<Node> {
         None
     }
+    fn get_mut_node(&mut self, env: &str, uuid: Uuid) -> Option<&mut Node> {
+        self.get_mut(env)?.iter_mut().find(|n| n.uuid == uuid)
+    }
 
-    fn get_nodes(&self, env: Option<String>) -> Option<Vec<Node>> {
-        match env {
-            Some(env_key) => self.get(&env_key).cloned(),
-            None => {
-                let all_nodes: Vec<Node> = self.values().flat_map(|nodes| nodes.clone()).collect();
-                if all_nodes.is_empty() {
-                    None
-                } else {
-                    Some(all_nodes)
-                }
-            }
-        }
+    fn get_nodes(&self, env: String) -> Option<Vec<Node>> {
+        self.get(&env).cloned()
+    }
+    fn get_all_nodes(&self) -> Option<Vec<Node>> {
+        let nodes: Vec<Node> = self.values().flatten().cloned().collect();
+
+        (!nodes.is_empty()).then_some(nodes)
+    }
+
+    fn get_all_nodes_json(&self) -> serde_json::Value {
+        let nodes: Vec<&Node> = self.values().flat_map(|v| v.iter()).collect();
+        serde_json::to_value(&nodes).unwrap_or_else(|_| json!([]))
     }
 
     fn update_node_uplink(
@@ -225,12 +237,6 @@ impl NodeStorage for HashMap<String, Vec<Node>> {
         }
 
         Err(format!("Node not found in env {} with id {}", env, node_id).into())
-    }
-
-    fn get_all_nodes(&self) -> Option<Vec<Node>> {
-        let nodes: Vec<Node> = self.values().flatten().cloned().collect();
-
-        (!nodes.is_empty()).then_some(nodes)
     }
 
     fn update_node_user_count(

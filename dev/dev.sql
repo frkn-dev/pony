@@ -25,12 +25,13 @@ CREATE TABLE nodes (
     ipv4 INET NOT NULL,
     status TEXT NOT NULL,
     env TEXT NOT NULL,
-    uuid UUID NOT NULL UNIQUE,
+    uuid UUID NOT NULL,
     inbounds JSONB NOT NULL, 
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     modified_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     label TEXT NOT NULL,
-    iface TEXT NOT NULL
+    iface TEXT NOT NULL,
+    UNIQUE(uuid, env)
 );
 
 

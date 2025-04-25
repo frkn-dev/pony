@@ -147,9 +147,8 @@ where
 
     let node = state
         .nodes
-        .get_nodes(None)
-        .and_then(|mut nodes| nodes.pop())
-        .ok_or("No node available to register")?;
+        .get_node()
+        .expect("No node available to register");
 
     let mut endpoint_url = Url::parse(&endpoint)?;
     endpoint_url

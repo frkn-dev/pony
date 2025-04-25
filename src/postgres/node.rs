@@ -120,6 +120,7 @@ impl PgNodeRequest {
     pub async fn update_node_status(
         &self,
         uuid: Uuid,
+        env: &str,
         new_status: NodeStatus,
     ) -> Result<(), Box<dyn Error>> {
         let client = self.client.lock().await;
@@ -127,14 +128,14 @@ impl PgNodeRequest {
         let query = "
             UPDATE nodes
             SET status = $1, modified_at = $2
-            WHERE uuid = $3
+            WHERE uuid = $3 AND env = $4
         ";
 
         let status_str = new_status.to_string();
         let modified_at = Utc::now();
 
         let result = client
-            .execute(query, &[&status_str, &modified_at, &uuid])
+            .execute(query, &[&status_str, &modified_at, &uuid, &env])
             .await;
 
         match result {

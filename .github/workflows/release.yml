@@ -134,7 +134,7 @@ jobs:
 
   publish-api:
     name: Push Api Docker image 
-    needs: [release, build-api]
+    needs: [release]
     runs-on: ubuntu-latest
     permissions:
       packages: write
@@ -168,7 +168,7 @@ jobs:
 
   publish-bot:
     name: Push Bot Docker image
-    needs: [release, build-bot]
+    needs: [release]
     runs-on: ubuntu-latest
     permissions:
       packages: write

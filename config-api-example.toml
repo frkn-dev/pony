@@ -2,6 +2,12 @@
 # address = "127.0.0.1"
 # port = 3005
 # endpoint = "http://localhost:3005"
+# node_health_check_timeout = 60
+# user_limit_check_interval = 60
+# user_reactivate_interval = 60
+# token = "supetsecrettoken"
+# user_limit_mb = 1000
+# healthcheck_interval = 60
 
 [debug]
 # enabled = true
@@ -10,17 +16,18 @@
 
 [node]
 # env = "dev"
-# uuid = "9557b391-01cb-4031-a3f5-6cbdd749bcff"
-# hostname = ""
-# default_interface = ""
-# ipv4 = ""
+# hostname = "<define in env or config>"
+# default_interface = "<autodetected>"
+# ipv4 = "<autodetected>"
+# uuid = "9658b391-01cb-4031-a3f5-6cbdd749bcff"
+# label = "🏴‍☠️🏴‍☠️🏴‍☠️ dev"
 
 [logging]
 # level = "debug"
 
 [zmq]
-#sub_endpoint = "tcp://localhost:3000"
-#pub_endpoint = "tcp://*:3000"
+# sub_endpoint = "tcp://localhost:3000"
+# pub_endpoint = "tcp://*:3000"
 
 [clickhouse]
 # address = "http://localhost:8123"

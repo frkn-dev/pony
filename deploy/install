@@ -30,13 +30,21 @@ VLESS_SETTINGS_FILE="$INSTALL_DIR/vless.settings"
 CARBON_ADDRESS="${CARBON_ADDRESS:-localhost:2003}"
 ZMQ_ENDPOINT="${ZMQ_ENDPOINT:-tcp://localhost:3000}"
 ENV="${ENV:-dev}"
-PG_HOST="${PG_HOST:-localhost}"
-PG_PORT="${PG_PORT:-5432}"
-PG_DB="${PG_DB:-postgres}"
-PG_USERNAME="${PG_USERNAME:-postgres}"
-PG_PASSWORD="${PG_PASSWORD:-password}"
 API_ENDPOINT=${API_ENDPOINT:-http://localhost:3005}
 API_TOKEN=${API_TOKEN:-mysecrettoken}
+
+# set up UUID
+if [ -n "$UUID" ]; then
+  FINAL_UUID="$UUID"
+else
+  if [ -x "./xray" ]; then
+    FINAL_UUID=$(./xray uuid | tr -d '\n')
+  else
+    echo "🔴 Error: ./xray not found or not executable, cannot generate UUID."
+    exit 1
+  fi
+fi
+
 
 mkdir -p "$INSTALL_DIR"
 cd "$INSTALL_DIR"
@@ -332,18 +340,15 @@ address = "$CARBON_ADDRESS"
 
 [logging]
 level = "debug"
-file = "pony.log"
 
-[app]
-metrics_timeout = 60
-trial_users_enabled = true
-stat_enabled = true
+[agent]
+local = false
 metrics_enabled = true
-trial_jobs_timeout = 60
-stat_jobs_timeout = 60
+metrics_interval = 60
+stat_enabled = true
+stat_job_interval = 60
 
 [xray]
-xray_daily_limit_mb = 1000
 xray_config_path = "$XRAY_CONFIG_PATH"
 
 [zmq]
@@ -351,17 +356,11 @@ sub_endpoint = "$ZMQ_ENDPOINT"
 
 [node]
 env = "$ENV"
-uuid = "$(./xray uuid)"
+uuid = "$FINAL_UUID"
 hostname = "$HOSTNAME"
 default_interface = "$default_interface"
 ipv4 = "$default_ip"
-
-[pg]
-host = "${PG_HOST}"
-port = ${PG_PORT}
-db = "${PG_DB}"
-username = "${PG_USERNAME}"
-password = "${PG_PASSWORD}"
+label = "🏴‍☠️🏴‍☠️🏴‍☠️ dev"
 
 [api]
 endpoint = "$API_ENDPOINT"

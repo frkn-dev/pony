@@ -50,7 +50,7 @@ jobs:
         run: sudo apt-get install -y protobuf-compiler
 
       - name: Build
-        run: cargo build --bin api --no-default-features 
+        run: cargo build --no-default-features --bin api
         
   build-bot:
     runs-on: ubuntu-latest
@@ -70,7 +70,7 @@ jobs:
         run: sudo apt-get install -y protobuf-compiler
 
       - name: Build
-        run: cargo build --bin bot --no-default-features --features bot
+        run: cargo build --no-default-features --bin bot  --features bot
 
 
   release:
@@ -134,7 +134,7 @@ jobs:
 
   publish-api:
     name: Push Api Docker image 
-    needs: [build-api]
+    needs: [release, build-api]
     runs-on: ubuntu-latest
     permissions:
       packages: write
@@ -161,13 +161,14 @@ jobs:
         uses: docker/build-push-action@3b5e8027fcad23fda98b2e3ac259d8d67585f671
         with:
           context: .
+          file: Dockerfile.api
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
 
   publish-bot:
     name: Push Bot Docker image
-    needs: [build-bot]
+    needs: [release, build-bot]
     runs-on: ubuntu-latest
     permissions:
       packages: write

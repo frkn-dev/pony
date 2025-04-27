@@ -107,10 +107,6 @@ fn default_label() -> String {
     "🏴‍☠️🏴‍☠️🏴‍☠️ dev".to_string()
 }
 
-fn default_workers() -> usize {
-    8
-}
-
 fn default_node_healthcheck_timeout() -> i16 {
     60
 }
@@ -222,8 +218,6 @@ pub struct NodeConfig {
     pub uuid: Uuid,
     #[serde(default = "default_label")]
     pub label: String,
-    #[serde(default = "default_workers")]
-    pub workers: usize,
 }
 
 impl NodeConfig {

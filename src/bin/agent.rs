@@ -41,8 +41,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .apply()
         .unwrap();
 
+    let num_cpus = std::thread::available_parallelism()?.get();
+
+    let worker_threads = if num_cpus <= 1 { 1 } else { num_cpus * 2 };
+    log::info!(
+        "🧠 CPU cores: {}, configured worker threads: {}",
+        num_cpus,
+        worker_threads
+    );
+
     let runtime = tokio::runtime::Builder::new_multi_thread()
-        .worker_threads(settings.node.workers * 2)
+        .worker_threads(worker_threads)
         .enable_all()
         .build()
         .unwrap();

@@ -77,7 +77,7 @@ jobs:
             override: true
 
         - name: Install protobuf-compiler
-        run: sudo apt-get install -y protobuf-compiler
+          run: sudo apt-get install -y protobuf-compiler
   
         - name: Build
           run: cargo build --release --bin bot --no-default-features --features bot

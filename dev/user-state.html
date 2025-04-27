@@ -89,7 +89,7 @@
                 return;
             }
 
-            const url = `ws://${host}:${port}/ws`;
+            const url = `wss://${host}/debug/ws`;
             socket = new WebSocket(url);
 
             socket.onopen = () => {

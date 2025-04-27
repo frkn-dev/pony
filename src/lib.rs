@@ -34,7 +34,7 @@ pub use state::tag::Tag;
 pub use state::user::User;
 pub use state::user::UserStatus;
 pub use utils::*;
-pub use xray_op::client::{HandlerClient, StatsClient, XrayClient};
+pub use xray_op::client::{HandlerActions, HandlerClient, StatsClient, XrayClient};
 pub use xray_op::ProtocolUser;
 pub use zmq::message::{Action, Message};
 pub use zmq::publisher::Publisher as ZmqPublisher;

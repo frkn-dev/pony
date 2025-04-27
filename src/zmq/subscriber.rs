@@ -46,9 +46,26 @@ impl Subscriber {
     }
 
     pub async fn recv(&self) -> Option<String> {
-        match self.socket.lock().await.recv_string(0) {
-            Ok(Ok(data)) => Some(data),
-            _ => None,
-        }
+        let socket = self.socket.clone();
+        tokio::task::spawn_blocking(move || {
+            let socket = socket.blocking_lock();
+            match socket.recv_string(0) {
+                Ok(Ok(data)) => {
+                    log::debug!("🔵 Received from ZMQ socket: {}", data);
+                    Some(data)
+                }
+                Ok(Err(e)) => {
+                    log::error!("🔴 Failed to decode string from ZMQ: {:?}", e);
+                    None
+                }
+                Err(e) => {
+                    log::error!("🔴 Failed to receive from ZMQ: {}", e);
+                    None
+                }
+            }
+        })
+        .await
+        .ok()
+        .flatten()
     }
 }

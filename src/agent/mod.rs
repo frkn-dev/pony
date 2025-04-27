@@ -1,3 +1,4 @@
+pub mod service;
 pub mod tasks;
 
 use std::sync::Arc;

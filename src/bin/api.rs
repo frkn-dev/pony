@@ -69,7 +69,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let db = DbContext::new(pg_client);
     let ch = ChContext::new(&settings.clickhouse.address);
-    let publisher = ZmqPublisher::new(&settings.zmq.pub_endpoint).await;
+    let publisher = ZmqPublisher::new(&settings.zmq.endpoint).await;
     let state: ApiState = State::new();
     let state = Arc::new(Mutex::new(state));
 

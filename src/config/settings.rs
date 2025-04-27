@@ -1,5 +1,4 @@
 use default_net::{get_default_interface, get_interfaces};
-use log::debug;
 use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use std::env;
@@ -108,6 +107,10 @@ fn default_label() -> String {
     "🏴‍☠️🏴‍☠️🏴‍☠️ dev".to_string()
 }
 
+fn default_workers() -> usize {
+    8
+}
+
 fn default_node_healthcheck_timeout() -> i16 {
     60
 }
@@ -139,25 +142,31 @@ fn default_price() -> String {
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]
-pub struct ApiConfig {
+pub struct ApiServiceConfig {
     #[serde(default = "default_api_web_listen")]
     pub address: Option<Ipv4Addr>,
     #[serde(default = "default_api_web_port")]
     pub port: u16,
-    #[serde(default = "default_api_endpoint_address")]
-    pub endpoint: String,
     #[serde(default = "default_node_healthcheck_timeout")]
     pub node_health_check_timeout: i16,
     #[serde(default = "default_user_limit_check_interval")]
     pub user_limit_check_interval: u64,
     #[serde(default = "default_user_reactivate_interval")]
     pub user_reactivate_interval: u64,
-    #[serde(default = "default_api_token")]
-    pub token: String,
     #[serde(default = "default_user_daily_limit_mb")]
     pub user_limit_mb: i64,
     #[serde(default = "default_healthcheck_interval")]
     pub healthcheck_interval: u64,
+    #[serde(default = "default_api_token")]
+    pub token: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Default)]
+pub struct ApiAccessConfig {
+    #[serde(default = "default_api_endpoint_address")]
+    pub endpoint: String,
+    #[serde(default = "default_api_token")]
+    pub token: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]
@@ -213,6 +222,8 @@ pub struct NodeConfig {
     pub uuid: Uuid,
     #[serde(default = "default_label")]
     pub label: String,
+    #[serde(default = "default_workers")]
+    pub workers: usize,
 }
 
 impl NodeConfig {
@@ -246,8 +257,6 @@ impl NodeConfig {
             let interface = interfaces
                 .iter()
                 .find(|interface| &interface.name == interface_name);
-
-            debug!("Default interface: {}", interface_name);
 
             if let Some(interface) = interface.clone() {
                 match interface.ipv4.first() {
@@ -300,16 +309,29 @@ pub struct XrayConfig {
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]
-pub struct ZmqConfig {
+pub struct ZmqSubscriberConfig {
     #[serde(default = "default_zmq_sub_endpoint")]
-    pub sub_endpoint: String,
-    #[serde(default = "default_zmq_pub_endpoint")]
-    pub pub_endpoint: String,
+    pub endpoint: String,
 }
 
-impl ZmqConfig {
+impl ZmqSubscriberConfig {
     pub fn validate(self) -> Result<(), Box<dyn Error>> {
-        if !self.sub_endpoint.starts_with("tcp://") || !self.pub_endpoint.starts_with("tcp://") {
+        if !self.endpoint.starts_with("tcp://") {
+            return Err("ZMQ endpoint should start with tcp://".into());
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Default)]
+pub struct ZmqPublisherConfig {
+    #[serde(default = "default_zmq_pub_endpoint")]
+    pub endpoint: String,
+}
+
+impl ZmqPublisherConfig {
+    pub fn validate(self) -> Result<(), Box<dyn Error>> {
+        if !self.endpoint.starts_with("tcp://") {
             return Err("ZMQ endpoint should start with tcp://".into());
         }
         Ok(())
@@ -339,7 +361,7 @@ pub trait Settings: Sized {
 #[derive(Clone, Debug, Deserialize, Default)]
 pub struct ApiSettings {
     #[serde(default)]
-    pub api: ApiConfig,
+    pub api: ApiServiceConfig,
     #[serde(default)]
     pub debug: DebugConfig,
     #[serde(default)]
@@ -347,7 +369,7 @@ pub struct ApiSettings {
     #[serde(default)]
     pub logging: LoggingConfig,
     #[serde(default)]
-    pub zmq: ZmqConfig,
+    pub zmq: ZmqPublisherConfig,
     #[serde(default)]
     pub clickhouse: ClickhouseConfig,
     #[serde(default)]
@@ -382,11 +404,11 @@ pub struct AgentSettings {
     #[serde(default)]
     pub xray: XrayConfig,
     #[serde(default)]
-    pub zmq: ZmqConfig,
+    pub zmq: ZmqSubscriberConfig,
     #[serde(default)]
     pub node: NodeConfig,
     #[serde(default)]
-    pub api: ApiConfig,
+    pub api: ApiAccessConfig,
 }
 
 impl Settings for AgentSettings {
@@ -424,7 +446,7 @@ pub struct BotSettings {
     #[serde(default)]
     pub pg: PostgresConfig,
     #[serde(default)]
-    pub api: ApiConfig,
+    pub api: ApiAccessConfig,
     #[serde(default)]
     pub bot: BotConfig,
     #[serde(default)]

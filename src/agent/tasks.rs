@@ -54,12 +54,14 @@ impl<T: NodeStorage + Send + Sync + Clone> Tasks for Agent<T> {
         endpoint: String,
         token: String,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
-        let state = self.state.lock().await;
-
-        let node = state
-            .nodes
-            .get_node()
-            .expect("No node available to register");
+        let node = {
+            let state = self.state.lock().await;
+            state
+                .nodes
+                .get_node()
+                .expect("No node available to register")
+                .clone()
+        };
 
         let mut endpoint_url = Url::parse(&endpoint)?;
         endpoint_url

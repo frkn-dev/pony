@@ -15,16 +15,16 @@ use crate::state::state::NodeStorage;
 use crate::state::state::State;
 
 enum Kind {
-    User,
-    Users,
+    Conn,
+    Conns,
     Nodes,
 }
 
 impl fmt::Display for Kind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Kind::User => write!(f, "user"),
-            Kind::Users => write!(f, "users"),
+            Kind::Conn => write!(f, "conn"),
+            Kind::Conns => write!(f, "conns"),
             Kind::Nodes => write!(f, "nodes"),
         }
     }
@@ -34,7 +34,7 @@ impl fmt::Display for Kind {
 pub struct Request {
     pub kind: String,
     pub message: String,
-    pub user_id: Option<Uuid>,
+    pub conn_id: Option<Uuid>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -80,14 +80,14 @@ where
 
         let req: Request = serde_json::from_str(message).unwrap();
 
-        if req.kind == "get_users" {
+        if req.kind == "get_connections" {
             let state = state.lock().await;
-            let users: Vec<_> = state.users.keys().collect();
-            let data = serde_json::to_string(&*users).unwrap();
+            let conns: Vec<_> = state.connections.keys().collect();
+            let data = serde_json::to_string(&*conns).unwrap();
             let response = Response {
-                kind: Kind::Users.to_string(),
+                kind: Kind::Conns.to_string(),
                 data: serde_json::Value::String(data),
-                len: state.users.len(),
+                len: state.connections.len(),
             };
             let response_str = serde_json::to_string(&response).unwrap();
             sender.send(Message::text(response_str)).await.unwrap();
@@ -106,17 +106,17 @@ where
             let response = Response {
                 kind: Kind::Nodes.to_string(),
                 data: serde_json::Value::String(data),
-                len: state.users.len(),
+                len: state.connections.len(),
             };
             let response_str = serde_json::to_string(&response).unwrap();
             sender.send(Message::text(response_str)).await.unwrap();
-        } else if req.kind == "get_user_info" {
-            if let Some(user_id) = req.user_id {
+        } else if req.kind == "get_conn_info" {
+            if let Some(conn_id) = req.conn_id {
                 let state = state.lock().await;
-                if let Some(user) = state.users.get(&user_id) {
+                if let Some(conn) = state.connections.get(&conn_id) {
                     let response = Response {
-                        kind: Kind::User.to_string(),
-                        data: serde_json::Value::String(user.to_string()),
+                        kind: Kind::Conn.to_string(),
+                        data: serde_json::Value::String(conn.to_string()),
                         len: 1,
                     };
                     let response_str = serde_json::to_string(&response).unwrap();

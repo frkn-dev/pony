@@ -101,20 +101,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
 
-        match measure_time(db.user().get_all_users(), "get_all_users".to_string()).await {
-            Ok(users) => {
-                let futures: Vec<_> = users.into_iter().map(|user| api.add_user(user)).collect();
+        match measure_time(db.conn().all_conns(), "db.all_conns".to_string()).await {
+            Ok(conns) => {
+                let futures: Vec<_> = conns.into_iter().map(|conn| api.add_conn(conn)).collect();
 
-                if let Some(Err(e)) = measure_time(join_all(futures), "Add users".to_string())
-                    .await
-                    .into_iter()
-                    .find(Result::is_err)
+                if let Some(Err(e)) =
+                    measure_time(join_all(futures), "add all conns to state".to_string())
+                        .await
+                        .into_iter()
+                        .find(Result::is_err)
                 {
-                    error!("Error during user state initialization: {}", e);
+                    error!("Error during conn state initialization: {}", e);
                 }
             }
             Err(e) => {
-                error!("Failed to fetch users from DB: {}", e);
+                error!("Failed to fetch conns from DB: {}", e);
                 return Err(e);
             }
         }
@@ -147,11 +148,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let _ = tokio::spawn({
         let api = api.clone();
-        let job_interval = Duration::from_secs(settings.api.user_limit_check_interval);
+        let job_interval = Duration::from_secs(settings.api.conn_limit_check_interval);
 
         async move {
             loop {
-                if let Err(e) = api.check_user_uplink_limits().await {
+                if let Err(e) = api.check_conn_uplink_limits().await {
                     error!("Check limits  failed: {:?}", e);
                 }
                 tokio::time::sleep(job_interval).await;
@@ -161,12 +162,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let _ = tokio::spawn({
         let api = api.clone();
-        let job_interval = Duration::from_secs(settings.api.user_reactivate_interval);
+        let job_interval = Duration::from_secs(settings.api.conn_reactivate_interval);
 
         async move {
             loop {
-                if let Err(e) = api.reactivate_trial_users().await {
-                    error!("Reactivate trial users task failed: {:?}", e);
+                if let Err(e) = api.reactivate_trial_conns().await {
+                    error!("Reactivate trial conns task failed: {:?}", e);
                 }
                 tokio::time::sleep(job_interval).await;
             }

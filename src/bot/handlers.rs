@@ -1,14 +1,11 @@
 use async_trait::async_trait;
-use log::debug;
 use std::error::Error;
 
 use teloxide::{payloads::SendMessageSetters, prelude::*, types::Me, utils::command::BotCommands};
 
 use super::actions::Actions;
-use super::keyboards::Keyboards;
 use super::BotState;
 use super::Command;
-use crate::api::requests::ApiRequests;
 
 #[async_trait]
 pub trait Handlers {
@@ -55,10 +52,8 @@ impl Handlers for BotState {
                             match self.register(&username, user_id).await {
                                 Ok(_) => {
                                     let reply = format!("Спасибо за регистрацию {}", username);
-                                    if let Ok(_user) = self.create_vpn_user(username, user_id).await
-                                    {
-                                        bot.send_message(msg.chat.id, reply).await?;
-                                    }
+
+                                    bot.send_message(msg.chat.id, reply).await?;
                                 }
                                 Err(_) => {
                                     let reply = format!("Упс, уже зарегистрирован {}", username);
@@ -68,23 +63,7 @@ impl Handlers for BotState {
                         }
                     }
                 }
-                Ok(Command::Getvpn) => {
-                    if let Some(user) = msg.from {
-                        if let Some(username) = user.username {
-                            if let Some(user_id) =
-                                self.db.user().user_exist(username.to_string()).await
-                            {
-                                if let Ok(conns) = self.get_conn(user_id).await {
-                                    let keyboard = self.conn_keyboard(conns.clone()).await;
-                                    debug!("Conns {:?}", conns);
-                                    bot.send_message(msg.chat.id, "Выбери VPN")
-                                        .reply_markup(keyboard)
-                                        .await?;
-                                }
-                            }
-                        }
-                    }
-                }
+
                 Err(_) => {
                     bot.send_message(msg.chat.id, "Command not found!").await?;
                 }

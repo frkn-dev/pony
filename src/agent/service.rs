@@ -1,7 +1,7 @@
 use crate::api::requests::ApiRequests;
 use crate::{
-    agent::tasks::Tasks, http::debug::start_ws_server, utils::*, Agent, AgentSettings,
-    HandlerActions, HandlerClient, Node, NodeStorage, State, StatsClient, Tag, User, UserStorage,
+    agent::tasks::Tasks, http::debug::start_ws_server, utils::*, Agent, AgentSettings, Conn,
+    ConnStorage, HandlerActions, HandlerClient, Node, NodeStorage, State, StatsClient, Tag,
     XrayClient, XrayConfig, ZmqSubscriber,
 };
 
@@ -48,26 +48,7 @@ pub async fn service(settings: AgentSettings) -> Result<(), Box<dyn std::error::
         &settings.node.env,
     );
 
-    let node = Node::new(
-        xray_config,
-        settings
-            .node
-            .hostname
-            .clone()
-            .unwrap_or_else(|| "localhost".to_string()),
-        settings
-            .node
-            .ipv4
-            .unwrap_or_else(|| Ipv4Addr::new(127, 0, 0, 1)),
-        settings.node.env.clone(),
-        settings
-            .node
-            .default_interface
-            .clone()
-            .unwrap_or("eth0".to_string()),
-        settings.node.uuid.clone(),
-        settings.node.label.clone(),
-    );
+    let node = Node::new(settings.node.clone(), xray_config);
 
     let state: Arc<Mutex<AgentState>> = Arc::new(Mutex::new(State::with_node(node)));
 
@@ -109,11 +90,13 @@ pub async fn service(settings: AgentSettings) -> Result<(), Box<dyn std::error::
     if settings.agent.stat_enabled && !settings.agent.local {
         info!("Running Stat Task");
         let stats_task = tokio::spawn({
-            let agent = agent.clone();
+            let agent = Arc::new(agent.clone());
             async move {
                 loop {
                     sleep(Duration::from_secs(settings.agent.stat_job_interval)).await;
-                    let _ = agent.collect_stats().await;
+                    let _ = <Arc<Agent<Node>> as Clone>::clone(&agent)
+                        .collect_stats()
+                        .await;
                 }
             }
         });
@@ -145,23 +128,23 @@ pub async fn service(settings: AgentSettings) -> Result<(), Box<dyn std::error::
         };
     }
 
-    let user_task = tokio::spawn({
-        let username = Uuid::new_v4();
+    let conn_task = tokio::spawn({
+        let conn_id = Uuid::new_v4();
         let agent = agent.clone();
         async move {
-            let _ = agent.xray_handler_client.create_all(username, None).await;
+            let _ = agent.xray_handler_client.create_all(conn_id, None).await;
 
             let _ = {
                 let mut state = agent.state.lock().await;
-                let user = User::new(false, 1024, settings.node.env.clone(), None);
-                let _ = state.add_or_update_user(username, user);
+                let conn = Conn::new(false, 1024, settings.node.env.clone(), None);
+                let _ = state.add_or_update_conn(conn_id, conn);
             };
 
             let state = agent.state.lock().await;
             if let Some(node) = state.nodes.get_node() {
                 let vless_grpc_conn = vless_grpc_conn(
-                    username,
-                    node.ipv4,
+                    conn_id,
+                    node.address,
                     node.inbounds
                         .get(&Tag::VlessGrpc)
                         .expect("VLESS gRPC inbound")
@@ -169,8 +152,8 @@ pub async fn service(settings: AgentSettings) -> Result<(), Box<dyn std::error::
                     "🚀🚀🚀".to_string(),
                 );
                 let vless_xtls_conn = vless_xtls_conn(
-                    username,
-                    node.ipv4,
+                    conn_id,
+                    node.address,
                     node.inbounds
                         .get(&Tag::VlessXtls)
                         .expect("VLESS XTLS inbound")
@@ -178,8 +161,8 @@ pub async fn service(settings: AgentSettings) -> Result<(), Box<dyn std::error::
                     "🚀🚀🚀".to_string(),
                 );
                 let vmess_conn = vmess_tcp_conn(
-                    username,
-                    node.ipv4,
+                    conn_id,
+                    node.address,
                     node.inbounds
                         .get(&Tag::Vmess)
                         .expect("VMESS inbound")
@@ -208,7 +191,7 @@ pub async fn service(settings: AgentSettings) -> Result<(), Box<dyn std::error::
         }
     });
 
-    tasks.push(user_task);
+    tasks.push(conn_task);
 
     let _ = futures::future::join_all(tasks).await;
     Ok(())

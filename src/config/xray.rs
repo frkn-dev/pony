@@ -65,7 +65,7 @@ pub struct Inbound {
     pub stream_settings: Option<StreamSettings>,
     uplink: Option<i64>,
     downlink: Option<i64>,
-    user_count: Option<i64>,
+    conn_count: Option<i64>,
 }
 
 impl Inbound {
@@ -80,7 +80,7 @@ impl Inbound {
         InboundStat {
             uplink: self.uplink.unwrap_or(0),
             downlink: self.downlink.unwrap_or(0),
-            user_count: self.user_count.unwrap_or(0),
+            conn_count: self.conn_count.unwrap_or(0),
         }
     }
 
@@ -91,8 +91,8 @@ impl Inbound {
     pub fn update_downlink(&mut self, new_downlink: i64) {
         self.downlink = Some(new_downlink);
     }
-    pub fn update_user_count(&mut self, new_user_count: i64) {
-        self.user_count = Some(new_user_count);
+    pub fn update_conn_count(&mut self, new_conn_count: i64) {
+        self.conn_count = Some(new_conn_count);
     }
 }
 

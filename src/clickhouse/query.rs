@@ -15,10 +15,10 @@ pub trait Queries {
     where
         T: DeserializeOwned + Debug + Send + Clone + Sync + 'static;
 
-    async fn fetch_user_uplink_traffic<T>(
+    async fn fetch_conn_uplink_traffic<T>(
         &self,
         env: &str,
-        user_id: uuid::Uuid,
+        conn_id: uuid::Uuid,
         modified_at: DateTime<Utc>,
     ) -> Option<MetricValue<T>>
     where
@@ -50,10 +50,10 @@ impl Queries for ChContext {
         result.ok().and_then(|mut rows| rows.pop())
     }
 
-    async fn fetch_user_uplink_traffic<T>(
+    async fn fetch_conn_uplink_traffic<T>(
         &self,
         env: &str,
-        user_id: uuid::Uuid,
+        conn_id: uuid::Uuid,
         modified_at: DateTime<Utc>,
     ) -> Option<MetricValue<T>>
     where
@@ -66,12 +66,12 @@ impl Queries for ChContext {
         Path AS metric,
         toFloat64(sum(Value)) AS value
     FROM default.graphite_data
-    WHERE Path LIKE '{env}.%.{user_id}.uplink'
+    WHERE Path LIKE '{env}.%.{conn_id}.uplink'
       AND Timestamp >= toDateTime('{start}')
       AND Timestamp < toDateTime('{start}') + INTERVAL 1 DAY
     GROUP BY Path",
             env = env,
-            user_id = user_id,
+            conn_id = conn_id,
             start = modified_at_str,
         );
 

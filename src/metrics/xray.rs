@@ -2,8 +2,8 @@ use std::collections::HashMap;
 
 use uuid::Uuid;
 
-use crate::state::stats::{InboundStat, UserStat};
-use crate::state::user::User;
+use crate::state::connection::Conn;
+use crate::state::stats::{ConnStat, InboundStat};
 use crate::utils::current_timestamp;
 use crate::Node;
 use crate::{AsMetric, Metric, MetricType};
@@ -29,14 +29,14 @@ impl AsMetric for InboundStat {
             Metric {
                 // dev.localhost.vmess.user_count
                 path: format!("{env}.{hostname}.{name}.user_count"),
-                value: self.user_count,
+                value: self.conn_count,
                 timestamp: timestamp,
             },
         ]
     }
 }
 
-impl AsMetric for UserStat {
+impl AsMetric for ConnStat {
     type Output = i64;
     fn as_metric(&self, name: &str, env: &str, hostname: &str) -> Vec<Metric<i64>> {
         let timestamp = current_timestamp();
@@ -79,18 +79,22 @@ pub fn xray_stat_metrics(node: Node) -> Vec<MetricType> {
     xray_stat_metrics.into_iter().map(MetricType::I64).collect()
 }
 
-pub fn xray_user_metrics(users: HashMap<Uuid, User>, env: &str, hostname: &str) -> Vec<MetricType> {
-    let user_stat_metrics: Vec<_> = users
+pub fn xray_conn_metrics(
+    connections: HashMap<Uuid, Conn>,
+    env: &str,
+    hostname: &str,
+) -> Vec<MetricType> {
+    let conn_stat_metrics: Vec<_> = connections
         .clone()
         .into_iter()
         .map(|(user_id, user)| {
-            user.as_user_stat()
+            user.as_conn_stat()
                 .as_metric(&user_id.to_string(), env, hostname)
         })
         .flatten()
         .collect();
 
-    user_stat_metrics
+    conn_stat_metrics
         .iter()
         .map(|metric| MetricType::I64(metric.clone()))
         .collect()

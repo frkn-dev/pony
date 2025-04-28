@@ -19,7 +19,7 @@ fn default_env() -> String {
     "dev".to_string()
 }
 
-fn default_user_daily_limit_mb() -> i64 {
+fn default_conn_daily_limit_mb() -> i64 {
     1000
 }
 
@@ -111,11 +111,11 @@ fn default_node_healthcheck_timeout() -> i16 {
     60
 }
 
-fn default_user_limit_check_interval() -> u64 {
+fn default_conn_limit_check_interval() -> u64 {
     60
 }
 
-fn default_user_reactivate_interval() -> u64 {
+fn default_conn_reactivate_interval() -> u64 {
     60
 }
 
@@ -145,12 +145,12 @@ pub struct ApiServiceConfig {
     pub port: u16,
     #[serde(default = "default_node_healthcheck_timeout")]
     pub node_health_check_timeout: i16,
-    #[serde(default = "default_user_limit_check_interval")]
-    pub user_limit_check_interval: u64,
-    #[serde(default = "default_user_reactivate_interval")]
-    pub user_reactivate_interval: u64,
-    #[serde(default = "default_user_daily_limit_mb")]
-    pub user_limit_mb: i64,
+    #[serde(default = "default_conn_limit_check_interval")]
+    pub conn_limit_check_interval: u64,
+    #[serde(default = "default_conn_reactivate_interval")]
+    pub conn_reactivate_interval: u64,
+    #[serde(default = "default_conn_daily_limit_mb")]
+    pub conn_limit_mb: i64,
     #[serde(default = "default_healthcheck_interval")]
     pub healthcheck_interval: u64,
     #[serde(default = "default_api_token")]
@@ -213,7 +213,7 @@ pub struct NodeConfig {
     pub env: String,
     pub hostname: Option<String>,
     pub default_interface: Option<String>,
-    pub ipv4: Option<Ipv4Addr>,
+    pub address: Option<Ipv4Addr>,
     #[serde(default = "default_uuid")]
     pub uuid: Uuid,
     #[serde(default = "default_label")]
@@ -228,35 +228,46 @@ impl NodeConfig {
                     self.hostname = Some(hostname);
                 }
                 Err(_) => {
-                    return Err("Error -> Define $HOSTNAME env or hostname in config".into());
+                    return Err("Validation error: missing hostname (set $HOSTNAME env or specify in config)".into());
                 }
             }
         }
 
-        if self.default_interface.is_none() && self.ipv4.is_none() {
+        if self.default_interface.is_none() {
             match get_default_interface() {
                 Ok(interface) => {
                     self.default_interface = Some(interface.name);
                     if interface.ipv4.is_empty() {
-                        return Err("Cannot get ipv4 addr of interface: {}".into());
+                        return Err(
+                            "Validation error: Cannot get IPv4 address of default interface".into(),
+                        );
                     } else {
-                        self.ipv4 = Some(interface.ipv4[0].addr);
+                        self.address = Some(interface.ipv4[0].addr);
                     }
                 }
-                Err(e) => return Err(format!("Cannot get default interface: {}", e).into()),
+                Err(e) => {
+                    return Err(
+                        format!("Validation error: Cannot get default interface: {}", e).into(),
+                    )
+                }
             }
         } else {
-            let interface_name = &self.default_interface.clone().expect("interface");
+            let interface_name = self.default_interface.as_ref().expect("interface");
             let interfaces = get_interfaces();
-            let interface = interfaces
-                .iter()
-                .find(|interface| &interface.name == interface_name);
-
-            if let Some(interface) = interface.clone() {
+            if let Some(interface) = interfaces.iter().find(|i| &i.name == interface_name) {
                 match interface.ipv4.first() {
-                    Some(network) => self.ipv4 = Some(network.addr),
-                    None => return Err("Cannot get interface addr".into()),
+                    Some(network) => self.address = Some(network.addr),
+                    None => {
+                        return Err(
+                            "Validation error: Cannot get IPv4 address for the specified interface"
+                                .into(),
+                        )
+                    }
                 }
+            } else {
+                return Err(
+                    format!("Validation error: Interface {} not found", interface_name).into(),
+                );
             }
         }
 

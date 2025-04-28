@@ -4,11 +4,11 @@ use crate::xray_api::xray::proxy::shadowsocks;
 use crate::xray_api::xray::{
     common::protocol::User, common::serial::TypedMessage, proxy::shadowsocks::CipherType,
 };
-use crate::ProtocolUser;
+use crate::ProtocolConn;
 use crate::Tag;
 
 #[derive(Clone, Debug)]
-pub struct UserInfo {
+pub struct ConnInfo {
     pub uuid: Uuid,
     pub cipher_type: String,
     pub in_tag: Tag,
@@ -17,7 +17,7 @@ pub struct UserInfo {
     pub password: Option<String>,
 }
 
-impl UserInfo {
+impl ConnInfo {
     pub fn new(uuid: Uuid, password: Option<String>) -> Self {
         Self {
             uuid: uuid,
@@ -31,7 +31,7 @@ impl UserInfo {
 }
 
 #[async_trait::async_trait]
-impl ProtocolUser for UserInfo {
+impl ProtocolConn for ConnInfo {
     fn tag(&self) -> Tag {
         self.in_tag.clone()
     }

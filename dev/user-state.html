@@ -2,19 +2,19 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>User Info</title>
+    <title>State Info</title>
     <style>
         body {
             font-family: Arial, sans-serif;
             padding: 20px;
         }
-        input {
+        input, label {
             margin: 5px;
         }
         button {
             padding: 5px 10px;
         }
-        #state-container, #user-container {
+        #state-container, #conn-container {
             margin-top: 20px;
             padding: 10px;
             border: 1px solid #ddd;
@@ -32,14 +32,20 @@
     </style>
 </head>
 <body>
-    <h1>User Info</h1>
+    <h1>Connections Info</h1>
 
     <div>
         <label for="host">Host:</label>
         <input type="text" id="host" placeholder="127.0.0.1" value="127.0.0.1" />
 
         <label for="port">Port:</label>
-        <input type="text" id="port" placeholder="5006" value="5006" />
+        <input type="text" id="port" placeholder="3333" value="3333" />
+
+        <label for="path">Path:</label>
+        <input type="text" id="path" placeholder="debug/ws" value="debug/ws" />
+
+        <label for="ssl">Use SSL:</label>
+        <input type="checkbox" id="ssl" checked />
 
         <button id="connectBtn">Connect</button>
     </div>
@@ -47,9 +53,9 @@
     <br>
 
     <div>
-        <label for="userId">User ID:</label>
-        <input type="text" id="userId" placeholder="User ID" />
-        <button id="getUserBtn">Get User Info</button>
+        <label for="connId">Connection ID:</label>
+        <input type="text" id="connId" placeholder="Conn ID" />
+        <button id="getConnBtn">Get Conn Info</button>
     </div>
 
     <div id="nodes-container" style="display:none;">
@@ -57,49 +63,58 @@
         <pre id="nodes"></pre>
     </div>
 
-    <div id="user-container" style="display:none;">
-        <h3>User Info:</h3>
-        <pre id="user-info"></pre>
+    <div id="conn-container" style="display:none;">
+        <h3>Connection Info:</h3>
+        <pre id="conn-info"></pre>
     </div>
 
-    <div id="users-container" style="display:none;">
-        <h3>Current Users:</h3>
-        <pre id="users"></pre>
+    <div id="conns-container" style="display:none;">
+        <h3>Current Connections:</h3>
+        <pre id="conns"></pre>
     </div>
-
-    
 
     <script>
         let socket = null;
+        let reconnectInterval = null;
 
-        const usersContainer = document.getElementById('users-container');
+        const connsContainer = document.getElementById('conns-container');
         const nodesContainer = document.getElementById('nodes-container');
-        const userContainer = document.getElementById('user-container');
-        const usersElement = document.getElementById('users');
+        const connContainer = document.getElementById('conn-container');
+        const connsElement = document.getElementById('conns');
         const nodesElement = document.getElementById('nodes');
-        const userElement = document.getElementById('user-info');
-        const userIdInput = document.getElementById('userId');
+        const connElement = document.getElementById('conn-info');
+        const connIdInput = document.getElementById('connId');
 
-        document.getElementById('connectBtn').addEventListener('click', () => {
+        function buildWebSocketUrl({ host, port, ssl = true, path = '' }) {
+            let protocol = ssl ? 'wss' : 'ws';
+            let address = host.includes(':') ? host : port ? `${host}:${port}` : host;
+            let finalPath = path && path.length > 0 ? `/${path.replace(/^\/+/, '')}` : '';
+            return `${protocol}://${address}${finalPath}`;
+        }
+
+        function connectWebSocket() {
             const host = document.getElementById('host').value.trim();
             const port = document.getElementById('port').value.trim();
+            const ssl = document.getElementById('ssl') ? document.getElementById('ssl').checked : true;
+            const path = document.getElementById('path') ? document.getElementById('path').value.trim() : '';
 
-            if (!host || !port) {
-                alert("Please enter a valid host and port");
+            if (!host) {
+                alert("Please enter a valid host");
                 return;
             }
 
-            const url = `wss://${host}/debug/ws`;
+            const url = buildWebSocketUrl({ host, port, ssl, path });
             socket = new WebSocket(url);
 
             socket.onopen = () => {
                 console.log(`Connected to WebSocket server at ${url}`);
-                requestUsers();
+                clearInterval(reconnectInterval);
+                requestConns();
                 requestNodes();
 
                 setInterval(() => {
                     if (socket && socket.readyState === WebSocket.OPEN) {
-                        requestUsers();
+                        requestConns();
                         requestNodes();
                     }
                 }, 5000);
@@ -114,9 +129,9 @@
                     if (!response.kind) return;
 
                     switch (response.kind) {
-                        case "users": displayUsers(response); break;
+                        case "conns": displayConns(response); break;
                         case "nodes": displayNodes(response); break;
-                        case "user": displayUserInfo(response); break;
+                        case "conn": displayConnInfo(response); break;
                         default: console.log("Unknown response kind:", response.kind);
                     }
                 } catch (error) {
@@ -130,12 +145,35 @@
 
             socket.onclose = () => {
                 console.log("WebSocket connection closed.");
+                attemptReconnect();
             };
+        }
+
+        function attemptReconnect() {
+            if (reconnectInterval) return; // уже пробуем
+
+            reconnectInterval = setInterval(() => {
+                console.log("Attempting to reconnect...");
+                connectWebSocket();
+            }, 5000);
+        }
+
+        document.getElementById('connectBtn').addEventListener('click', () => {
+            connectWebSocket();
         });
 
-        function requestUsers() {
+        document.getElementById('getConnBtn').addEventListener('click', () => {
+            const connId = connIdInput.value.trim();
+            if (connId) {
+                requestConnInfo(connId);
+            } else {
+                alert('Please enter a valid conn ID');
+            }
+        });
+
+        function requestConns() {
             if (socket && socket.readyState === WebSocket.OPEN) {
-                const request = { kind: "get_users", message: "Requesting users" };
+                const request = { kind: "get_connections", message: "Requesting connections" };
                 socket.send(JSON.stringify(request));
             }
         }
@@ -147,20 +185,20 @@
             }
         }
 
-        function requestUserInfo(userId) {
+        function requestConnInfo(connId) {
             if (socket && socket.readyState === WebSocket.OPEN) {
                 const request = {
-                    kind: "get_user_info",
-                    message: `Requesting info for user ${userId}`,
-                    user_id: userId
+                    kind: "get_conn_info",
+                    message: `Requesting info for conn ${connId}`,
+                    conn_id: connId
                 };
                 socket.send(JSON.stringify(request));
             }
         }
 
-        function displayUsers(state) {
-            usersContainer.style.display = 'block';
-            usersElement.innerHTML = "";
+        function displayConns(state) {
+            connsContainer.style.display = 'block';
+            connsElement.innerHTML = "";
 
             let data = state.data;
             if (typeof data === 'string') {
@@ -174,9 +212,9 @@
                     li.textContent = item;
                     ul.appendChild(li);
                 });
-                usersElement.appendChild(ul);
+                connsElement.appendChild(ul);
             } else {
-                usersElement.textContent = `User count: ${state.len}, Data: ${state.data}`;
+                connsElement.textContent = `Connections count: ${state.len}, Data: ${state.data}`;
             }
         }
 
@@ -193,7 +231,7 @@
                 const ul = document.createElement('ul');
                 data.forEach(item => {
                     const li = document.createElement('li');
-                    li.textContent = `Node ID: ${item.uuid}, Hostname: ${item.hostname}, IP: ${item.ipv4}, Status: ${item.status}, Env: ${item.env}`;
+                    li.textContent = `Node ID: ${item.uuid}, Hostname: ${item.hostname}, IP: ${item.address}, Status: ${item.status}, Env: ${item.env}`;
                     ul.appendChild(li);
                 });
                 nodesElement.appendChild(ul);
@@ -202,19 +240,10 @@
             }
         }
 
-        function displayUserInfo(userInfo) {
-            userContainer.style.display = 'block';
-            userElement.textContent = userInfo.data;
+        function displayConnInfo(connInfo) {
+            connContainer.style.display = 'block';
+            connElement.textContent = connInfo.data;
         }
-
-        document.getElementById('getUserBtn').addEventListener('click', () => {
-            const userId = userIdInput.value.trim();
-            if (userId) {
-                requestUserInfo(userId);
-            } else {
-                alert('Please enter a valid user ID');
-            }
-        });
     </script>
 </body>
 </html>

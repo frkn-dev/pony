@@ -2,14 +2,14 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
-use super::{stats::UserStat, tag::Tag};
+use super::{stats::ConnStat, tag::Tag};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct User {
+pub struct Conn {
     pub trial: bool,
     pub limit: i64,
     pub env: String,
-    pub status: UserStatus,
+    pub status: ConnStatus,
     pub uplink: Option<i64>,
     pub downlink: Option<i64>,
     pub online: Option<i64>,
@@ -19,9 +19,9 @@ pub struct User {
     pub password: Option<String>,
 }
 
-impl fmt::Display for User {
+impl fmt::Display for Conn {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "User {{\n")?;
+        write!(f, "Connection {{\n")?;
 
         write!(f, "  trial: {},\n", self.trial)?;
         write!(f, "  env: {},\n", self.env)?;
@@ -61,14 +61,14 @@ impl fmt::Display for User {
     }
 }
 
-impl User {
+impl Conn {
     pub fn new(trial: bool, limit: i64, env: String, password: Option<String>) -> Self {
         let now = Utc::now();
         Self {
             trial,
             limit,
             env,
-            status: UserStatus::Active,
+            status: ConnStatus::Active,
             uplink: Some(0),
             downlink: Some(0),
             online: Some(0),
@@ -110,8 +110,8 @@ impl User {
         }
     }
 
-    pub fn as_user_stat(&self) -> UserStat {
-        UserStat {
+    pub fn as_conn_stat(&self) -> ConnStat {
+        ConnStat {
             uplink: self.uplink.unwrap_or(0),
             downlink: self.downlink.unwrap_or(0),
             online: self.online.unwrap_or(0),
@@ -120,16 +120,16 @@ impl User {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
-pub enum UserStatus {
+pub enum ConnStatus {
     Active,
     Expired,
 }
 
-impl fmt::Display for UserStatus {
+impl fmt::Display for ConnStatus {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let status = match self {
-            UserStatus::Active => "Active",
-            UserStatus::Expired => "Expired",
+            ConnStatus::Active => "Active",
+            ConnStatus::Expired => "Expired",
         };
         write!(f, "{}", status)
     }

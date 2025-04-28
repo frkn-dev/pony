@@ -1,9 +1,13 @@
 pub mod client;
+pub mod connections;
 pub mod shadowsocks;
 pub mod stats;
-pub mod user;
 pub mod vless;
 pub mod vmess;
+
+use std::sync::Arc;
+use tokio::sync::Mutex;
+use tonic::Request;
 
 use crate::xray_api::xray::{
     app::proxyman::command::{AddUserOperation, AlterInboundRequest, RemoveUserOperation},
@@ -12,12 +16,9 @@ use crate::xray_api::xray::{
 };
 use crate::HandlerClient;
 use crate::Tag;
-use std::sync::Arc;
-use tokio::sync::Mutex;
-use tonic::Request;
 
 #[async_trait::async_trait]
-pub trait ProtocolUser: Send + Sync {
+pub trait ProtocolConn: Send + Sync {
     fn tag(&self) -> Tag;
     fn email(&self) -> String;
     fn to_user(&self) -> Result<User, Box<dyn std::error::Error + Send + Sync>>;

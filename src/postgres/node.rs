@@ -24,11 +24,11 @@ fn to_ipv4(ip: IpAddr) -> Option<Ipv4Addr> {
     }
 }
 
-pub struct PgNodeRequest {
+pub struct PgNode {
     pub client: Arc<Mutex<Client>>,
 }
 
-impl PgNodeRequest {
+impl PgNode {
     pub fn new(client: Arc<Mutex<Client>>) -> Self {
         Self { client }
     }
@@ -37,28 +37,27 @@ impl PgNodeRequest {
         let client = self.client.lock().await;
 
         let query = "
-            INSERT INTO nodes (hostname, ipv4, status, inbounds, env, uuid, created_at, modified_at, label, iface)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+            INSERT INTO nodes (uuid, env, hostname, address, status, inbounds, created_at, modified_at, label)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
         ";
 
         let status_str = node.status.to_string();
-        let ip: IpAddr = IpAddr::V4(node.ipv4);
+        let address: IpAddr = IpAddr::V4(node.address);
         let inbounds_json = serde_json::to_value(&node.inbounds)?;
 
         let result = client
             .execute(
                 query,
                 &[
+                    &node.uuid,
+                    &node.env,
                     &node.hostname,
-                    &ip,
+                    &address,
                     &status_str,
                     &inbounds_json,
-                    &node.env,
-                    &node.uuid,
                     &node.created_at,
                     &node.modified_at,
                     &node.label,
-                    &node.iface,
                 ],
             )
             .await;
@@ -75,7 +74,7 @@ impl PgNodeRequest {
 
         let rows = client
         .query(
-            "SELECT hostname, ipv4, status, inbounds, env, uuid, created_at, modified_at, label, iface 
+            "SELECT uuid, env, hostname, address, status, inbounds, created_at, modified_at, label, interface 
              FROM nodes",
             &[],
         )
@@ -84,29 +83,29 @@ impl PgNodeRequest {
         let nodes: Vec<Node> = rows
             .into_iter()
             .filter_map(|row| {
-                let hostname: String = row.get(0);
-                let ipv4: IpAddr = row.get(1);
-                let status: String = row.get(2);
-                let inbounds: Value = row.get(3);
-                let env: String = row.get(4);
-                let uuid: Uuid = row.get(5);
+                let uuid: Uuid = row.get(0);
+                let env: String = row.get(1);
+                let hostname: String = row.get(2);
+                let address: IpAddr = row.get(3);
+                let status: String = row.get(4);
+                let inbounds: Value = row.get(5);
                 let created_at: DateTime<Utc> = row.get(6);
                 let modified_at: DateTime<Utc> = row.get(7);
                 let label: String = row.get(8);
-                let iface: String = row.get(9);
+                let interface: String = row.get(9);
 
-                if let Some(ipv4_addr) = to_ipv4(ipv4) {
+                if let Some(ipv4_addr) = to_ipv4(address) {
                     Some(Node {
-                        hostname,
-                        ipv4: ipv4_addr,
-                        status: NodeStatus::from_str(&status).unwrap_or(NodeStatus::Unknown),
+                        uuid: uuid,
+                        env: env,
+                        hostname: hostname,
+                        address: ipv4_addr,
+                        interface: interface,
+                        status: NodeStatus::from_str(&status).unwrap_or(NodeStatus::Offline),
                         inbounds: serde_json::from_value(inbounds).unwrap_or_default(),
-                        env,
-                        uuid,
                         created_at,
                         modified_at,
                         label: label,
-                        iface: iface,
                     })
                 } else {
                     None

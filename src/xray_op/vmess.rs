@@ -2,18 +2,18 @@ use uuid::Uuid;
 
 use crate::xray_api::xray::proxy::vmess;
 use crate::xray_api::xray::{common::protocol::User, common::serial::TypedMessage};
-use crate::ProtocolUser;
+use crate::ProtocolConn;
 use crate::Tag;
 
 #[derive(Clone, Debug)]
-pub struct UserInfo {
+pub struct ConnInfo {
     pub in_tag: Tag,
     pub level: u32,
     pub email: String,
     pub uuid: Uuid,
 }
 
-impl UserInfo {
+impl ConnInfo {
     pub fn new(uuid: Uuid) -> Self {
         Self {
             in_tag: Tag::Vmess,
@@ -25,7 +25,7 @@ impl UserInfo {
 }
 
 #[async_trait::async_trait]
-impl ProtocolUser for UserInfo {
+impl ProtocolConn for ConnInfo {
     fn tag(&self) -> Tag {
         self.in_tag.clone()
     }

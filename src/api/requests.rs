@@ -10,8 +10,8 @@ use uuid::Uuid;
 use crate::bot::BotState;
 use crate::http::handlers::ResponseMessage;
 use crate::Agent;
+use crate::ConnRow;
 use crate::NodeStorage;
-use crate::UserRow;
 
 #[async_trait]
 pub trait ApiRequests {
@@ -23,16 +23,18 @@ pub trait ApiRequests {
         Err("register_node not implemented".into())
     }
 
-    async fn create_vpn_user(
+    async fn create_vpn_connection(
         &self,
-        _username: String,
-        _user_id: Uuid,
+        _conn_id: Uuid,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
-        Err("create_vpn_user not implemented".into())
+        Err("create_vpn_connection not implemented".into())
     }
 
-    async fn get_conn(&self, _user_id: Uuid) -> Result<Vec<String>, Box<dyn Error + Send + Sync>> {
-        Err("get_conn not implemented".into())
+    async fn get_vpn_connection(
+        &self,
+        _conn_id: Uuid,
+    ) -> Result<Vec<String>, Box<dyn Error + Send + Sync>> {
+        Err("get_vpn_connection not implemented".into())
     }
 }
 
@@ -96,10 +98,9 @@ impl<T: NodeStorage + Send + Sync + Clone> ApiRequests for Agent<T> {
 
 #[async_trait]
 impl ApiRequests for BotState {
-    async fn create_vpn_user(
+    async fn create_vpn_connection(
         &self,
-        username: String,
-        user_id: Uuid,
+        conn_id: uuid::Uuid,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
         let mut endpoint = Url::parse(&self.settings.api.endpoint)?;
         endpoint
@@ -110,11 +111,11 @@ impl ApiRequests for BotState {
 
         debug!("ENDPOINT: {}", endpoint);
 
-        let user = UserRow::new(&username, user_id);
-        let user_req = user.as_create_user_request();
-        let json = serde_json::to_string_pretty(&user_req).unwrap();
+        let conn = ConnRow::new(conn_id);
+        let conn_req = conn.as_create_conn_request();
+        let json = serde_json::to_string_pretty(&conn_req).unwrap();
 
-        println!("JSON {}", json);
+        println!("create_vpn_connection JSON {}", json);
 
         let res = HttpClient::new()
             .post(&endpoint)
@@ -123,18 +124,26 @@ impl ApiRequests for BotState {
                 "Authorization",
                 format!("Bearer {}", &self.settings.api.token),
             )
-            .json(&user_req)
+            .json(&conn_req)
             .send()
             .await?;
 
         if res.status().is_success() || res.status() == StatusCode::NOT_MODIFIED {
             return Ok(());
         } else {
-            return Err(format!("Req error: {} {:?}", res.status(), res).into());
+            return Err(format!(
+                "create_vpn_connection Req error: {} {:?}",
+                res.status(),
+                res
+            )
+            .into());
         }
     }
 
-    async fn get_conn(&self, user_id: Uuid) -> Result<Vec<String>, Box<dyn Error + Send + Sync>> {
+    async fn get_vpn_connection(
+        &self,
+        conn_id: uuid::Uuid,
+    ) -> Result<Vec<String>, Box<dyn Error + Send + Sync>> {
         let mut endpoint = Url::parse(&self.settings.api.endpoint)?;
         endpoint
             .path_segments_mut()
@@ -143,11 +152,9 @@ impl ApiRequests for BotState {
 
         endpoint
             .query_pairs_mut()
-            .append_pair("id", &user_id.to_string());
+            .append_pair("id", &conn_id.to_string());
 
         let endpoint = endpoint.to_string();
-
-        debug!("ENDPOINT: {}", endpoint);
 
         let res = HttpClient::new()
             .get(&endpoint)
@@ -164,7 +171,7 @@ impl ApiRequests for BotState {
             let data: Vec<String> = serde_json::from_str(&body)?;
             return Ok(data);
         } else {
-            return Err(format!("Req error: {} {:?}", res.status(), res).into());
+            return Err(format!("get_vpn_connection Req error: {} {:?}", res.status(), res).into());
         }
     }
 }

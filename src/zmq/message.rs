@@ -15,7 +15,7 @@ pub enum Action {
 
 #[derive(Deserialize, Serialize, Clone, Debug)]
 pub struct Message {
-    pub user_id: Uuid,
+    pub conn_id: Uuid,
     pub action: Action,
     pub env: String,
     pub trial: bool,

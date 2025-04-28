@@ -3,24 +3,24 @@ use uuid::Uuid;
 
 use crate::xray_api::xray::proxy::vless;
 use crate::xray_api::xray::{common::protocol::User, common::serial::TypedMessage};
-use crate::ProtocolUser;
+use crate::ProtocolConn;
 use crate::Tag;
 
 #[derive(Clone, Debug)]
-pub struct UserInfo {
+pub struct ConnInfo {
     pub uuid: Uuid,
     pub in_tag: Tag,
     pub level: u32,
     pub email: String,
     encryption: Option<String>,
-    flow: UserFlow,
+    flow: ConnFlow,
 }
 
-impl UserInfo {
-    pub fn new(uuid: Uuid, flow: UserFlow) -> Self {
+impl ConnInfo {
+    pub fn new(uuid: Uuid, flow: ConnFlow) -> Self {
         let tag = match flow {
-            UserFlow::Vision => Tag::VlessXtls,
-            UserFlow::Direct => Tag::VlessGrpc,
+            ConnFlow::Vision => Tag::VlessXtls,
+            ConnFlow::Direct => Tag::VlessGrpc,
         };
 
         Self {
@@ -35,22 +35,22 @@ impl UserInfo {
 }
 
 #[derive(Clone, Debug)]
-pub enum UserFlow {
+pub enum ConnFlow {
     Vision,
     Direct,
 }
 
-impl fmt::Display for UserFlow {
+impl fmt::Display for ConnFlow {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            UserFlow::Vision => write!(f, "xtls-rprx-vision"),
-            UserFlow::Direct => write!(f, "xtls-rprx-direct"),
+            ConnFlow::Vision => write!(f, "xtls-rprx-vision"),
+            ConnFlow::Direct => write!(f, "xtls-rprx-direct"),
         }
     }
 }
 
 #[async_trait::async_trait]
-impl ProtocolUser for UserInfo {
+impl ProtocolConn for ConnInfo {
     fn tag(&self) -> Tag {
         self.in_tag.clone()
     }

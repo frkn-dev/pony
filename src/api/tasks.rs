@@ -13,47 +13,47 @@ use log::warn;
 use crate::clickhouse::query::Queries;
 use crate::Action;
 use crate::Api;
+use crate::Conn;
+use crate::ConnRow;
+use crate::ConnStatus;
+use crate::ConnStorage;
 use crate::Message;
 use crate::Node;
 use crate::NodeStatus;
 use crate::NodeStorage;
-use crate::User;
-use crate::UserRow;
-use crate::UserStatus;
-use crate::UserStorage;
 
 #[async_trait]
 pub trait Tasks {
     async fn node_healthcheck(&self) -> Result<(), Box<dyn Error + Send + Sync>>;
-    async fn check_user_uplink_limits(&self) -> Result<(), Box<dyn Error + Send + Sync>>;
-    async fn reactivate_trial_users(&self) -> Result<(), Box<dyn Error + Send + Sync>>;
+    async fn check_conn_uplink_limits(&self) -> Result<(), Box<dyn Error + Send + Sync>>;
+    async fn reactivate_trial_conns(&self) -> Result<(), Box<dyn Error + Send + Sync>>;
     async fn add_node(&self, db_node: Node) -> Result<(), Box<dyn Error + Send + Sync>>;
-    async fn add_user(&self, db_user: UserRow) -> Result<(), Box<dyn Error + Send + Sync>>;
+    async fn add_conn(&self, db_conn: ConnRow) -> Result<(), Box<dyn Error + Send + Sync>>;
 }
 
 #[async_trait]
-impl<T: NodeStorage + std::marker::Send + std::marker::Sync + std::clone::Clone> Tasks for Api<T> {
-    async fn add_user(&self, db_user: UserRow) -> Result<(), Box<dyn Error + Send + Sync>> {
-        let user = User::new(
-            db_user.trial,
-            db_user.limit,
-            db_user.cluster.clone(),
-            Some(db_user.password.clone()),
+impl<T: NodeStorage + Send + Sync + Clone> Tasks for Api<T> {
+    async fn add_conn(&self, db_conn: ConnRow) -> Result<(), Box<dyn Error + Send + Sync>> {
+        let conn = Conn::new(
+            db_conn.trial,
+            db_conn.limit,
+            db_conn.env.clone(),
+            Some(db_conn.password.clone()),
         );
 
         let mut state = self.state.lock().await;
-        match state.add_or_update_user(db_user.user_id.clone(), user.clone()) {
+        match state.add_or_update_conn(db_conn.conn_id.clone(), conn.clone()) {
             Ok(_) => Ok(()),
             Err(e) => Err(format!(
-                "Create: Failed to add user {} to state: {}",
-                db_user.user_id, e
+                "Create: Failed to add connection {} to state: {}",
+                db_conn.conn_id, e
             )
             .into()),
         }
     }
     async fn add_node(&self, db_node: Node) -> Result<(), Box<dyn Error + Send + Sync>> {
-        let mut user_state = self.state.lock().await;
-        match user_state.nodes.add_node(db_node.clone()) {
+        let mut state = self.state.lock().await;
+        match state.nodes.add_node(db_node.clone()) {
             Ok(_) => {
                 debug!("Node added to State: {}", db_node.uuid);
                 Ok(())
@@ -138,67 +138,67 @@ impl<T: NodeStorage + std::marker::Send + std::marker::Sync + std::clone::Clone>
         Ok(())
     }
 
-    async fn check_user_uplink_limits(&self) -> Result<(), Box<dyn Error + Send + Sync>> {
-        let users_map = {
+    async fn check_conn_uplink_limits(&self) -> Result<(), Box<dyn Error + Send + Sync>> {
+        let conns_map = {
             let state = self.state.lock().await;
             state
-                .users
+                .connections
                 .iter()
-                .filter(|(_, user)| user.trial && user.status == UserStatus::Active)
+                .filter(|(_, conn)| conn.trial && conn.status == ConnStatus::Active)
                 .map(|(k, v)| (k.clone(), v.clone()))
                 .collect::<Vec<_>>()
         };
 
-        let tasks = users_map.into_iter().map(|(user_id, user)| {
+        let tasks = conns_map.into_iter().map(|(conn_id, conn)| {
             let ch = self.ch.clone();
             let publisher = self.publisher.clone();
             let state = self.state.clone();
-            let env = user.env.clone();
-            let modified_at = user.modified_at;
+            let env = conn.env.clone();
+            let modified_at = conn.modified_at;
 
             async move {
                 let result = ch
-                    .fetch_user_uplink_traffic::<f64>(&env, user_id, modified_at)
+                    .fetch_conn_uplink_traffic::<f64>(&env, conn_id, modified_at)
                     .await;
 
                 if let Some(metric) = result {
                     let uplink_mb = metric.value / 1_048_576.0;
 
-                    if uplink_mb > user.limit as f64 {
+                    if uplink_mb > conn.limit as f64 {
                         warn!(
-                            "🚨 User {} in env {} exceeds limit: uplink = {:.2} MB / {} MB",
-                            user_id, env, uplink_mb, user.limit
+                            "🚨 Connection {} in env {} exceeds limit: uplink = {:.2} MB / {} MB",
+                            conn_id, env, uplink_mb, conn.limit
                         );
 
                         let msg = Message {
-                            user_id: user_id.clone(),
+                            conn_id: conn_id.clone(),
                             action: Action::Delete,
                             env: env.clone(),
-                            trial: user.trial,
-                            limit: user.limit,
+                            trial: conn.trial,
+                            limit: conn.limit,
                             password: None,
                         };
 
                         if let Err(e) = publisher.send(&env, msg).await {
-                            error!("Failed to send DELETE for {}: {}", user_id, e);
+                            error!("Failed to send DELETE for {}: {}", conn_id, e);
                         }
 
                         {
                             let mut state = state.lock().await;
-                            if let Some(user) = state.users.get_mut(&user_id) {
-                                user.status = UserStatus::Expired;
-                                user.update_modified_at();
-                                debug!("✅ Marked user {} as Expired", user_id);
+                            if let Some(conn) = state.connections.get_mut(&conn_id) {
+                                conn.status = ConnStatus::Expired;
+                                conn.update_modified_at();
+                                debug!("✅ Marked connection {} as Expired", conn_id);
                             }
                         }
                     } else {
                         debug!(
-                            "✅ User {} uplink OK: {:.2} MB / {} MB",
-                            user_id, uplink_mb, user.limit
+                            "✅ Connection {} uplink OK: {:.2} MB / {} MB",
+                            conn_id, uplink_mb, conn.limit
                         );
                     }
                 } else {
-                    debug!("No uplink data for user {}", user_id);
+                    debug!("No uplink data for connection {}", conn_id);
                 }
 
                 Ok::<(), Box<dyn Error + Send + Sync>>(())
@@ -209,53 +209,53 @@ impl<T: NodeStorage + std::marker::Send + std::marker::Sync + std::clone::Clone>
 
         for res in results {
             if let Err(e) = res {
-                error!("Error during user uplink check: {:?}", e);
+                error!("Error during connection uplink check: {:?}", e);
             }
         }
 
         Ok(())
     }
 
-    async fn reactivate_trial_users(&self) -> Result<(), Box<dyn Error + Send + Sync>> {
-        let users_map = {
+    async fn reactivate_trial_conns(&self) -> Result<(), Box<dyn Error + Send + Sync>> {
+        let conns_map = {
             let state = self.state.lock().await;
             state
-                .users
+                .connections
                 .iter()
-                .filter(|(_, user)| user.trial && user.status == UserStatus::Expired)
+                .filter(|(_, conn)| conn.trial && conn.status == ConnStatus::Expired)
                 .map(|(k, v)| (k.clone(), v.clone()))
                 .collect::<Vec<_>>()
         };
 
-        let tasks = users_map.into_iter().map(|(user_id, user)| {
+        let tasks = conns_map.into_iter().map(|(conn_id, conn)| {
             let publisher = self.publisher.clone();
             let state = self.state.clone();
             let now = chrono::Utc::now();
-            let modified_at = user.modified_at;
-            let env = user.env.clone();
+            let modified_at = conn.modified_at;
+            let env = conn.env.clone();
 
             async move {
                 if now.signed_duration_since(modified_at) >= chrono::Duration::hours(24) {
                     {
                         let mut state = state.lock().await;
-                        if let Some(user_mut) = state.users.get_mut(&user_id) {
-                            user_mut.status = UserStatus::Active;
-                            user_mut.update_modified_at();
-                            debug!("✅ Re-activated user {}", user_id);
+                        if let Some(conn_mut) = state.connections.get_mut(&conn_id) {
+                            conn_mut.status = ConnStatus::Active;
+                            conn_mut.update_modified_at();
+                            debug!("✅ Re-activated connection {}", conn_id);
                         }
                     }
 
                     let msg = Message {
-                        user_id: user_id.clone(),
+                        conn_id: conn_id.clone(),
                         action: Action::Create,
                         env: env.clone(),
-                        trial: user.trial,
-                        limit: user.limit,
-                        password: Some(user.password.clone().unwrap_or_default()),
+                        trial: conn.trial,
+                        limit: conn.limit,
+                        password: Some(conn.password.clone().unwrap_or_default()),
                     };
 
                     if let Err(e) = publisher.send(&env, msg).await {
-                        error!("Failed to send CREATE for {}: {}", user_id, e);
+                        error!("Failed to send CREATE for {}: {}", conn_id, e);
                     }
                 }
 
@@ -267,7 +267,7 @@ impl<T: NodeStorage + std::marker::Send + std::marker::Sync + std::clone::Clone>
 
         for res in results {
             if let Err(e) = res {
-                error!("Error during user reactivation: {:?}", e);
+                error!("Error during connection reactivation: {:?}", e);
             }
         }
 

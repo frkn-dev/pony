@@ -4,17 +4,16 @@ use std::error::Error;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tonic::transport::Channel;
-use uuid::Uuid;
 
 use crate::xray_api::xray::app::{
     proxyman::command::handler_service_client::HandlerServiceClient,
     stats::command::stats_service_client::StatsServiceClient,
 };
-use crate::xray_op::shadowsocks::UserInfo as SsUserInfo;
-use crate::xray_op::vless::UserFlow;
-use crate::xray_op::vless::UserInfo as VlessUserInfo;
-use crate::xray_op::vmess::UserInfo as VmessUserInfo;
-use crate::ProtocolUser;
+use crate::xray_op::shadowsocks::ConnInfo as SsConnInfo;
+use crate::xray_op::vless::ConnFlow;
+use crate::xray_op::vless::ConnInfo as VlessConnInfo;
+use crate::xray_op::vmess::ConnInfo as VmessConnInfo;
+use crate::ProtocolConn;
 
 pub trait XrayClient {
     type Client;
@@ -75,13 +74,13 @@ impl XrayClient for StatsClient {
 pub trait HandlerActions {
     async fn create_all(
         &self,
-        user_id: uuid::Uuid,
+        conn_id: uuid::Uuid,
         password: Option<String>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
 
     async fn remove_all(
         &self,
-        user_id: uuid::Uuid,
+        conn_id: uuid::Uuid,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
 }
 
@@ -89,24 +88,28 @@ pub trait HandlerActions {
 impl HandlerActions for Arc<Mutex<HandlerClient>> {
     async fn create_all(
         &self,
-        user_id: Uuid,
+        conn_id: uuid::Uuid,
         password: Option<String>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let mut protos: Vec<Box<dyn ProtocolUser>> = vec![];
+        let mut protos: Vec<Box<dyn ProtocolConn>> = vec![];
 
-        protos.push(Box::new(VmessUserInfo::new(user_id)));
-        protos.push(Box::new(VlessUserInfo::new(user_id, UserFlow::Vision)));
-        protos.push(Box::new(VlessUserInfo::new(user_id, UserFlow::Direct)));
+        protos.push(Box::new(VmessConnInfo::new(conn_id)));
+        protos.push(Box::new(VlessConnInfo::new(conn_id, ConnFlow::Vision)));
+        protos.push(Box::new(VlessConnInfo::new(conn_id, ConnFlow::Direct)));
 
         if let Some(pass) = password.clone() {
-            protos.push(Box::new(SsUserInfo::new(user_id, Some(pass))));
+            protos.push(Box::new(SsConnInfo::new(conn_id, Some(pass))));
         }
 
         for proto in protos {
             if let Err(e) = proto.create(self.clone()).await {
-                error!("Failed to create user for tag {:?}: {}", proto.tag(), e);
+                error!(
+                    "Failed to create connection for tag {:?}: {}",
+                    proto.tag(),
+                    e
+                );
             } else {
-                debug!("Successfully created user for tag {:?}", proto.tag());
+                debug!("Successfully created connection for tag {:?}", proto.tag());
             }
         }
 
@@ -115,20 +118,24 @@ impl HandlerActions for Arc<Mutex<HandlerClient>> {
 
     async fn remove_all(
         &self,
-        user_id: Uuid,
+        conn_id: uuid::Uuid,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let protos: Vec<Box<dyn ProtocolUser>> = vec![
-            Box::new(VmessUserInfo::new(user_id)),
-            Box::new(VlessUserInfo::new(user_id, UserFlow::Vision)),
-            Box::new(VlessUserInfo::new(user_id, UserFlow::Direct)),
-            Box::new(SsUserInfo::new(user_id, None)),
+        let protos: Vec<Box<dyn ProtocolConn>> = vec![
+            Box::new(VmessConnInfo::new(conn_id)),
+            Box::new(VlessConnInfo::new(conn_id, ConnFlow::Vision)),
+            Box::new(VlessConnInfo::new(conn_id, ConnFlow::Direct)),
+            Box::new(SsConnInfo::new(conn_id, None)),
         ];
 
         for proto in protos {
             if let Err(e) = proto.remove(self.clone()).await {
-                error!("Failed to remove user for tag {:?}: {}", proto.tag(), e);
+                error!(
+                    "Failed to remove connection for tag {:?}: {}",
+                    proto.tag(),
+                    e
+                );
             } else {
-                debug!("Successfully removed user for tag {:?}", proto.tag());
+                debug!("Successfully removed connection for tag {:?}", proto.tag());
             }
         }
 

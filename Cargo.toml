@@ -61,7 +61,6 @@ tokio-util = "0.7"
 
 bot = ["teloxide"]
 default = ["bot"]
-payment = []
 debug = ["console-subscriber"]
 
 [[bin]]

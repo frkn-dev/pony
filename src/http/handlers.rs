@@ -9,14 +9,15 @@ use warp::{http::StatusCode, reject, Rejection, Reply};
 use crate::http::JsonError;
 use crate::measure_time;
 use crate::postgres::DbContext;
+use crate::state::state::ConnStorage;
 use crate::state::state::NodeStorage;
-use crate::state::state::UserStorage;
+
 use crate::state::{
+    connection::Conn,
     node::NodeStatus,
     node::{NodeRequest, NodeResponse},
     state::State,
     tag::Tag,
-    user::User,
 };
 use crate::vless_grpc_conn;
 use crate::vless_xtls_conn;
@@ -25,8 +26,8 @@ use crate::ZmqPublisher;
 use crate::{Action, Message};
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct UserRequest {
-    pub user_id: Uuid,
+pub struct ConnRequest {
+    pub conn_id: Uuid,
     pub action: Action,
     pub env: String,
     pub trial: Option<bool>,
@@ -34,10 +35,10 @@ pub struct UserRequest {
     pub password: Option<String>,
 }
 
-impl UserRequest {
+impl ConnRequest {
     pub fn as_message(&self, limit: i64) -> Message {
         Message {
-            user_id: self.user_id,
+            conn_id: self.conn_id,
             action: self.action.clone(),
             env: self.env.clone(),
             trial: self.trial.unwrap_or(true),
@@ -61,8 +62,8 @@ pub struct ResponseMessage<T> {
     pub message: T,
 }
 
-pub async fn user_request<T>(
-    user_req: UserRequest,
+pub async fn conn_request<T>(
+    conn_req: ConnRequest,
     publisher: ZmqPublisher,
     state: Arc<Mutex<State<T>>>,
     limit: i64,
@@ -70,20 +71,20 @@ pub async fn user_request<T>(
 where
     T: NodeStorage + Sync + Send + Clone + 'static,
 {
-    let message = user_req.as_message(limit);
+    let message = conn_req.as_message(limit);
     println!("{}", message);
-    match publisher.send(&user_req.env, message).await {
+    match publisher.send(&conn_req.env, message).await {
         Ok(_) => {
-            let trial = user_req.trial.unwrap_or(true);
-            let limit = user_req.limit.unwrap_or(limit);
+            let trial = conn_req.trial.unwrap_or(true);
+            let limit = conn_req.limit.unwrap_or(limit);
 
             let mut state = state.lock().await;
-            let user = User::new(trial, limit, user_req.env, user_req.password);
-            let _ = state.add_or_update_user(user_req.user_id, user);
+            let conn = Conn::new(trial, limit, conn_req.env, conn_req.password);
+            let _ = state.add_or_update_conn(conn_req.conn_id, conn);
 
             let response = ResponseMessage {
                 status: 200,
-                message: "User Created".to_string(),
+                message: "Connection Created".to_string(),
             };
 
             Ok(warp::reply::with_status(
@@ -92,7 +93,7 @@ where
             ))
         }
         Err(err) => {
-            let error_message = format!("Error: Cannot handle /user req: {}", err);
+            let error_message = format!("Error: Cannot handle /conn req: {}", err);
             let json_error_message = warp::reply::json(&error_message);
             Ok(warp::reply::with_status(
                 json_error_message,
@@ -102,40 +103,17 @@ where
     }
 }
 
-pub async fn create_user_from_tg<T>(username: String) -> Result<impl warp::Reply, warp::Rejection>
+// ToDo: users table
+pub async fn create_user<T>(_username: String) -> Result<impl warp::Reply, warp::Rejection>
 where
     T: NodeStorage + Sync + Send + Clone + 'static,
 {
-    let message = user_req.as_message(limit);
-    println!("{}", message);
-    match publisher.send(&user_req.env, message).await {
-        Ok(_) => {
-            let trial = user_req.trial.unwrap_or(true);
-            let limit = user_req.limit.unwrap_or(limit);
-
-            let mut state = state.lock().await;
-            let user = User::new(trial, limit, user_req.env, user_req.password);
-            let _ = state.add_or_update_user(user_req.user_id, user);
-
-            let response = ResponseMessage {
-                status: 200,
-                message: "User Created".to_string(),
-            };
-
-            Ok(warp::reply::with_status(
-                warp::reply::json(&response),
-                StatusCode::OK,
-            ))
-        }
-        Err(err) => {
-            let error_message = format!("Error: Cannot handle /user req: {}", err);
-            let json_error_message = warp::reply::json(&error_message);
-            Ok(warp::reply::with_status(
-                json_error_message,
-                StatusCode::BAD_REQUEST,
-            ))
-        }
-    }
+    let error_message = format!("Error: Not implemented");
+    let json_error_message = warp::reply::json(&error_message);
+    Ok(warp::reply::with_status(
+        json_error_message,
+        StatusCode::BAD_REQUEST,
+    ))
 }
 
 #[derive(Serialize, Deserialize)]
@@ -205,20 +183,20 @@ where
         let _ = node_mut.update_status(NodeStatus::Online);
     }
 
-    if let Ok(users_map) = db.user().get_users_by_cluster(&node.env).await {
+    if let Ok(conns_map) = db.conn().conns_by_env(&node.env).await {
         let send_task = async {
-            for user in users_map {
+            for conn in conns_map {
                 let message = Message {
-                    user_id: user.user_id,
+                    conn_id: conn.conn_id,
                     action: Action::Create,
                     env: node.env.clone(),
-                    trial: user.trial,
-                    limit: user.limit,
-                    password: Some(user.password.clone()),
+                    trial: conn.trial,
+                    limit: conn.limit,
+                    password: Some(conn.password.clone()),
                 };
 
                 if let Err(e) = publisher.send(&node.uuid.to_string(), message).await {
-                    log::error!("Failed to send init user {}: {}", user.user_id, e);
+                    log::error!("Failed to send init conn {}: {}", conn.conn_id, e);
                 }
             }
         };
@@ -246,12 +224,12 @@ where
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct UserQueryParams {
+pub struct ConnQueryParams {
     pub id: Uuid,
 }
 
 pub async fn get_conn<T>(
-    user_req: UserQueryParams,
+    conn_req: ConnQueryParams,
     state: Arc<Mutex<State<T>>>,
 ) -> Result<impl warp::Reply, warp::Rejection>
 where
@@ -259,26 +237,31 @@ where
 {
     let state = state.lock().await;
 
-    let user_id = user_req.id;
+    let conn_id = conn_req.id;
 
-    let user = state.get_user(user_id);
-    if let Some(user) = user {
-        let env = user.env;
+    let conn = state.get_conn(conn_id);
+    if let Some(conn) = conn {
+        let env = conn.env;
 
         if let Some(nodes) = state.nodes.get_nodes(env) {
             let connections: Vec<String> = nodes
                 .iter()
                 .filter(|node| node.status == NodeStatus::Online)
                 .flat_map(|node| {
-                    debug!("TAGS {:?}", node.inbounds.keys());
                     node.inbounds.iter().filter_map(|(tag, inbound)| match tag {
-                        Tag::VlessXtls => {
-                            vless_xtls_conn(user_id, node.ipv4, inbound.clone(), node.label.clone())
-                        }
-                        Tag::VlessGrpc => {
-                            vless_grpc_conn(user_id, node.ipv4, inbound.clone(), node.label.clone())
-                        }
-                        Tag::Vmess => vmess_tcp_conn(user_id, node.ipv4, inbound.clone()),
+                        Tag::VlessXtls => vless_xtls_conn(
+                            conn_id,
+                            node.address,
+                            inbound.clone(),
+                            node.label.clone(),
+                        ),
+                        Tag::VlessGrpc => vless_grpc_conn(
+                            conn_id,
+                            node.address,
+                            inbound.clone(),
+                            node.label.clone(),
+                        ),
+                        Tag::Vmess => vmess_tcp_conn(conn_id, node.address, inbound.clone()),
                         _ => None,
                     })
                 })

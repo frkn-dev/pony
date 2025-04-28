@@ -8,13 +8,13 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use super::tag::Tag;
-use crate::config::xray::{Config, Inbound, InboundResponse};
+use crate::config::settings::NodeConfig;
+use crate::config::xray::{Config as XrayConfig, Inbound, InboundResponse};
 
 #[derive(Clone, Debug, Deserialize, Serialize, Copy)]
 pub enum NodeStatus {
     Online,
     Offline,
-    Unknown,
 }
 
 impl PartialEq for NodeStatus {
@@ -22,7 +22,6 @@ impl PartialEq for NodeStatus {
         match (self, other) {
             (NodeStatus::Online, NodeStatus::Online) => true,
             (NodeStatus::Offline, NodeStatus::Offline) => true,
-            (NodeStatus::Unknown, NodeStatus::Unknown) => true,
             _ => false,
         }
     }
@@ -33,7 +32,6 @@ impl fmt::Display for NodeStatus {
         match self {
             NodeStatus::Online => write!(f, "Online"),
             NodeStatus::Offline => write!(f, "Offline"),
-            NodeStatus::Unknown => write!(f, "Unknown"),
         }
     }
 }
@@ -45,7 +43,7 @@ impl FromStr for NodeStatus {
         match input {
             "Online" => Ok(NodeStatus::Online),
             "Offline" => Ok(NodeStatus::Offline),
-            _ => Ok(NodeStatus::Unknown),
+            _ => Ok(NodeStatus::Offline),
         }
     }
 }
@@ -54,82 +52,75 @@ impl FromStr for NodeStatus {
 pub struct NodeRequest {
     pub env: String,
     pub hostname: String,
-    pub ipv4: Ipv4Addr,
+    pub address: Ipv4Addr,
     pub inbounds: HashMap<Tag, Inbound>,
     pub uuid: Uuid,
     pub label: String,
-    pub iface: String,
+    pub interface: String,
 }
 
 impl NodeRequest {
     pub fn as_node(self) -> Node {
         let now = Utc::now();
         Node {
-            env: self.env,
             uuid: self.uuid,
+            env: self.env,
             hostname: self.hostname,
-            iface: self.iface,
-            ipv4: self.ipv4,
+            address: self.address,
             inbounds: self.inbounds,
             status: NodeStatus::Online,
             created_at: now,
             modified_at: now,
             label: self.label,
+            interface: self.interface,
         }
     }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct NodeResponse {
+    pub uuid: Uuid,
     pub env: String,
     pub hostname: String,
-    pub ipv4: Ipv4Addr,
-    pub uuid: Uuid,
+    pub address: Ipv4Addr,
     pub inbounds: HashMap<Tag, InboundResponse>,
     pub status: NodeStatus,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Node {
-    pub hostname: String,
-    pub ipv4: Ipv4Addr,
-    pub status: NodeStatus,
-    pub inbounds: HashMap<Tag, Inbound>,
-    pub env: String,
-    pub iface: String,
     pub uuid: Uuid,
+    pub env: String,
+    pub hostname: String,
+    pub address: Ipv4Addr,
+    pub status: NodeStatus,
+    pub label: String,
+    pub interface: String,
     pub created_at: DateTime<Utc>,
     pub modified_at: DateTime<Utc>,
-    pub label: String,
+    pub inbounds: HashMap<Tag, Inbound>,
 }
 
 impl Node {
-    pub fn new(
-        config: Config,
-        hostname: String,
-        ipv4: Ipv4Addr,
-        env: String,
-        iface: String,
-        uuid: Uuid,
-        label: String,
-    ) -> Self {
+    pub fn new(settings: NodeConfig, config: XrayConfig) -> Self {
         let now = Utc::now();
         let inbounds = config
             .inbounds
             .into_iter()
             .map(|inbound| (inbound.tag.clone(), inbound))
             .collect::<HashMap<Tag, Inbound>>();
+
         Self {
-            hostname: hostname,
-            inbounds: inbounds,
+            uuid: settings.uuid,
+            env: settings.env,
+            hostname: settings.hostname.expect("hostname"),
             status: NodeStatus::Online,
-            ipv4: ipv4,
-            env: env,
-            iface: iface,
-            uuid: uuid,
+            address: settings.address.expect("address"),
             created_at: now,
+            label: settings.label,
+            interface: settings.default_interface.expect("default_interface"),
             modified_at: now,
-            label: label,
+            inbounds: inbounds,
         }
     }
 
@@ -144,7 +135,7 @@ impl Node {
         NodeResponse {
             env: self.env.clone(),
             hostname: self.hostname.clone(),
-            ipv4: self.ipv4,
+            address: self.address,
             uuid: self.uuid.clone(),
             inbounds: inbound_response,
             status: self.status,
@@ -174,9 +165,9 @@ impl Node {
         }
     }
 
-    pub fn update_user_count(&mut self, tag: Tag, user_count: i64) -> Result<(), String> {
+    pub fn update_conn_count(&mut self, tag: Tag, conn_count: i64) -> Result<(), String> {
         if let Some(inbound) = self.inbounds.get_mut(&tag) {
-            inbound.update_user_count(user_count);
+            inbound.update_conn_count(conn_count);
             Ok(())
         } else {
             Err(format!("Inbound {}  not found", tag))

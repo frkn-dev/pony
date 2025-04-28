@@ -1,5 +1,5 @@
 use std::{
-    collections::{hash_map::Entry, HashMap},
+    collections::{hash_map::Entry, HashMap, HashSet},
     error::Error,
 };
 
@@ -8,10 +8,10 @@ use serde_json::json;
 use uuid::Uuid;
 
 use super::{
+    connection::{Conn, ConnStatus},
     node::Node,
     stats::StatType,
     tag::Tag,
-    user::{User, UserStatus},
 };
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
@@ -19,9 +19,9 @@ pub struct State<T>
 where
     T: Send + Sync + Clone + 'static,
 {
-    pub users: HashMap<Uuid, User>,
+    pub users: HashSet<Uuid>,
+    pub connections: HashMap<Uuid, Conn>,
     pub nodes: T,
-    pub unleashed: bool,
 }
 
 impl<T: Default> State<T>
@@ -30,9 +30,9 @@ where
 {
     pub fn new() -> Self {
         State {
-            users: HashMap::new(),
+            users: HashSet::default(),
             nodes: T::default(),
-            unleashed: false,
+            connections: HashMap::default(),
         }
     }
 }
@@ -40,14 +40,10 @@ where
 impl State<Node> {
     pub fn with_node(node: Node) -> Self {
         Self {
-            users: HashMap::new(),
+            users: HashSet::default(),
             nodes: node,
-            unleashed: false,
+            connections: HashMap::default(),
         }
-    }
-
-    pub fn unleash(&mut self) {
-        self.unleashed = true
     }
 }
 
@@ -73,10 +69,10 @@ pub trait NodeStorage {
         env: String,
         node_id: Uuid,
     ) -> Result<(), Box<dyn Error>>;
-    fn update_node_user_count(
+    fn update_node_conn_count(
         &mut self,
         tag: Tag,
-        user_count: i64,
+        node_count: i64,
         env: String,
         node_id: Uuid,
     ) -> Result<(), Box<dyn std::error::Error>>;
@@ -139,15 +135,15 @@ impl NodeStorage for Node {
         }
     }
 
-    fn update_node_user_count(
+    fn update_node_conn_count(
         &mut self,
         tag: Tag,
-        user_count: i64,
+        conn_count: i64,
         _env: String,
         node_id: Uuid,
     ) -> Result<(), Box<dyn std::error::Error>> {
         if self.uuid == node_id {
-            self.update_user_count(tag, user_count)?;
+            self.update_conn_count(tag, conn_count)?;
             Ok(())
         } else {
             Err("Node ID does not match".into())
@@ -239,16 +235,16 @@ impl NodeStorage for HashMap<String, Vec<Node>> {
         Err(format!("Node not found in env {} with id {}", env, node_id).into())
     }
 
-    fn update_node_user_count(
+    fn update_node_conn_count(
         &mut self,
         tag: Tag,
-        user_count: i64,
+        conn_count: i64,
         env: String,
         node_id: Uuid,
     ) -> Result<(), Box<dyn std::error::Error>> {
         if let Some(nodes) = self.get_mut(&env) {
             if let Some(node) = nodes.iter_mut().find(|n| n.uuid == node_id) {
-                node.update_user_count(tag, user_count)?;
+                node.update_conn_count(tag, conn_count)?;
                 return Ok(());
             } else {
                 return Err(format!("Node with ID {} not found", node_id).into());
@@ -259,169 +255,169 @@ impl NodeStorage for HashMap<String, Vec<Node>> {
     }
 }
 
-pub trait UserStorage {
-    fn add_or_update_user(&mut self, user_id: Uuid, new_user: User) -> Result<(), Box<dyn Error>>;
-    fn remove_user(&mut self, user_id: Uuid) -> Result<(), Box<dyn Error>>;
-    fn restore_user(&mut self, user_id: Uuid) -> Result<(), Box<dyn Error>>;
-    fn expire_user(&mut self, user_id: Uuid) -> Result<(), Box<dyn Error>>;
-    fn get_user(&self, user_id: Uuid) -> Option<User>;
-    fn update_user_limit(&mut self, user_id: Uuid, new_limit: i64) -> Result<(), Box<dyn Error>>;
-    fn update_user_trial(&mut self, user_id: Uuid, new_trial: bool) -> Result<(), Box<dyn Error>>;
-    fn update_user_stat(
+pub trait ConnStorage {
+    fn add_or_update_conn(&mut self, conn_id: Uuid, new_conn: Conn) -> Result<(), Box<dyn Error>>;
+    fn remove_conn(&mut self, conn_id: Uuid) -> Result<(), Box<dyn Error>>;
+    fn restore_conn(&mut self, conn_id: Uuid) -> Result<(), Box<dyn Error>>;
+    fn expire_conn(&mut self, conn_id: Uuid) -> Result<(), Box<dyn Error>>;
+    fn get_conn(&self, conn_id: Uuid) -> Option<Conn>;
+    fn update_conn_limit(&mut self, conn_id: Uuid, new_limit: i64) -> Result<(), Box<dyn Error>>;
+    fn update_conn_trial(&mut self, conn_id: Uuid, new_trial: bool) -> Result<(), Box<dyn Error>>;
+    fn update_conn_stat(
         &mut self,
-        user_id: Uuid,
+        conn_id: Uuid,
         stat: StatType,
         value: Option<i64>,
     ) -> Result<(), Box<dyn Error>>;
-    fn reset_user_stat(&mut self, user_id: Uuid, stat: StatType);
-    fn get_all_trial_users(&self, status: UserStatus) -> HashMap<Uuid, User>;
-    fn update_user_uplink(&mut self, user_id: Uuid, new_uplink: i64) -> Result<(), Box<dyn Error>>;
-    fn update_user_downlink(
+    fn reset_conn_stat(&mut self, conn_id: Uuid, stat: StatType);
+    fn get_all_trial_conns(&self, status: ConnStatus) -> HashMap<Uuid, Conn>;
+    fn update_conn_uplink(&mut self, conn_id: Uuid, new_uplink: i64) -> Result<(), Box<dyn Error>>;
+    fn update_conn_downlink(
         &mut self,
-        user_id: Uuid,
+        conn_id: Uuid,
         new_downlink: i64,
     ) -> Result<(), Box<dyn Error>>;
-    fn update_user_online(&mut self, user_id: Uuid, new_online: i64) -> Result<(), Box<dyn Error>>;
+    fn update_conn_online(&mut self, conn_id: Uuid, new_online: i64) -> Result<(), Box<dyn Error>>;
 }
 
-impl<T> UserStorage for State<T>
+impl<T> ConnStorage for State<T>
 where
     T: Send + Sync + Clone + 'static,
 {
-    fn add_or_update_user(&mut self, user_id: Uuid, new_user: User) -> Result<(), Box<dyn Error>> {
-        match self.users.entry(user_id) {
+    fn add_or_update_conn(&mut self, conn_id: Uuid, new_conn: Conn) -> Result<(), Box<dyn Error>> {
+        match self.connections.entry(conn_id.into()) {
             Entry::Occupied(mut entry) => {
-                let existing_user = entry.get_mut();
-                existing_user.trial = new_user.trial;
-                existing_user.limit = new_user.limit;
-                existing_user.password = new_user.password;
-                existing_user.status = new_user.status;
+                let existing_conn = entry.get_mut();
+                existing_conn.trial = new_conn.trial;
+                existing_conn.limit = new_conn.limit;
+                existing_conn.password = new_conn.password;
+                existing_conn.status = new_conn.status;
             }
             Entry::Vacant(entry) => {
-                entry.insert(new_user);
+                entry.insert(new_conn);
             }
         }
         Ok(())
     }
 
-    fn remove_user(&mut self, user_id: Uuid) -> Result<(), Box<dyn Error>> {
-        self.users
-            .remove(&user_id)
+    fn remove_conn(&mut self, conn_id: Uuid) -> Result<(), Box<dyn Error>> {
+        self.connections
+            .remove(&conn_id)
             .map(|_| ())
-            .ok_or("User not found".into())
+            .ok_or("Conn not found".into())
     }
 
-    fn restore_user(&mut self, user_id: Uuid) -> Result<(), Box<dyn Error>> {
-        if let Some(user) = self.users.get_mut(&user_id) {
-            user.status = UserStatus::Active;
-            user.update_modified_at();
+    fn restore_conn(&mut self, conn_id: Uuid) -> Result<(), Box<dyn Error>> {
+        if let Some(conn) = self.connections.get_mut(&conn_id) {
+            conn.status = ConnStatus::Active;
+            conn.update_modified_at();
             Ok(())
         } else {
-            Err("User not found".into())
+            Err("Conn not found".into())
         }
     }
 
-    fn expire_user(&mut self, user_id: Uuid) -> Result<(), Box<dyn Error>> {
-        if let Some(user) = self.users.get_mut(&user_id) {
-            user.status = UserStatus::Expired;
-            user.update_modified_at();
+    fn expire_conn(&mut self, conn_id: Uuid) -> Result<(), Box<dyn Error>> {
+        if let Some(conn) = self.connections.get_mut(&conn_id) {
+            conn.status = ConnStatus::Expired;
+            conn.update_modified_at();
             Ok(())
         } else {
-            Err("User not found".into())
+            Err("Conn not found".into())
         }
     }
 
-    fn get_user(&self, user_id: Uuid) -> Option<User> {
-        self.users.get(&user_id).cloned()
+    fn get_conn(&self, conn_id: Uuid) -> Option<Conn> {
+        self.connections.get(&conn_id).cloned()
     }
 
-    fn update_user_limit(&mut self, user_id: Uuid, new_limit: i64) -> Result<(), Box<dyn Error>> {
-        if let Some(user) = self.users.get_mut(&user_id) {
-            user.limit = new_limit;
-            user.update_modified_at();
+    fn update_conn_limit(&mut self, conn_id: Uuid, new_limit: i64) -> Result<(), Box<dyn Error>> {
+        if let Some(conn) = self.connections.get_mut(&conn_id) {
+            conn.limit = new_limit;
+            conn.update_modified_at();
         }
         Ok(())
     }
 
-    fn update_user_trial(&mut self, user_id: Uuid, new_trial: bool) -> Result<(), Box<dyn Error>> {
-        if let Some(user) = self.users.get_mut(&user_id) {
-            user.trial = new_trial;
-            user.update_modified_at();
+    fn update_conn_trial(&mut self, conn_id: Uuid, new_trial: bool) -> Result<(), Box<dyn Error>> {
+        if let Some(conn) = self.connections.get_mut(&conn_id) {
+            conn.trial = new_trial;
+            conn.update_modified_at();
         }
         Ok(())
     }
 
-    fn update_user_stat(
+    fn update_conn_stat(
         &mut self,
-        user_id: Uuid,
+        conn_id: Uuid,
         stat: StatType,
         new_value: Option<i64>,
     ) -> Result<(), Box<dyn Error>> {
-        let user = self.users.get_mut(&user_id).ok_or("User not found")?;
+        let conn = self.connections.get_mut(&conn_id).ok_or("Conn not found")?;
         match stat {
             StatType::Uplink => {
-                user.uplink = Some(new_value.ok_or("Missing uplink value")?);
+                conn.uplink = Some(new_value.ok_or("Missing uplink value")?);
             }
             StatType::Downlink => {
-                user.downlink = Some(new_value.ok_or("Missing downlink value")?);
+                conn.downlink = Some(new_value.ok_or("Missing downlink value")?);
             }
             StatType::Online => {
-                user.online = Some(new_value.ok_or("Missing online value")?);
+                conn.online = Some(new_value.ok_or("Missing online value")?);
             }
         }
-        user.update_modified_at();
+        conn.update_modified_at();
         Ok(())
     }
 
-    fn reset_user_stat(&mut self, user_id: Uuid, stat: StatType) {
-        if let Some(user) = self.users.get_mut(&user_id) {
+    fn reset_conn_stat(&mut self, conn_id: Uuid, stat: StatType) {
+        if let Some(conn) = self.connections.get_mut(&conn_id) {
             match stat {
-                StatType::Uplink => user.reset_uplink(),
-                StatType::Downlink => user.reset_downlink(),
-                StatType::Online => {} // Можно добавить user.reset_online(), если нужно
+                StatType::Uplink => conn.reset_uplink(),
+                StatType::Downlink => conn.reset_downlink(),
+                StatType::Online => {}
             }
         }
     }
 
-    fn get_all_trial_users(&self, status: UserStatus) -> HashMap<Uuid, User> {
-        self.users
+    fn get_all_trial_conns(&self, status: ConnStatus) -> HashMap<Uuid, Conn> {
+        self.connections
             .iter()
-            .filter(|(_, user)| user.status == status && user.trial)
-            .map(|(user_id, user)| (*user_id, user.clone()))
+            .filter(|(_, conn)| conn.status == status && conn.trial)
+            .map(|(conn_id, conn)| (*conn_id, conn.clone()))
             .collect()
     }
 
-    fn update_user_uplink(&mut self, user_id: Uuid, new_uplink: i64) -> Result<(), Box<dyn Error>> {
-        if let Some(user) = self.users.get_mut(&user_id) {
-            user.uplink = Some(new_uplink);
-            user.update_modified_at();
+    fn update_conn_uplink(&mut self, conn_id: Uuid, new_uplink: i64) -> Result<(), Box<dyn Error>> {
+        if let Some(conn) = self.connections.get_mut(&conn_id) {
+            conn.uplink = Some(new_uplink);
+            conn.update_modified_at();
             Ok(())
         } else {
-            Err(format!("User not found: {}", user_id).into())
+            Err(format!("Conn not found: {}", conn_id).into())
         }
     }
 
-    fn update_user_downlink(
+    fn update_conn_downlink(
         &mut self,
-        user_id: Uuid,
+        conn_id: Uuid,
         new_downlink: i64,
     ) -> Result<(), Box<dyn Error>> {
-        if let Some(user) = self.users.get_mut(&user_id) {
-            user.downlink = Some(new_downlink);
-            user.update_modified_at();
+        if let Some(conn) = self.connections.get_mut(&conn_id) {
+            conn.downlink = Some(new_downlink);
+            conn.update_modified_at();
             Ok(())
         } else {
-            Err(format!("User not found: {}", user_id).into())
+            Err(format!("Conn not found: {}", conn_id).into())
         }
     }
 
-    fn update_user_online(&mut self, user_id: Uuid, new_online: i64) -> Result<(), Box<dyn Error>> {
-        if let Some(user) = self.users.get_mut(&user_id) {
-            user.online = Some(new_online);
-            user.update_modified_at();
+    fn update_conn_online(&mut self, conn_id: Uuid, new_online: i64) -> Result<(), Box<dyn Error>> {
+        if let Some(conn) = self.connections.get_mut(&conn_id) {
+            conn.online = Some(new_online);
+            conn.update_modified_at();
             Ok(())
         } else {
-            Err(format!("User not found: {}", user_id).into())
+            Err(format!("Conn not found: {}", conn_id).into())
         }
     }
 }

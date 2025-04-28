@@ -1,9 +1,7 @@
-use std::sync::Arc;
-
 use clickhouse::Client as ChClient;
 use clickhouse::Row;
-use serde::Deserialize;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 use tokio::sync::Mutex;
 
 pub mod query;

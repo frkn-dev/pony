@@ -1,13 +1,12 @@
-use log::debug;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use warp::{Filter, Rejection};
 
-use crate::http::handlers::AuthError;
-use crate::NodeStorage;
-use crate::PgContext;
-use crate::State;
-use crate::ZmqPublisher;
+use super::handlers::AuthError;
+use crate::postgres::PgContext;
+use crate::state::state::NodeStorage;
+use crate::state::state::State;
+use crate::zmq::publisher::Publisher as ZmqPublisher;
 
 /// Provides authentication filter based on API token
 pub fn auth(token: Arc<String>) -> impl Filter<Extract = (), Error = Rejection> + Clone {
@@ -15,7 +14,7 @@ pub fn auth(token: Arc<String>) -> impl Filter<Extract = (), Error = Rejection> 
         .and_then(move |auth_header: String| {
             let token = token.clone();
             async move {
-                debug!("{} - {}", auth_header, *token);
+                log::debug!("{} - {}", auth_header, *token);
                 if auth_header
                     .strip_prefix("Bearer ")
                     .map_or(false, |t| t == token.as_str())

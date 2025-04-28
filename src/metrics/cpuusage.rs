@@ -1,10 +1,8 @@
 use std::fmt;
 use sysinfo::{CpuRefreshKind, RefreshKind, System};
 
-use crate::{
-    metrics::metrics::{AsMetric, Metric, MetricType},
-    utils::{current_timestamp, round_to_two_decimal_places},
-};
+use super::metrics::{AsMetric, Metric, MetricType};
+use crate::utils::{current_timestamp, round_to_two_decimal_places};
 
 struct CpuUsage<'a> {
     name: &'a str,

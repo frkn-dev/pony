@@ -1,5 +1,3 @@
-use log::debug;
-use log::error;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio::time::{sleep, Duration};
@@ -20,7 +18,7 @@ impl Publisher {
         loop {
             match publisher.bind(endpoint) {
                 Ok(_) => {
-                    debug!("Connected to Pub socket at {}", endpoint);
+                    log::debug!("Connected to Pub socket at {}", endpoint);
                     break;
                 }
                 Err(err) => {
@@ -30,7 +28,7 @@ impl Publisher {
                             endpoint, err
                         );
                     }
-                    debug!("Trying to connect Pub socket, attempt {}: {}", i + 1, err);
+                    log::debug!("Trying to connect Pub socket, attempt {}: {}", i + 1, err);
                     i += 1;
                     sleep(Duration::from_secs(5)).await;
                 }
@@ -51,11 +49,11 @@ impl Publisher {
 
         match socket.send(full_message.as_bytes(), 0) {
             Ok(_) => {
-                debug!("PUB: Message sent: {}", full_message);
+                log::debug!("PUB: Message sent: {}", full_message);
                 Ok(())
             }
             Err(e) => {
-                error!("PUB: Failed to send message: {}", e);
+                log::error!("PUB: Failed to send message: {}", e);
                 Err(e)
             }
         }

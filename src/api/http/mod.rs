@@ -1,9 +1,9 @@
 use warp::reject;
 
-pub mod api;
 pub mod debug;
-pub mod filters;
+mod filters;
 pub mod handlers;
+mod routes;
 
 #[derive(Debug)]
 struct JsonError(String);

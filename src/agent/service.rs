@@ -1,19 +1,28 @@
-use crate::api::requests::ApiRequests;
-use crate::{
-    agent::tasks::Tasks, http::debug::start_ws_server, utils::*, Agent, AgentSettings, Conn,
-    ConnStorage, HandlerActions, HandlerClient, Node, NodeStorage, State, StatsClient, Tag,
-    XrayClient, XrayConfig, ZmqSubscriber,
-};
-
-use log::{debug, error, info};
 use std::net::Ipv4Addr;
 use std::sync::Arc;
-use tokio::{
-    sync::Mutex,
-    task::JoinHandle,
-    time::{sleep, Duration},
-};
-use uuid::Uuid;
+use tokio::sync::Mutex;
+use tokio::task::JoinHandle;
+use tokio::time::sleep;
+use tokio::time::Duration;
+
+use crate::agent::tasks::Tasks;
+use crate::api::http::debug::start_ws_server;
+use crate::api::requests::ApiRequests;
+use crate::config::settings::AgentSettings;
+use crate::config::xray::Config as XrayConfig;
+use crate::state::connection::Conn;
+use crate::state::node::Node;
+use crate::state::state::ConnStorage;
+use crate::state::state::NodeStorage;
+use crate::state::state::State;
+use crate::state::tag::Tag;
+use crate::utils::*;
+use crate::xray_op::client::HandlerActions;
+use crate::xray_op::client::HandlerClient;
+use crate::xray_op::client::StatsClient;
+use crate::xray_op::client::XrayClient;
+use crate::zmq::subscriber::Subscriber as ZmqSubscriber;
+use crate::Agent;
 
 type AgentState = State<Node>;
 
@@ -23,7 +32,7 @@ pub async fn service(settings: AgentSettings) -> Result<(), Box<dyn std::error::
 
     let xray_config = match XrayConfig::new(&settings.xray.xray_config_path) {
         Ok(config) => {
-            info!(
+            log::info!(
                 "Xray Config: Successfully read Xray config file: {:?}",
                 config
             );
@@ -71,7 +80,7 @@ pub async fn service(settings: AgentSettings) -> Result<(), Box<dyn std::error::
     }
 
     if settings.agent.metrics_enabled && !settings.agent.local {
-        info!("Running metrics send task");
+        log::info!("Running metrics send task");
         let metrics_handle = tokio::spawn({
             let settings = settings.clone();
             let agent = agent.clone();
@@ -80,7 +89,7 @@ pub async fn service(settings: AgentSettings) -> Result<(), Box<dyn std::error::
                 loop {
                     sleep(Duration::from_secs(settings.agent.metrics_interval)).await;
                     let _ = agent.send_metrics(settings.carbon.address.clone()).await;
-                    debug!("Metrics send task tick");
+                    log::debug!("Metrics send task tick");
                 }
             }
         });
@@ -88,7 +97,7 @@ pub async fn service(settings: AgentSettings) -> Result<(), Box<dyn std::error::
     }
 
     if settings.agent.stat_enabled && !settings.agent.local {
-        info!("Running Stat Task");
+        log::info!("Running Stat Task");
         let stats_task = tokio::spawn({
             let agent = Arc::new(agent.clone());
             async move {
@@ -104,13 +113,13 @@ pub async fn service(settings: AgentSettings) -> Result<(), Box<dyn std::error::
     }
 
     if !settings.agent.local {
-        info!("ZMQ listener starting...");
+        log::info!("ZMQ listener starting...");
 
         let zmq_task = tokio::spawn({
             let agent = agent.clone();
             async move {
                 if let Err(e) = agent.run_subscriber().await {
-                    error!("ZMQ subscriber failed: {}", e);
+                    log::error!("ZMQ subscriber failed: {}", e);
                 }
             }
         });
@@ -118,7 +127,7 @@ pub async fn service(settings: AgentSettings) -> Result<(), Box<dyn std::error::
 
         let _ = {
             let settings = settings.clone();
-            debug!("Register node task");
+            log::debug!("Register node task");
             if let Err(e) = agent
                 .register_node(settings.api.endpoint.clone(), settings.api.token.clone())
                 .await
@@ -129,10 +138,10 @@ pub async fn service(settings: AgentSettings) -> Result<(), Box<dyn std::error::
     }
 
     let conn_task = tokio::spawn({
-        let conn_id = Uuid::new_v4();
+        let conn_id = uuid::Uuid::new_v4();
         let agent = agent.clone();
         async move {
-            let _ = agent.xray_handler_client.create_all(conn_id, None).await;
+            let _ = agent.xray_handler_client.create_all(&conn_id, None).await;
 
             let _ = {
                 let mut state = agent.state.lock().await;
@@ -143,7 +152,7 @@ pub async fn service(settings: AgentSettings) -> Result<(), Box<dyn std::error::
             let state = agent.state.lock().await;
             if let Some(node) = state.nodes.get() {
                 let vless_grpc_conn = vless_grpc_conn(
-                    conn_id,
+                    &conn_id,
                     node.address,
                     node.inbounds
                         .get(&Tag::VlessGrpc)
@@ -152,7 +161,7 @@ pub async fn service(settings: AgentSettings) -> Result<(), Box<dyn std::error::
                     "🚀🚀🚀".to_string(),
                 );
                 let vless_xtls_conn = vless_xtls_conn(
-                    conn_id,
+                    &conn_id,
                     node.address,
                     node.inbounds
                         .get(&Tag::VlessXtls)
@@ -161,7 +170,7 @@ pub async fn service(settings: AgentSettings) -> Result<(), Box<dyn std::error::
                     "🚀🚀🚀".to_string(),
                 );
                 let vmess_conn = vmess_tcp_conn(
-                    conn_id,
+                    &conn_id,
                     node.address,
                     node.inbounds
                         .get(&Tag::Vmess)

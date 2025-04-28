@@ -1,16 +1,16 @@
-use crate::postgres::Client;
 use chrono::Utc;
+use tokio_postgres::Client as PgClient;
 
 use std::error::Error;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
 pub struct PgUser {
-    pub client: Arc<Mutex<Client>>,
+    pub client: Arc<Mutex<PgClient>>,
 }
 
 impl PgUser {
-    pub fn new(client: Arc<Mutex<Client>>) -> Self {
+    pub fn new(client: Arc<Mutex<PgClient>>) -> Self {
         Self { client }
     }
 

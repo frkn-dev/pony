@@ -1,11 +1,7 @@
 use sysinfo::{LoadAvg, System};
 
-use crate::{
-    metrics::metrics::{AsMetric, Metric},
-    utils::current_timestamp,
-};
-
-use super::metrics::MetricType;
+use super::metrics::{AsMetric, Metric, MetricType};
+use crate::utils::current_timestamp;
 
 struct LoadAvgWrapper {
     load_avg: LoadAvg,

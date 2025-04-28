@@ -1,8 +1,7 @@
 use super::metrics::{Metric, MetricType};
 use crate::utils::current_timestamp;
-use uuid::Uuid;
 
-pub fn heartbeat_metrics(env: &str, uuid: Uuid) -> Vec<MetricType> {
+pub fn heartbeat_metrics(env: &str, uuid: uuid::Uuid) -> Vec<MetricType> {
     let timestamp = current_timestamp();
 
     //dev.<uuid>.heartbeat

@@ -1,14 +1,12 @@
 use async_trait::async_trait;
-use log::error;
 use tonic::{Request, Status};
 
 use crate::xray_api::xray::app::proxyman::command::{
     GetInboundUserRequest, GetInboundUserResponse, GetInboundUsersCountResponse,
 };
 
-use crate::state::tag::Tag;
-
 use super::client::HandlerClient;
+use crate::state::tag::Tag;
 
 #[async_trait]
 pub trait ConnOp {
@@ -38,7 +36,7 @@ impl ConnOp for HandlerClient {
             .await
             .map(|res| res.into_inner())
             .map_err(|e| {
-                error!("Failed to fetch conn for tag {}: {}", tag, e);
+                log::error!("Failed to fetch conn for tag {}: {}", tag, e);
                 e
             })
     }

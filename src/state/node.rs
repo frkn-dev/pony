@@ -5,7 +5,6 @@ use std::{collections::HashMap, net::Ipv4Addr};
 use chrono::DateTime;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 
 use super::tag::Tag;
 use crate::config::settings::NodeConfig;
@@ -54,7 +53,7 @@ pub struct NodeRequest {
     pub hostname: String,
     pub address: Ipv4Addr,
     pub inbounds: HashMap<Tag, Inbound>,
-    pub uuid: Uuid,
+    pub uuid: uuid::Uuid,
     pub label: String,
     pub interface: String,
 }
@@ -79,7 +78,7 @@ impl NodeRequest {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct NodeResponse {
-    pub uuid: Uuid,
+    pub uuid: uuid::Uuid,
     pub env: String,
     pub hostname: String,
     pub address: Ipv4Addr,
@@ -89,7 +88,7 @@ pub struct NodeResponse {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Node {
-    pub uuid: Uuid,
+    pub uuid: uuid::Uuid,
     pub env: String,
     pub hostname: String,
     pub address: Ipv4Addr,

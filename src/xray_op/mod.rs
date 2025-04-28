@@ -9,13 +9,13 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use tonic::Request;
 
+use crate::state::tag::Tag;
 use crate::xray_api::xray::{
     app::proxyman::command::{AddUserOperation, AlterInboundRequest, RemoveUserOperation},
     common::protocol::User,
     common::serial::TypedMessage,
 };
-use crate::HandlerClient;
-use crate::Tag;
+use crate::xray_op::client::HandlerClient;
 
 #[async_trait::async_trait]
 pub trait ProtocolConn: Send + Sync {

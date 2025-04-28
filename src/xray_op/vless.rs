@@ -1,14 +1,13 @@
 use std::fmt;
-use uuid::Uuid;
 
 use crate::xray_api::xray::proxy::vless;
 use crate::xray_api::xray::{common::protocol::User, common::serial::TypedMessage};
-use crate::ProtocolConn;
-use crate::Tag;
+use crate::xray_op::ProtocolConn;
+use crate::xray_op::Tag;
 
 #[derive(Clone, Debug)]
 pub struct ConnInfo {
-    pub uuid: Uuid,
+    pub uuid: uuid::Uuid,
     pub in_tag: Tag,
     pub level: u32,
     pub email: String,
@@ -17,7 +16,7 @@ pub struct ConnInfo {
 }
 
 impl ConnInfo {
-    pub fn new(uuid: Uuid, flow: ConnFlow) -> Self {
+    pub fn new(uuid: &uuid::Uuid, flow: ConnFlow) -> Self {
         let tag = match flow {
             ConnFlow::Vision => Tag::VlessXtls,
             ConnFlow::Direct => Tag::VlessGrpc,
@@ -27,7 +26,7 @@ impl ConnInfo {
             in_tag: tag,
             level: 0,
             email: format!("{}@{}", uuid, "pony"),
-            uuid: uuid,
+            uuid: *uuid,
             encryption: Some("none".to_string()),
             flow: flow,
         }

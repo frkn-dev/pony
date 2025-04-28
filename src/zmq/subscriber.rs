@@ -1,11 +1,8 @@
 use std::sync::Arc;
-
-use log::info;
 use tokio::sync::Mutex;
-use uuid::Uuid;
 use zmq::Socket as ZmqSocket;
 
-use crate::Topic;
+use super::Topic;
 
 pub struct Subscriber {
     socket: Arc<Mutex<ZmqSocket>>,
@@ -13,7 +10,7 @@ pub struct Subscriber {
 }
 
 impl Subscriber {
-    pub fn new(endpoint: &str, uuid: &Uuid, env: &str) -> Self {
+    pub fn new(endpoint: &str, uuid: &uuid::Uuid, env: &str) -> Self {
         let context = zmq::Context::new();
         let socket = context
             .socket(zmq::SUB)
@@ -24,7 +21,7 @@ impl Subscriber {
             .expect("Failed to connect SUB socket");
 
         let topics = vec![format!("{}", *uuid), format!("{}", env)];
-        info!("Subscribed to topics: {:?}", Topic::all(*uuid, env));
+        log::info!("Subscribed to topics: {:?}", Topic::all(uuid, env));
 
         for topic in &topics {
             socket

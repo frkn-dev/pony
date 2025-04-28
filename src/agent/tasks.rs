@@ -13,19 +13,18 @@ use crate::metrics::cpuusage::cpu_metrics;
 use crate::metrics::heartbeat::heartbeat_metrics;
 use crate::metrics::loadavg::loadavg_metrics;
 use crate::metrics::memory::mem_metrics;
+use crate::metrics::metrics::MetricType;
 use crate::metrics::xray::*;
+use crate::state::connection::Conn;
+use crate::state::state::ConnStorage;
+use crate::state::state::NodeStorage;
+use crate::state::tag::Tag;
 use crate::xray_op::client::HandlerActions;
 use crate::xray_op::stats::Prefix;
 use crate::xray_op::stats::StatOp;
-use crate::Action;
-use crate::Conn;
-use crate::ConnStorage;
-use crate::Message;
-use crate::MetricType;
-use crate::NodeStorage;
-use crate::Tag;
-
-use crate::Topic;
+use crate::zmq::message::Action;
+use crate::zmq::message::Message;
+use crate::zmq::Topic;
 
 #[async_trait]
 pub trait Tasks {
@@ -142,7 +141,7 @@ impl<T: NodeStorage + Send + Sync + Clone> Tasks for Agent<T> {
 
                 match self
                     .xray_handler_client
-                    .create_all(msg.conn_id, conn.password.clone())
+                    .create_all(&msg.conn_id, conn.password.clone())
                     .await
                 {
                     Ok(_) => {
@@ -163,7 +162,7 @@ impl<T: NodeStorage + Send + Sync + Clone> Tasks for Agent<T> {
                 }
             }
             Action::Delete => {
-                if let Err(e) = self.xray_handler_client.remove_all(msg.conn_id).await {
+                if let Err(e) = self.xray_handler_client.remove_all(&msg.conn_id).await {
                     return Err(format!("Couldn't remove connections from Xray: {}", e).into());
                 } else {
                     let mut state = self.state.lock().await;

@@ -7,11 +7,11 @@ use reqwest::Url;
 use std::error::Error;
 use uuid::Uuid;
 
+use super::http::handlers::ResponseMessage;
 use crate::bot::BotState;
-use crate::http::handlers::ResponseMessage;
+use crate::postgres::connection::ConnRow;
+use crate::state::state::NodeStorage;
 use crate::Agent;
-use crate::ConnRow;
-use crate::NodeStorage;
 
 #[async_trait]
 pub trait ApiRequests {

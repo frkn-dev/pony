@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::net::IpAddr;
 use std::net::Ipv4Addr;
 use std::{
     time::Instant,
@@ -7,10 +8,8 @@ use std::{
 
 use base64::Engine;
 use chrono::{TimeZone, Utc};
-use log::info;
 use log::LevelFilter;
 use rand::{distributions::Alphanumeric, Rng};
-use uuid::Uuid;
 
 use crate::config::xray::Inbound;
 
@@ -22,6 +21,13 @@ pub fn generate_random_password(length: usize) -> String {
         .collect()
 }
 
+pub fn to_ipv4(ip: IpAddr) -> Option<Ipv4Addr> {
+    match ip {
+        IpAddr::V4(ipv4) => Some(ipv4),
+        IpAddr::V6(_) => None,
+    }
+}
+
 pub async fn measure_time<T, F>(task: F, name: String) -> T
 where
     F: std::future::Future<Output = T>,
@@ -29,7 +35,7 @@ where
     let start_time = Instant::now();
     let result = task.await;
     let duration = start_time.elapsed();
-    info!("Task {} completed in {:?}", name, duration);
+    log::info!("Task {} completed in {:?}", name, duration);
     result
 }
 
@@ -63,7 +69,7 @@ pub fn level_from_settings(level: &str) -> LevelFilter {
 }
 
 pub fn vless_xtls_conn(
-    user_id: Uuid,
+    user_id: &uuid::Uuid,
     ipv4: Ipv4Addr,
     inbound: Inbound,
     label: String,
@@ -82,7 +88,7 @@ pub fn vless_xtls_conn(
 }
 
 pub fn vless_grpc_conn(
-    user_id: Uuid,
+    user_id: &uuid::Uuid,
     ipv4: Ipv4Addr,
     inbound: Inbound,
     label: String,
@@ -102,7 +108,7 @@ pub fn vless_grpc_conn(
     Some(conn)
 }
 
-pub fn vmess_tcp_conn(user_id: Uuid, ipv4: Ipv4Addr, inbound: Inbound) -> Option<String> {
+pub fn vmess_tcp_conn(user_id: &uuid::Uuid, ipv4: Ipv4Addr, inbound: Inbound) -> Option<String> {
     let mut conn: HashMap<String, String> = HashMap::new();
     let port = inbound.port;
     let stream_settings = inbound.stream_settings?;

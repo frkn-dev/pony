@@ -11,16 +11,16 @@ use log::error;
 use log::warn;
 
 use crate::clickhouse::query::Queries;
-use crate::Action;
+use crate::postgres::connection::ConnRow;
+use crate::state::connection::Conn;
+use crate::state::connection::ConnStatus;
+use crate::state::node::Node;
+use crate::state::node::NodeStatus;
+use crate::state::state::ConnStorage;
+use crate::state::state::NodeStorage;
+use crate::zmq::message::Action;
+use crate::zmq::message::Message;
 use crate::Api;
-use crate::Conn;
-use crate::ConnRow;
-use crate::ConnStatus;
-use crate::ConnStorage;
-use crate::Message;
-use crate::Node;
-use crate::NodeStatus;
-use crate::NodeStorage;
 
 #[async_trait]
 pub trait Tasks {

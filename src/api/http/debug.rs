@@ -3,11 +3,8 @@ use std::sync::Arc;
 
 use core::fmt;
 use futures::{SinkExt, StreamExt};
-use log::error;
-use log::info;
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
-use uuid::Uuid;
 use warp::ws::Message;
 use warp::Filter;
 
@@ -34,7 +31,7 @@ impl fmt::Display for Kind {
 pub struct Request {
     pub kind: String,
     pub message: String,
-    pub conn_id: Option<Uuid>,
+    pub conn_id: Option<uuid::Uuid>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -54,11 +51,11 @@ where
         .and(warp::ws())
         .map(move |ws: warp::ws::Ws| {
             let state = state.clone();
-            info!("Upgrading connection to websocket");
+            log::info!("Upgrading connection to websocket");
             ws.on_upgrade(move |socket| handle_debug_connection(socket, state))
         });
 
-    info!("Debug Server is running on ws://{}:{}", ipaddr, port);
+    log::info!("Debug Server is running on ws://{}:{}", ipaddr, port);
 
     let routes = health_check.or(ws).with(warp::cors().allow_any_origin());
     warp::serve(routes)
@@ -98,7 +95,7 @@ where
             let data = match serde_json::to_string(&nodes) {
                 Ok(json) => json,
                 Err(err) => {
-                    error!("Failed to serialize nodes: {}", err);
+                    log::error!("Failed to serialize nodes: {}", err);
                     continue;
                 }
             };

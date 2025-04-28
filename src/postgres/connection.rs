@@ -6,14 +6,13 @@ use std::error::Error;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio_postgres::Client as PgClient;
-use uuid::Uuid;
 
 use crate::zmq::message::Action;
 use crate::zmq::message::Message as ConnRequest;
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct ConnRow {
-    pub conn_id: Uuid,
+    pub conn_id: uuid::Uuid,
     pub trial: bool,
     pub limit: i64,
     pub password: String,
@@ -24,7 +23,7 @@ pub struct ConnRow {
 
 impl ConnRow {
     /// ToDo: Fix
-    pub fn new(conn_id: Uuid) -> Self {
+    pub fn new(conn_id: uuid::Uuid) -> Self {
         let now = Utc::now().naive_utc();
         Self {
             conn_id: conn_id,
@@ -89,7 +88,7 @@ impl PgConn {
     fn map_rows_to_conns(&self, rows: Vec<tokio_postgres::Row>) -> Vec<ConnRow> {
         rows.into_iter()
             .map(|row| {
-                let conn_id: Uuid = row.get(0);
+                let conn_id: uuid::Uuid = row.get(0);
                 let trial: bool = row.get(1);
                 let limit: i64 = row.get(2);
                 let password: String = row.get(3);
@@ -110,7 +109,7 @@ impl PgConn {
             .collect()
     }
 
-    pub async fn is_exist(&self, conn_id: String) -> Option<Uuid> {
+    pub async fn is_exist(&self, conn_id: &str) -> Option<uuid::Uuid> {
         let client = self.client.lock().await;
 
         let query = "

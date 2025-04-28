@@ -1,12 +1,10 @@
 use std::collections::HashMap;
 
-use uuid::Uuid;
-
+use super::metrics::{AsMetric, Metric, MetricType};
 use crate::state::connection::Conn;
+use crate::state::node::Node;
 use crate::state::stats::{ConnStat, InboundStat};
 use crate::utils::current_timestamp;
-use crate::Node;
-use crate::{AsMetric, Metric, MetricType};
 
 impl AsMetric for InboundStat {
     type Output = i64;
@@ -80,7 +78,7 @@ pub fn xray_stat_metrics(node: Node) -> Vec<MetricType> {
 }
 
 pub fn xray_conn_metrics(
-    connections: HashMap<Uuid, Conn>,
+    connections: HashMap<uuid::Uuid, Conn>,
     env: &str,
     hostname: &str,
 ) -> Vec<MetricType> {

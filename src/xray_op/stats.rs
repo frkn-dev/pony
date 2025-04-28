@@ -1,20 +1,19 @@
-use crate::Agent;
-use crate::NodeStorage;
 use async_trait::async_trait;
-use log::debug;
 use tonic::{Request, Status};
-use uuid::Uuid;
 
 use super::connections::ConnOp;
-use crate::state::{
-    stats::{ConnStat, InboundStat, Stat, StatType},
-    tag::Tag,
-};
+use crate::state::state::NodeStorage;
+use crate::state::stats::ConnStat;
+use crate::state::stats::InboundStat;
+use crate::state::stats::Stat;
+use crate::state::stats::StatType;
 use crate::xray_api::xray::app::stats::command::{GetStatsRequest, GetStatsResponse};
+use crate::xray_op::Tag;
+use crate::Agent;
 
 #[derive(Debug, Clone)]
 pub enum Prefix {
-    ConnPrefix(Uuid),
+    ConnPrefix(uuid::Uuid),
     InboundPrefix(Tag),
 }
 
@@ -94,7 +93,7 @@ impl<T: NodeStorage + Send + Sync + Clone> StatOp for Agent<T> {
     }
 
     async fn conn_stats(&self, conn_id: Prefix) -> Result<ConnStat, Status> {
-        debug!("conn_stats {:?}", conn_id);
+        log::debug!("conn_stats {:?}", conn_id);
 
         let (downlink_result, uplink_result, online_result) = tokio::join!(
             self.stat(conn_id.clone(), Stat::Conn(StatType::Downlink), false),
@@ -109,7 +108,7 @@ impl<T: NodeStorage + Send + Sync + Clone> StatOp for Agent<T> {
                     uplink.stat.clone(),
                     online.stat.clone(),
                 ) {
-                    debug!(
+                    log::debug!(
                         "Connection Stats fetched successfully: downlink={:?}, uplink={:?}, online={:?}",
                         downlink.clone(),
                         uplink.clone(),
@@ -159,7 +158,7 @@ impl<T: NodeStorage + Send + Sync + Clone> StatOp for Agent<T> {
                     uplink.stat.clone(),
                     conn_count.clone(),
                 ) {
-                    debug!(
+                    log::debug!(
                     "Node Stats successfully fetched: inbound={:?}, downlink={:?}, uplink={:?}, conn_count={:?} ",
                     inbound, downlink, uplink, conn_count
                 );

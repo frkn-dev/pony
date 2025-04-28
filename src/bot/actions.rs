@@ -2,7 +2,6 @@ use async_trait::async_trait;
 use std::error::Error;
 
 use super::BotState;
-use crate::ConnRow;
 
 #[async_trait]
 pub trait Actions {

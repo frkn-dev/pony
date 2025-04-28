@@ -1,5 +1,3 @@
-use uuid::Uuid;
-
 pub mod message;
 pub mod publisher;
 pub mod subscriber;
@@ -28,7 +26,7 @@ impl Topic {
         }
     }
 
-    pub fn all(uuid: Uuid, env: &str) -> Vec<String> {
+    pub fn all(uuid: &uuid::Uuid, env: &str) -> Vec<String> {
         vec![format!("{uuid}"), format!("{env}")]
     }
 }

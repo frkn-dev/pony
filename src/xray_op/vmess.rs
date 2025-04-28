@@ -1,25 +1,23 @@
-use uuid::Uuid;
-
 use crate::xray_api::xray::proxy::vmess;
 use crate::xray_api::xray::{common::protocol::User, common::serial::TypedMessage};
-use crate::ProtocolConn;
-use crate::Tag;
+use crate::xray_op::ProtocolConn;
+use crate::xray_op::Tag;
 
 #[derive(Clone, Debug)]
 pub struct ConnInfo {
     pub in_tag: Tag,
     pub level: u32,
     pub email: String,
-    pub uuid: Uuid,
+    pub uuid: uuid::Uuid,
 }
 
 impl ConnInfo {
-    pub fn new(uuid: Uuid) -> Self {
+    pub fn new(uuid: &uuid::Uuid) -> Self {
         Self {
             in_tag: Tag::Vmess,
             level: 0,
             email: format!("{}@{}", uuid, "pony"),
-            uuid: uuid,
+            uuid: *uuid,
         }
     }
 }

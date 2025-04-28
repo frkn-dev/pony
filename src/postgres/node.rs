@@ -1,35 +1,24 @@
 use std::error::Error;
 use std::net::IpAddr;
-use std::net::Ipv4Addr;
 use std::str::FromStr;
 use std::sync::Arc;
 
 use chrono::DateTime;
 use chrono::Utc;
-use log::debug;
-use log::error;
-use log::warn;
 use serde_json::Value;
 use tokio::sync::Mutex;
-use tokio_postgres::Client;
-use uuid::Uuid;
+use tokio_postgres::Client as PgClient;
 
 use crate::state::node::Node;
 use crate::state::node::NodeStatus;
-
-fn to_ipv4(ip: IpAddr) -> Option<Ipv4Addr> {
-    match ip {
-        IpAddr::V4(ipv4) => Some(ipv4),
-        IpAddr::V6(_) => None,
-    }
-}
+use crate::utils::to_ipv4;
 
 pub struct PgNode {
-    pub client: Arc<Mutex<Client>>,
+    pub client: Arc<Mutex<PgClient>>,
 }
 
 impl PgNode {
-    pub fn new(client: Arc<Mutex<Client>>) -> Self {
+    pub fn new(client: Arc<Mutex<PgClient>>) -> Self {
         Self { client }
     }
 
@@ -62,8 +51,8 @@ impl PgNode {
             )
             .await;
         match result {
-            Ok(_) => debug!("Node inserted successfully"),
-            Err(e) => error!("Error inserting node: {}", e),
+            Ok(_) => log::debug!("Node inserted successfully"),
+            Err(e) => log::error!("Error inserting node: {}", e),
         }
 
         Ok(())
@@ -83,7 +72,7 @@ impl PgNode {
         let nodes: Vec<Node> = rows
             .into_iter()
             .filter_map(|row| {
-                let uuid: Uuid = row.get(0);
+                let uuid: uuid::Uuid = row.get(0);
                 let env: String = row.get(1);
                 let hostname: String = row.get(2);
                 let address: IpAddr = row.get(3);
@@ -118,7 +107,7 @@ impl PgNode {
 
     pub async fn update_status(
         &self,
-        uuid: Uuid,
+        uuid: uuid::Uuid,
         env: &str,
         new_status: NodeStatus,
     ) -> Result<(), Box<dyn Error>> {
@@ -140,13 +129,13 @@ impl PgNode {
         match result {
             Ok(rows_updated) => {
                 if rows_updated == 0 {
-                    warn!("No node found with UUID {}", uuid);
+                    log::warn!("No node found with UUID {}", uuid);
                 } else {
-                    debug!("Updated node {} status to {}", uuid, status_str);
+                    log::debug!("Updated node {} status to {}", uuid, status_str);
                 }
             }
             Err(e) => {
-                error!("Error updating node status: {}", e);
+                log::error!("Error updating node status: {}", e);
                 return Err(e.into());
             }
         }

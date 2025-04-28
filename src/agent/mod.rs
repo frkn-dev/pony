@@ -1,15 +1,15 @@
-pub mod service;
-pub mod tasks;
+mod service;
+mod tasks;
 
 use std::sync::Arc;
 
 use tokio::sync::Mutex;
 
-use crate::HandlerClient;
-use crate::NodeStorage;
-use crate::State;
-use crate::StatsClient;
-use crate::ZmqSubscriber;
+use crate::state::state::NodeStorage;
+use crate::state::state::State;
+use crate::xray_op::client::HandlerClient;
+use crate::xray_op::client::StatsClient;
+use crate::zmq::subscriber::Subscriber as ZmqSubscriber;
 
 pub struct Agent<T>
 where

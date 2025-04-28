@@ -3,7 +3,7 @@ use std::sync::Arc;
 use teloxide::utils::command::BotCommands;
 use tokio::sync::Mutex;
 
-use crate::BotSettings;
+use crate::config::settings::BotSettings;
 
 pub mod actions;
 pub mod handlers;

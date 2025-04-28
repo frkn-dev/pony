@@ -1,13 +1,11 @@
 use std::fmt;
 use std::io;
 
-use log::{debug, error, warn};
 use serde::{Deserialize, Serialize};
 use tokio::{io::AsyncWriteExt, net::TcpStream};
 
 pub trait AsMetric {
     type Output;
-
     fn as_metric(&self, name: &str, env: &str, hostname: &str) -> Vec<Metric<Self::Output>>;
 }
 
@@ -63,24 +61,24 @@ impl<T: ToString + std::fmt::Debug> Metric<T> {
     pub async fn send(&self, server: &str) -> Result<(), io::Error> {
         let metric_string = self.to_string();
 
-        debug!("Send metric to carbon: {:?}", self);
+        log::debug!("Send metric to carbon: {:?}", self);
 
         match TcpStream::connect(server).await {
             Ok(mut stream) => {
                 if let Err(e) = stream.write_all(metric_string.as_bytes()).await {
-                    warn!("Failed to send metric: {}", e);
+                    log::warn!("Failed to send metric: {}", e);
                     return Err(e);
                 }
 
                 if let Err(e) = stream.flush().await {
-                    warn!("Failed to flush stream: {}", e);
+                    log::warn!("Failed to flush stream: {}", e);
                     return Err(e);
                 }
 
                 Ok(())
             }
             Err(e) => {
-                error!("Failed to connect to Carbon server: {}", e);
+                log::error!("Failed to connect to Carbon server: {}", e);
                 Err(e)
             }
         }

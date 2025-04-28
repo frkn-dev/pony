@@ -5,10 +5,8 @@ use std::time::Duration;
 use log::error;
 use sysinfo::Networks;
 
-use crate::{
-    metrics::metrics::{AsMetric, Metric, MetricType},
-    utils::current_timestamp,
-};
+use super::metrics::{AsMetric, Metric, MetricType};
+use crate::utils::current_timestamp;
 
 #[derive(Debug)]
 struct Bandwidth {

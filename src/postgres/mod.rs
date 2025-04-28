@@ -1,7 +1,6 @@
 use std::error::Error;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use tokio_postgres::Client;
 use tokio_postgres::Client as PgClient;
 use tokio_postgres::NoTls;
 
@@ -16,7 +15,7 @@ pub mod user;
 
 pub async fn postgres_client(
     pg_settings: PostgresConfig,
-) -> Result<Arc<Mutex<Client>>, Box<dyn Error>> {
+) -> Result<Arc<Mutex<PgClient>>, Box<dyn Error>> {
     let connection_line = format!(
         "host={} user={} dbname={} password={} port={}",
         pg_settings.host,

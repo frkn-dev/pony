@@ -1,15 +1,13 @@
-use uuid::Uuid;
-
 use crate::xray_api::xray::proxy::shadowsocks;
 use crate::xray_api::xray::{
     common::protocol::User, common::serial::TypedMessage, proxy::shadowsocks::CipherType,
 };
-use crate::ProtocolConn;
-use crate::Tag;
+use crate::xray_op::ProtocolConn;
+use crate::xray_op::Tag;
 
 #[derive(Clone, Debug)]
 pub struct ConnInfo {
-    pub uuid: Uuid,
+    pub uuid: uuid::Uuid,
     pub cipher_type: String,
     pub in_tag: Tag,
     pub level: u32,
@@ -18,9 +16,9 @@ pub struct ConnInfo {
 }
 
 impl ConnInfo {
-    pub fn new(uuid: Uuid, password: Option<String>) -> Self {
+    pub fn new(uuid: &uuid::Uuid, password: Option<String>) -> Self {
         Self {
-            uuid: uuid,
+            uuid: *uuid,
             in_tag: Tag::Shadowsocks,
             level: 0,
             email: format!("{}@{}", uuid, "pony"),

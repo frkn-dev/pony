@@ -1,26 +1,22 @@
-use std::{
-    collections::{hash_map::Entry, HashMap, HashSet},
-    error::Error,
-};
+use std::collections::{hash_map::Entry, HashMap, HashSet};
+use std::error::Error;
 
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use uuid::Uuid;
 
-use super::{
-    connection::{Conn, ConnStatus},
-    node::Node,
-    stats::StatType,
-    tag::Tag,
-};
+use super::connection::Conn;
+use super::connection::ConnStatus;
+use super::node::Node;
+use super::stats::StatType;
+use super::tag::Tag;
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct State<T>
 where
     T: Send + Sync + Clone + 'static,
 {
-    pub users: HashSet<Uuid>,
-    pub connections: HashMap<Uuid, Conn>,
+    pub users: HashSet<uuid::Uuid>,
+    pub connections: HashMap<uuid::Uuid, Conn>,
     pub nodes: T,
 }
 
@@ -55,27 +51,27 @@ pub trait NodeStorage {
     fn all_json(&self) -> serde_json::Value;
     fn by_env(&self, env: &str) -> Option<Vec<Node>>;
     fn get(&self) -> Option<Node>;
-    fn get_mut(&mut self, env: &str, uuid: &Uuid) -> Option<&mut Node>;
+    fn get_mut(&mut self, env: &str, uuid: &uuid::Uuid) -> Option<&mut Node>;
     fn update_node_uplink(
         &mut self,
         tag: &Tag,
         new_uplink: i64,
         env: &str,
-        node_id: &Uuid,
+        node_id: &uuid::Uuid,
     ) -> Result<(), Box<dyn Error>>;
     fn update_node_downlink(
         &mut self,
         tag: &Tag,
         new_uplink: i64,
         env: &str,
-        node_id: &Uuid,
+        node_id: &uuid::Uuid,
     ) -> Result<(), Box<dyn Error>>;
     fn update_node_conn_count(
         &mut self,
         tag: &Tag,
         node_count: i64,
         env: &str,
-        node_id: &Uuid,
+        node_id: &uuid::Uuid,
     ) -> Result<(), Box<dyn std::error::Error>>;
 }
 
@@ -95,7 +91,7 @@ impl NodeStorage for Node {
     fn get(&self) -> Option<Node> {
         Some(self.clone())
     }
-    fn get_mut(&mut self, env: &str, uuid: &Uuid) -> Option<&mut Node> {
+    fn get_mut(&mut self, env: &str, uuid: &uuid::Uuid) -> Option<&mut Node> {
         if &self.uuid == uuid && self.env == env {
             Some(self)
         } else {
@@ -108,7 +104,7 @@ impl NodeStorage for Node {
         tag: &Tag,
         new_uplink: i64,
         _env: &str,
-        node_id: &Uuid,
+        node_id: &uuid::Uuid,
     ) -> Result<(), Box<dyn Error>> {
         if &self.uuid == node_id {
             self.update_uplink(tag, new_uplink)?;
@@ -123,7 +119,7 @@ impl NodeStorage for Node {
         tag: &Tag,
         new_downlink: i64,
         _env: &str,
-        node_id: &Uuid,
+        node_id: &uuid::Uuid,
     ) -> Result<(), Box<dyn Error>> {
         if self.uuid == *node_id {
             self.update_downlink(tag, new_downlink)?;
@@ -138,7 +134,7 @@ impl NodeStorage for Node {
         tag: &Tag,
         conn_count: i64,
         _env: &str,
-        node_id: &Uuid,
+        node_id: &uuid::Uuid,
     ) -> Result<(), Box<dyn std::error::Error>> {
         if self.uuid == *node_id {
             self.update_conn_count(tag, conn_count)?;
@@ -172,7 +168,7 @@ impl NodeStorage for HashMap<String, Vec<Node>> {
     fn get(&self) -> Option<Node> {
         None
     }
-    fn get_mut(&mut self, env: &str, uuid: &Uuid) -> Option<&mut Node> {
+    fn get_mut(&mut self, env: &str, uuid: &uuid::Uuid) -> Option<&mut Node> {
         self.get_mut(env)?.iter_mut().find(|n| &n.uuid == uuid)
     }
 
@@ -195,7 +191,7 @@ impl NodeStorage for HashMap<String, Vec<Node>> {
         tag: &Tag,
         new_uplink: i64,
         env: &str,
-        node_id: &Uuid,
+        node_id: &uuid::Uuid,
     ) -> Result<(), Box<dyn Error>> {
         if let Some(nodes) = self.get_mut(env) {
             if let Some(node) = nodes.iter_mut().find(|n| n.uuid == *node_id) {
@@ -211,7 +207,7 @@ impl NodeStorage for HashMap<String, Vec<Node>> {
         tag: &Tag,
         new_downlink: i64,
         env: &str,
-        node_id: &Uuid,
+        node_id: &uuid::Uuid,
     ) -> Result<(), Box<dyn Error>> {
         if let Some(nodes) = self.get_mut(env) {
             if let Some(node) = nodes.iter_mut().find(|n| n.uuid == *node_id) {
@@ -227,7 +223,7 @@ impl NodeStorage for HashMap<String, Vec<Node>> {
         tag: &Tag,
         conn_count: i64,
         env: &str,
-        node_id: &Uuid,
+        node_id: &uuid::Uuid,
     ) -> Result<(), Box<dyn std::error::Error>> {
         if let Some(nodes) = self.get_mut(env) {
             if let Some(node) = nodes.iter_mut().find(|n| n.uuid == *node_id) {
@@ -242,28 +238,46 @@ impl NodeStorage for HashMap<String, Vec<Node>> {
 }
 
 pub trait ConnStorage {
-    fn add_or_update(&mut self, conn_id: &Uuid, new_conn: Conn) -> Result<(), Box<dyn Error>>;
-    fn remove(&mut self, conn_id: &Uuid) -> Result<(), Box<dyn Error>>;
-    fn restore(&mut self, conn_id: &Uuid) -> Result<(), Box<dyn Error>>;
-    fn expire(&mut self, conn_id: &Uuid) -> Result<(), Box<dyn Error>>;
-    fn get(&self, conn_id: &Uuid) -> Option<Conn>;
-    fn update_limit(&mut self, conn_id: &Uuid, new_limit: i64) -> Result<(), Box<dyn Error>>;
-    fn update_trial(&mut self, conn_id: &Uuid, new_trial: bool) -> Result<(), Box<dyn Error>>;
+    fn add_or_update(&mut self, conn_id: &uuid::Uuid, new_conn: Conn)
+        -> Result<(), Box<dyn Error>>;
+    fn remove(&mut self, conn_id: &uuid::Uuid) -> Result<(), Box<dyn Error>>;
+    fn restore(&mut self, conn_id: &uuid::Uuid) -> Result<(), Box<dyn Error>>;
+    fn expire(&mut self, conn_id: &uuid::Uuid) -> Result<(), Box<dyn Error>>;
+    fn get(&self, conn_id: &uuid::Uuid) -> Option<Conn>;
+    fn update_limit(&mut self, conn_id: &uuid::Uuid, new_limit: i64) -> Result<(), Box<dyn Error>>;
+    fn update_trial(&mut self, conn_id: &uuid::Uuid, new_trial: bool)
+        -> Result<(), Box<dyn Error>>;
     fn update_stat(
         &mut self,
-        conn_id: &Uuid,
+        conn_id: &uuid::Uuid,
         stat: StatType,
         value: Option<i64>,
     ) -> Result<(), Box<dyn Error>>;
-    fn reset_stat(&mut self, conn_id: &Uuid, stat: StatType);
-    fn all_trial(&self, status: ConnStatus) -> HashMap<Uuid, Conn>;
-    fn update_uplink(&mut self, conn_id: &Uuid, new_uplink: i64) -> Result<(), Box<dyn Error>>;
-    fn update_downlink(&mut self, conn_id: &Uuid, new_downlink: i64) -> Result<(), Box<dyn Error>>;
-    fn update_online(&mut self, conn_id: &Uuid, new_online: i64) -> Result<(), Box<dyn Error>>;
+    fn reset_stat(&mut self, conn_id: &uuid::Uuid, stat: StatType);
+    fn all_trial(&self, status: ConnStatus) -> HashMap<uuid::Uuid, Conn>;
+    fn update_uplink(
+        &mut self,
+        conn_id: &uuid::Uuid,
+        new_uplink: i64,
+    ) -> Result<(), Box<dyn Error>>;
+    fn update_downlink(
+        &mut self,
+        conn_id: &uuid::Uuid,
+        new_downlink: i64,
+    ) -> Result<(), Box<dyn Error>>;
+    fn update_online(
+        &mut self,
+        conn_id: &uuid::Uuid,
+        new_online: i64,
+    ) -> Result<(), Box<dyn Error>>;
 }
 
-impl ConnStorage for HashMap<Uuid, Conn> {
-    fn add_or_update(&mut self, conn_id: &Uuid, new_conn: Conn) -> Result<(), Box<dyn Error>> {
+impl ConnStorage for HashMap<uuid::Uuid, Conn> {
+    fn add_or_update(
+        &mut self,
+        conn_id: &uuid::Uuid,
+        new_conn: Conn,
+    ) -> Result<(), Box<dyn Error>> {
         match self.entry(*conn_id) {
             Entry::Occupied(mut entry) => {
                 let existing_conn = entry.get_mut();
@@ -279,13 +293,13 @@ impl ConnStorage for HashMap<Uuid, Conn> {
         Ok(())
     }
 
-    fn remove(&mut self, conn_id: &Uuid) -> Result<(), Box<dyn Error>> {
+    fn remove(&mut self, conn_id: &uuid::Uuid) -> Result<(), Box<dyn Error>> {
         self.remove(conn_id)
             .map(|_| ())
             .ok_or("Conn not found".into())
     }
 
-    fn restore(&mut self, conn_id: &Uuid) -> Result<(), Box<dyn Error>> {
+    fn restore(&mut self, conn_id: &uuid::Uuid) -> Result<(), Box<dyn Error>> {
         if let Some(conn) = self.get_mut(conn_id) {
             conn.status = ConnStatus::Active;
             conn.update_modified_at();
@@ -295,7 +309,7 @@ impl ConnStorage for HashMap<Uuid, Conn> {
         }
     }
 
-    fn expire(&mut self, conn_id: &Uuid) -> Result<(), Box<dyn Error>> {
+    fn expire(&mut self, conn_id: &uuid::Uuid) -> Result<(), Box<dyn Error>> {
         if let Some(conn) = self.get_mut(&conn_id) {
             conn.status = ConnStatus::Expired;
             conn.update_modified_at();
@@ -305,11 +319,11 @@ impl ConnStorage for HashMap<Uuid, Conn> {
         }
     }
 
-    fn get(&self, conn_id: &Uuid) -> Option<Conn> {
+    fn get(&self, conn_id: &uuid::Uuid) -> Option<Conn> {
         self.get(conn_id).cloned()
     }
 
-    fn update_limit(&mut self, conn_id: &Uuid, new_limit: i64) -> Result<(), Box<dyn Error>> {
+    fn update_limit(&mut self, conn_id: &uuid::Uuid, new_limit: i64) -> Result<(), Box<dyn Error>> {
         if let Some(conn) = self.get_mut(conn_id) {
             conn.limit = new_limit;
             conn.update_modified_at();
@@ -317,7 +331,11 @@ impl ConnStorage for HashMap<Uuid, Conn> {
         Ok(())
     }
 
-    fn update_trial(&mut self, conn_id: &Uuid, new_trial: bool) -> Result<(), Box<dyn Error>> {
+    fn update_trial(
+        &mut self,
+        conn_id: &uuid::Uuid,
+        new_trial: bool,
+    ) -> Result<(), Box<dyn Error>> {
         if let Some(conn) = self.get_mut(conn_id) {
             conn.trial = new_trial;
             conn.update_modified_at();
@@ -327,7 +345,7 @@ impl ConnStorage for HashMap<Uuid, Conn> {
 
     fn update_stat(
         &mut self,
-        conn_id: &Uuid,
+        conn_id: &uuid::Uuid,
         stat: StatType,
         new_value: Option<i64>,
     ) -> Result<(), Box<dyn Error>> {
@@ -347,7 +365,7 @@ impl ConnStorage for HashMap<Uuid, Conn> {
         Ok(())
     }
 
-    fn reset_stat(&mut self, conn_id: &Uuid, stat: StatType) {
+    fn reset_stat(&mut self, conn_id: &uuid::Uuid, stat: StatType) {
         if let Some(conn) = self.get_mut(conn_id) {
             match stat {
                 StatType::Uplink => conn.reset_uplink(),
@@ -357,14 +375,18 @@ impl ConnStorage for HashMap<Uuid, Conn> {
         }
     }
 
-    fn all_trial(&self, status: ConnStatus) -> HashMap<Uuid, Conn> {
+    fn all_trial(&self, status: ConnStatus) -> HashMap<uuid::Uuid, Conn> {
         self.iter()
             .filter(|(_, conn)| conn.status == status && conn.trial)
             .map(|(conn_id, conn)| (*conn_id, conn.clone()))
             .collect()
     }
 
-    fn update_uplink(&mut self, conn_id: &Uuid, new_uplink: i64) -> Result<(), Box<dyn Error>> {
+    fn update_uplink(
+        &mut self,
+        conn_id: &uuid::Uuid,
+        new_uplink: i64,
+    ) -> Result<(), Box<dyn Error>> {
         if let Some(conn) = self.get_mut(conn_id) {
             conn.uplink = Some(new_uplink);
             conn.update_modified_at();
@@ -374,7 +396,11 @@ impl ConnStorage for HashMap<Uuid, Conn> {
         }
     }
 
-    fn update_downlink(&mut self, conn_id: &Uuid, new_downlink: i64) -> Result<(), Box<dyn Error>> {
+    fn update_downlink(
+        &mut self,
+        conn_id: &uuid::Uuid,
+        new_downlink: i64,
+    ) -> Result<(), Box<dyn Error>> {
         if let Some(conn) = self.get_mut(conn_id) {
             conn.downlink = Some(new_downlink);
             conn.update_modified_at();
@@ -384,7 +410,11 @@ impl ConnStorage for HashMap<Uuid, Conn> {
         }
     }
 
-    fn update_online(&mut self, conn_id: &Uuid, new_online: i64) -> Result<(), Box<dyn Error>> {
+    fn update_online(
+        &mut self,
+        conn_id: &uuid::Uuid,
+        new_online: i64,
+    ) -> Result<(), Box<dyn Error>> {
         if let Some(conn) = self.get_mut(conn_id) {
             conn.online = Some(new_online);
             conn.update_modified_at();

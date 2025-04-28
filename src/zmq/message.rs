@@ -1,7 +1,6 @@
 use std::fmt;
 
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub enum Action {
@@ -15,7 +14,7 @@ pub enum Action {
 
 #[derive(Deserialize, Serialize, Clone, Debug)]
 pub struct Message {
-    pub conn_id: Uuid,
+    pub conn_id: uuid::Uuid,
     pub action: Action,
     pub env: String,
     pub trial: bool,
@@ -26,7 +25,6 @@ pub struct Message {
 impl fmt::Display for Message {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let json_message = serde_json::to_string(self).expect("Failed to serialize message");
-
         write!(f, "{}", json_message)
     }
 }

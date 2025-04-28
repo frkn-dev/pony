@@ -1,19 +1,17 @@
-use log::debug;
-use log::error;
 use std::error::Error;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tonic::transport::Channel;
 
+use super::shadowsocks::ConnInfo as SsConnInfo;
+use super::vless::ConnFlow;
+use super::vless::ConnInfo as VlessConnInfo;
+use super::vmess::ConnInfo as VmessConnInfo;
+use super::ProtocolConn;
 use crate::xray_api::xray::app::{
     proxyman::command::handler_service_client::HandlerServiceClient,
     stats::command::stats_service_client::StatsServiceClient,
 };
-use crate::xray_op::shadowsocks::ConnInfo as SsConnInfo;
-use crate::xray_op::vless::ConnFlow;
-use crate::xray_op::vless::ConnInfo as VlessConnInfo;
-use crate::xray_op::vmess::ConnInfo as VmessConnInfo;
-use crate::ProtocolConn;
 
 pub trait XrayClient {
     type Client;
@@ -38,7 +36,7 @@ impl XrayClient for HandlerClient {
             .connect()
             .await
             .map_err(|e| {
-                error!("Couldn't connect to Xray API at {}: {}", endpoint, e);
+                log::error!("Couldn't connect to Xray API at {}: {}", endpoint, e);
                 e
             })?;
 
@@ -60,7 +58,7 @@ impl XrayClient for StatsClient {
             .connect()
             .await
             .map_err(|e| {
-                error!("Couldn't connect to Xray API at {}: {}", endpoint, e);
+                log::error!("Couldn't connect to Xray API at {}: {}", endpoint, e);
                 e
             })?;
 
@@ -74,13 +72,13 @@ impl XrayClient for StatsClient {
 pub trait HandlerActions {
     async fn create_all(
         &self,
-        conn_id: uuid::Uuid,
+        conn_id: &uuid::Uuid,
         password: Option<String>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
 
     async fn remove_all(
         &self,
-        conn_id: uuid::Uuid,
+        conn_id: &uuid::Uuid,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
 }
 
@@ -88,7 +86,7 @@ pub trait HandlerActions {
 impl HandlerActions for Arc<Mutex<HandlerClient>> {
     async fn create_all(
         &self,
-        conn_id: uuid::Uuid,
+        conn_id: &uuid::Uuid,
         password: Option<String>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let mut protos: Vec<Box<dyn ProtocolConn>> = vec![];
@@ -103,13 +101,13 @@ impl HandlerActions for Arc<Mutex<HandlerClient>> {
 
         for proto in protos {
             if let Err(e) = proto.create(self.clone()).await {
-                error!(
+                log::error!(
                     "Failed to create connection for tag {:?}: {}",
                     proto.tag(),
                     e
                 );
             } else {
-                debug!("Successfully created connection for tag {:?}", proto.tag());
+                log::debug!("Successfully created connection for tag {:?}", proto.tag());
             }
         }
 
@@ -118,7 +116,7 @@ impl HandlerActions for Arc<Mutex<HandlerClient>> {
 
     async fn remove_all(
         &self,
-        conn_id: uuid::Uuid,
+        conn_id: &uuid::Uuid,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let protos: Vec<Box<dyn ProtocolConn>> = vec![
             Box::new(VmessConnInfo::new(conn_id)),
@@ -129,13 +127,13 @@ impl HandlerActions for Arc<Mutex<HandlerClient>> {
 
         for proto in protos {
             if let Err(e) = proto.remove(self.clone()).await {
-                error!(
+                log::error!(
                     "Failed to remove connection for tag {:?}: {}",
                     proto.tag(),
                     e
                 );
             } else {
-                debug!("Successfully removed connection for tag {:?}", proto.tag());
+                log::debug!("Successfully removed connection for tag {:?}", proto.tag());
             }
         }
 

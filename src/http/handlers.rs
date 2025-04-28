@@ -1,14 +1,12 @@
 use std::sync::Arc;
 
-use log::debug;
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
-use uuid::Uuid;
 use warp::{http::StatusCode, reject, Rejection, Reply};
 
 use crate::http::JsonError;
 use crate::measure_time;
-use crate::postgres::DbContext;
+use crate::postgres::PgContext;
 use crate::state::state::ConnStorage;
 use crate::state::state::NodeStorage;
 
@@ -27,7 +25,7 @@ use crate::{Action, Message};
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct ConnRequest {
-    pub conn_id: Uuid,
+    pub conn_id: uuid::Uuid,
     pub action: Action,
     pub env: String,
     pub trial: Option<bool>,
@@ -80,7 +78,7 @@ where
 
             let mut state = state.lock().await;
             let conn = Conn::new(trial, limit, conn_req.env, conn_req.password);
-            let _ = state.add_or_update_conn(conn_req.conn_id, conn);
+            let _ = state.connections.add_or_update(&conn_req.conn_id, conn);
 
             let response = ResponseMessage {
                 status: 200,
@@ -130,7 +128,7 @@ where
 {
     let state = state.lock().await;
 
-    match state.nodes.get_nodes(node_req.env) {
+    match state.nodes.by_env(&node_req.env) {
         Some(nodes) => {
             let node_response: Vec<NodeResponse> = nodes
                 .into_iter()
@@ -162,7 +160,7 @@ where
 pub async fn node_register<T>(
     node_req: NodeRequest,
     state: Arc<Mutex<State<T>>>,
-    db: DbContext,
+    db: PgContext,
     publisher: ZmqPublisher,
 ) -> Result<impl Reply, Rejection>
 where
@@ -173,17 +171,17 @@ where
     let node = node_req.clone().as_node();
     let mut state = state.lock().await;
 
-    let was_added = state.nodes.add_node(node.clone()).is_ok();
-    let _ = db.node().insert_node(node.clone()).await;
+    let was_added = state.nodes.add(node.clone()).is_ok();
+    let _ = db.node().insert(node.clone()).await;
     let _ = db
         .node()
-        .update_node_status(node.uuid, &node.env, NodeStatus::Online)
+        .update_status(node.uuid, &node.env, NodeStatus::Online)
         .await;
-    if let Some(node_mut) = state.nodes.get_mut_node(&node.env, node.uuid) {
+    if let Some(node_mut) = state.nodes.get_mut(&node.env, &node.uuid) {
         let _ = node_mut.update_status(NodeStatus::Online);
     }
 
-    if let Ok(conns_map) = db.conn().conns_by_env(&node.env).await {
+    if let Ok(conns_map) = db.conn().by_env(&node.env).await {
         let send_task = async {
             for conn in conns_map {
                 let message = Message {
@@ -215,7 +213,7 @@ where
         }
     };
 
-    debug!("Sending JSON response: {:?}", response);
+    log::debug!("Sending JSON response: {:?}", response);
 
     Ok(warp::reply::with_status(
         warp::reply::json(&response),
@@ -225,7 +223,7 @@ where
 
 #[derive(Serialize, Deserialize)]
 pub struct ConnQueryParams {
-    pub id: Uuid,
+    pub id: uuid::Uuid,
 }
 
 pub async fn get_conn<T>(
@@ -239,11 +237,11 @@ where
 
     let conn_id = conn_req.id;
 
-    let conn = state.get_conn(conn_id);
+    let conn = state.connections.get(&conn_id);
     if let Some(conn) = conn {
-        let env = conn.env;
+        let env = &conn.env;
 
-        if let Some(nodes) = state.nodes.get_nodes(env) {
+        if let Some(nodes) = state.nodes.by_env(env) {
             let connections: Vec<String> = nodes
                 .iter()
                 .filter(|node| node.status == NodeStatus::Online)
@@ -276,6 +274,29 @@ where
     }
 
     Err(warp::reject::not_found())
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct UserRequest {
+    pub username: String,
+}
+
+pub async fn user_register<T>(
+    user_req: UserRequest,
+    state: Arc<Mutex<State<T>>>,
+    db: PgContext,
+) -> Result<impl Reply, Rejection>
+where
+    T: NodeStorage + Sync + Send + Clone + 'static,
+{
+    log::debug!("Received: {:?}", user_req);
+
+    let _ = db.user().insert(user_req.username);
+
+    Ok(warp::reply::with_status(
+        warp::reply::json(&response),
+        StatusCode::OK,
+    ))
 }
 
 pub async fn rejection(reject: Rejection) -> Result<impl Reply, Rejection> {

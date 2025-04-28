@@ -46,7 +46,7 @@ impl<T: NodeStorage + Send + Sync + Clone + 'static> Http for Api<T> {
         let node_register_route = warp::post()
             .and(warp::path("node"))
             .and(warp::path("register"))
-            .and(auth)
+            .and(auth.clone())
             .and(warp::body::json::<NodeRequest>())
             .and(with_state(self.state.clone()))
             .and(db(self.db.clone()))
@@ -55,9 +55,19 @@ impl<T: NodeStorage + Send + Sync + Clone + 'static> Http for Api<T> {
                 node_register(node_req, state, db, publisher)
             });
 
+        let user_register_route = warp::post()
+            .and(warp::path("user"))
+            .and(warp::path("register"))
+            .and(auth)
+            .and(warp::body::json::<NodeRequest>())
+            .and(with_state(self.state.clone()))
+            .and(db(self.db.clone()))
+            .and_then(|user_req, state, db, publisher| user_register(user_req, state, db));
+
         let routes = connection_route
             .or(nodes_route)
             .or(node_register_route)
+            .or(user_register_route)
             .or(connections_route)
             .recover(rejection);
 

@@ -19,7 +19,7 @@ pub use clickhouse::ChContext;
 pub use config::settings::{AgentSettings, ApiSettings, BotSettings, Settings};
 pub use config::xray::Config as XrayConfig;
 pub use metrics::metrics::{AsMetric, Metric, MetricType};
-pub use postgres::{connection::ConnRow, DbContext};
+pub use postgres::{connection::ConnRow, PgContext};
 pub use state::connection::Conn;
 pub use state::connection::ConnStatus;
 pub use state::node::Node;

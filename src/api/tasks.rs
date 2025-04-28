@@ -42,7 +42,10 @@ impl<T: NodeStorage + Send + Sync + Clone> Tasks for Api<T> {
         );
 
         let mut state = self.state.lock().await;
-        match state.add_or_update_conn(db_conn.conn_id.clone(), conn.clone()) {
+        match state
+            .connections
+            .add_or_update(&db_conn.conn_id.clone(), conn.clone())
+        {
             Ok(_) => Ok(()),
             Err(e) => Err(format!(
                 "Create: Failed to add connection {} to state: {}",
@@ -53,7 +56,7 @@ impl<T: NodeStorage + Send + Sync + Clone> Tasks for Api<T> {
     }
     async fn add_node(&self, db_node: Node) -> Result<(), Box<dyn Error + Send + Sync>> {
         let mut state = self.state.lock().await;
-        match state.nodes.add_node(db_node.clone()) {
+        match state.nodes.add(db_node.clone()) {
             Ok(_) => {
                 debug!("Node added to State: {}", db_node.uuid);
                 Ok(())
@@ -67,7 +70,7 @@ impl<T: NodeStorage + Send + Sync + Clone> Tasks for Api<T> {
     }
     async fn node_healthcheck(&self) -> Result<(), Box<dyn Error + Send + Sync>> {
         let state_lock = self.state.lock().await;
-        let nodes = match state_lock.nodes.get_all_nodes() {
+        let nodes = match state_lock.nodes.all() {
             Some(n) => n.clone(),
             None => return Ok(()),
         };
@@ -92,20 +95,20 @@ impl<T: NodeStorage + Send + Sync + Clone> Tasks for Api<T> {
                         if let LocalResult::Single(latest_datetime) = latest_datetime {
                             let time_diff = now - latest_datetime;
                             let mut state = state.lock().await;
-                            if let Some(node_mut) = state.nodes.get_mut_node(&env, uuid) {
+                            if let Some(node_mut) = state.nodes.get_mut(&env, &uuid) {
                                 match node_mut.status {
                                     NodeStatus::Online if time_diff > timeout_duration => {
                                         node_mut.update_status(NodeStatus::Offline)?;
                                         let _ = db
                                             .node()
-                                            .update_node_status(uuid, &env, NodeStatus::Offline)
+                                            .update_status(uuid, &env, NodeStatus::Offline)
                                             .await;
                                     }
                                     NodeStatus::Offline if time_diff <= timeout_duration => {
                                         node_mut.update_status(NodeStatus::Online)?;
                                         let _ = db
                                             .node()
-                                            .update_node_status(uuid, &env, NodeStatus::Online)
+                                            .update_status(uuid, &env, NodeStatus::Online)
                                             .await;
                                     }
                                     _ => {}
@@ -115,12 +118,12 @@ impl<T: NodeStorage + Send + Sync + Clone> Tasks for Api<T> {
                     }
                     None => {
                         let mut state = state.lock().await;
-                        if let Some(node_mut) = state.nodes.get_mut_node(&env, uuid) {
+                        if let Some(node_mut) = state.nodes.get_mut(&env, &uuid) {
                             node_mut.update_status(NodeStatus::Offline)?;
                         }
                         let _ = db
                             .node()
-                            .update_node_status(uuid, &env, NodeStatus::Offline)
+                            .update_status(uuid, &env, NodeStatus::Offline)
                             .await;
                     }
                 }

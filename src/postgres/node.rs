@@ -33,7 +33,7 @@ impl PgNode {
         Self { client }
     }
 
-    pub async fn insert_node(&self, node: Node) -> Result<(), Box<dyn Error>> {
+    pub async fn insert(&self, node: Node) -> Result<(), Box<dyn Error>> {
         let client = self.client.lock().await;
 
         let query = "
@@ -69,7 +69,7 @@ impl PgNode {
         Ok(())
     }
 
-    pub async fn get_nodes(&self) -> Result<Vec<Node>, Box<dyn Error>> {
+    pub async fn all(&self) -> Result<Vec<Node>, Box<dyn Error>> {
         let client = self.client.lock().await;
 
         let rows = client
@@ -116,7 +116,7 @@ impl PgNode {
         Ok(nodes)
     }
 
-    pub async fn update_node_status(
+    pub async fn update_status(
         &self,
         uuid: Uuid,
         env: &str,

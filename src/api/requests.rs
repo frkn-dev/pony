@@ -49,7 +49,7 @@ impl<T: NodeStorage + Send + Sync + Clone> ApiRequests for Agent<T> {
             let state = self.state.lock().await;
             state
                 .nodes
-                .get_node()
+                .get()
                 .expect("No node available to register")
                 .clone()
         };

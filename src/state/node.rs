@@ -142,8 +142,8 @@ impl Node {
         }
     }
 
-    pub fn update_uplink(&mut self, tag: Tag, new_uplink: i64) -> Result<(), String> {
-        if let Some(inbound) = self.inbounds.get_mut(&tag) {
+    pub fn update_uplink(&mut self, tag: &Tag, new_uplink: i64) -> Result<(), String> {
+        if let Some(inbound) = self.inbounds.get_mut(tag) {
             inbound.update_uplink(new_uplink);
             Ok(())
         } else {
@@ -156,8 +156,8 @@ impl Node {
         Ok(())
     }
 
-    pub fn update_downlink(&mut self, tag: Tag, new_downlink: i64) -> Result<(), String> {
-        if let Some(inbound) = self.inbounds.get_mut(&tag) {
+    pub fn update_downlink(&mut self, tag: &Tag, new_downlink: i64) -> Result<(), String> {
+        if let Some(inbound) = self.inbounds.get_mut(tag) {
             inbound.update_downlink(new_downlink);
             Ok(())
         } else {
@@ -165,8 +165,8 @@ impl Node {
         }
     }
 
-    pub fn update_conn_count(&mut self, tag: Tag, conn_count: i64) -> Result<(), String> {
-        if let Some(inbound) = self.inbounds.get_mut(&tag) {
+    pub fn update_conn_count(&mut self, tag: &Tag, conn_count: i64) -> Result<(), String> {
+        if let Some(inbound) = self.inbounds.get_mut(tag) {
             inbound.update_conn_count(conn_count);
             Ok(())
         } else {

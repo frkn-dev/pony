@@ -137,11 +137,11 @@ pub async fn service(settings: AgentSettings) -> Result<(), Box<dyn std::error::
             let _ = {
                 let mut state = agent.state.lock().await;
                 let conn = Conn::new(false, 1024, settings.node.env.clone(), None);
-                let _ = state.add_or_update_conn(conn_id, conn);
+                let _ = state.connections.add_or_update(&conn_id, conn);
             };
 
             let state = agent.state.lock().await;
-            if let Some(node) = state.nodes.get_node() {
+            if let Some(node) = state.nodes.get() {
                 let vless_grpc_conn = vless_grpc_conn(
                     conn_id,
                     node.address,

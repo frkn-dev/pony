@@ -4,7 +4,7 @@ use teloxide::types::Me;
 
 use clap::Parser;
 use fern::Dispatch;
-use pony::postgres::DbContext;
+use pony::postgres::PgContext;
 
 use teloxide::prelude::*;
 

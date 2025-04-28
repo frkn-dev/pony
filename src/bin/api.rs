@@ -15,7 +15,7 @@ use pony::{
     config::settings::{ApiSettings, Settings},
     http::api::Http,
     http::debug::start_ws_server,
-    postgres::{postgres::postgres_client, DbContext},
+    postgres::{postgres_client, PgContext},
     utils::*,
     Api, ChContext, Node, State, ZmqPublisher,
 };
@@ -68,7 +68,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Err(e) => panic!("PG not available, {}", e),
     };
 
-    let db = DbContext::new(pg_client);
+    let db = PgContext::new(pg_client);
     let ch = ChContext::new(&settings.clickhouse.address);
     let publisher = ZmqPublisher::new(&settings.zmq.endpoint).await;
     let state: ApiState = State::new();
@@ -83,7 +83,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     ));
 
     let _ = {
-        match measure_time(db.node().get_nodes(), "get_nodes()".to_string()).await {
+        match measure_time(db.node().all(), "get all nodes()".to_string()).await {
             Ok(nodes) => {
                 let futures: Vec<_> = nodes.into_iter().map(|node| api.add_node(node)).collect();
 
@@ -101,15 +101,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
 
-        match measure_time(db.conn().all_conns(), "db.all_conns".to_string()).await {
+        match measure_time(db.conn().all(), "get all connections from db".to_string()).await {
             Ok(conns) => {
                 let futures: Vec<_> = conns.into_iter().map(|conn| api.add_conn(conn)).collect();
 
-                if let Some(Err(e)) =
-                    measure_time(join_all(futures), "add all conns to state".to_string())
-                        .await
-                        .into_iter()
-                        .find(Result::is_err)
+                if let Some(Err(e)) = measure_time(
+                    join_all(futures),
+                    "add all connections to state".to_string(),
+                )
+                .await
+                .into_iter()
+                .find(Result::is_err)
                 {
                     error!("Error during conn state initialization: {}", e);
                 }

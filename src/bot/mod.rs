@@ -4,7 +4,6 @@ use teloxide::utils::command::BotCommands;
 use tokio::sync::Mutex;
 
 use crate::BotSettings;
-use crate::DbContext;
 
 pub mod actions;
 pub mod handlers;

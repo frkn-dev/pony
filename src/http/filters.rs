@@ -4,8 +4,8 @@ use tokio::sync::Mutex;
 use warp::{Filter, Rejection};
 
 use crate::http::handlers::AuthError;
-use crate::DbContext;
 use crate::NodeStorage;
+use crate::PgContext;
 use crate::State;
 use crate::ZmqPublisher;
 
@@ -41,8 +41,8 @@ where
 
 /// Provides database context filter
 pub fn db(
-    db: DbContext,
-) -> impl Filter<Extract = (DbContext,), Error = std::convert::Infallible> + Clone {
+    db: PgContext,
+) -> impl Filter<Extract = (PgContext,), Error = std::convert::Infallible> + Clone {
     warp::any().map(move || db.clone())
 }
 

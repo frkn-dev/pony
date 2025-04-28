@@ -58,7 +58,7 @@ impl PgConn {
         Self { client }
     }
 
-    pub async fn all_conns(&self) -> Result<Vec<ConnRow>, Box<dyn Error + Send + Sync>> {
+    pub async fn all(&self) -> Result<Vec<ConnRow>, Box<dyn Error + Send + Sync>> {
         let client = self.client.lock().await;
 
         let query = "
@@ -71,10 +71,7 @@ impl PgConn {
         Ok(conns)
     }
 
-    pub async fn conns_by_env(
-        &self,
-        env: &str,
-    ) -> Result<Vec<ConnRow>, Box<dyn Error + Send + Sync>> {
+    pub async fn by_env(&self, env: &str) -> Result<Vec<ConnRow>, Box<dyn Error + Send + Sync>> {
         let client = self.client.lock().await;
 
         let query = "
@@ -113,7 +110,7 @@ impl PgConn {
             .collect()
     }
 
-    pub async fn conn_exist(&self, conn_id: String) -> Option<Uuid> {
+    pub async fn is_exist(&self, conn_id: String) -> Option<Uuid> {
         let client = self.client.lock().await;
 
         let query = "
@@ -131,7 +128,7 @@ impl PgConn {
         }
     }
 
-    pub async fn insert_conn(&self, conn: ConnRow) -> Result<(), Box<dyn Error + Send + Sync>> {
+    pub async fn insert(&self, conn: ConnRow) -> Result<(), Box<dyn Error + Send + Sync>> {
         let client = self.client.lock().await;
 
         let query = "
@@ -152,24 +149,6 @@ impl PgConn {
                     &conn.modified_at,
                 ],
             )
-            .await?;
-
-        Ok(())
-    }
-
-    /// ToDo: users table
-    pub async fn insert_user(&self, username: String) -> Result<(), Box<dyn Error + Send + Sync>> {
-        let client = self.client.lock().await;
-        let user_id = uuid::Uuid::new_v4();
-        let now = Utc::now();
-
-        let query = "
-        INSERT INTO users (id, username, created_at, modified_at)
-        VALUES ($1, $2, $3, $4)
-    ";
-
-        client
-            .execute(query, &[&user_id, &username, &now, &now])
             .await?;
 
         Ok(())

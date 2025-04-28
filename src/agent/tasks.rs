@@ -67,7 +67,7 @@ impl<T: NodeStorage + Send + Sync + Clone> Tasks for Agent<T> {
         let state = self.state.lock().await;
         let connections = state.connections.clone();
 
-        let node = state.nodes.get_node();
+        let node = state.nodes.get();
 
         if let Some(node) = node {
             let bandwidth: Vec<MetricType> =
@@ -149,7 +149,8 @@ impl<T: NodeStorage + Send + Sync + Clone> Tasks for Agent<T> {
                         let mut state = self.state.lock().await;
 
                         state
-                            .add_or_update_conn(conn_id.clone(), conn)
+                            .connections
+                            .add_or_update(&conn_id.clone(), conn)
                             .map_err(|err| {
                                 error!("Failed to add conn {}: {:?}", msg.conn_id, err);
                                 format!("Failed to add conn {}", msg.conn_id).into()
@@ -166,7 +167,8 @@ impl<T: NodeStorage + Send + Sync + Clone> Tasks for Agent<T> {
                     return Err(format!("Couldn't remove connections from Xray: {}", e).into());
                 } else {
                     let mut state = self.state.lock().await;
-                    let _ = state.remove_conn(msg.conn_id);
+
+                    let _ = state.connections.remove(&msg.conn_id);
                 }
 
                 Ok(())
@@ -182,9 +184,11 @@ impl<T: NodeStorage + Send + Sync + Clone> Agent<T> {
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
         let conn_stat = self.conn_stats(Prefix::ConnPrefix(conn_id)).await?;
         let mut state = self.state.lock().await;
-        let _ = state.update_conn_downlink(conn_id, conn_stat.downlink);
-        let _ = state.update_conn_uplink(conn_id, conn_stat.uplink);
-        let _ = state.update_conn_online(conn_id, conn_stat.online);
+        let _ = state
+            .connections
+            .update_downlink(&conn_id, conn_stat.downlink);
+        let _ = state.connections.update_uplink(&conn_id, conn_stat.uplink);
+        let _ = state.connections.update_online(&conn_id, conn_stat.online);
         Ok(())
     }
 
@@ -198,21 +202,15 @@ impl<T: NodeStorage + Send + Sync + Clone> Agent<T> {
             .inbound_stats(Prefix::InboundPrefix(tag.clone()))
             .await?;
         let mut state = self.state.lock().await;
-        let _ = state.nodes.update_node_downlink(
-            tag.clone(),
-            inbound_stat.downlink,
-            env.clone(),
-            node_uuid,
-        );
-        let _ = state.nodes.update_node_uplink(
-            tag.clone(),
-            inbound_stat.uplink,
-            env.clone(),
-            node_uuid,
-        );
         let _ = state
             .nodes
-            .update_node_conn_count(tag, inbound_stat.conn_count, env, node_uuid);
+            .update_node_downlink(&tag, inbound_stat.downlink, &env, &node_uuid);
+        let _ = state
+            .nodes
+            .update_node_uplink(&tag, inbound_stat.uplink, &env, &node_uuid);
+        let _ = state
+            .nodes
+            .update_node_conn_count(&tag, inbound_stat.conn_count, &env, &node_uuid);
         Ok(())
     }
 
@@ -236,7 +234,7 @@ impl<T: NodeStorage + Send + Sync + Clone> Agent<T> {
 
         if let Some(node) = {
             let state = self.state.lock().await;
-            state.nodes.get_node()
+            state.nodes.get()
         } {
             let node_tags = node.inbounds.keys().cloned().collect::<Vec<_>>();
             for tag in node_tags {

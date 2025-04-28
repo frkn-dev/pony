@@ -3,7 +3,8 @@ use std::error::Error;
 
 use teloxide::{payloads::SendMessageSetters, prelude::*, types::Me, utils::command::BotCommands};
 
-use super::actions::Actions;
+use crate::api::requests::ApiRequests;
+
 use super::BotState;
 use super::Command;
 
@@ -48,15 +49,15 @@ impl Handlers for BotState {
                     // Handle user registration.
                     if let Some(user) = msg.from {
                         if let Some(username) = user.username {
-                            let user_id = uuid::Uuid::new_v4();
-                            match self.register(&username, user_id).await {
+                            match self.register_user(&username).await {
                                 Ok(_) => {
                                     let reply = format!("Спасибо за регистрацию {}", username);
 
                                     bot.send_message(msg.chat.id, reply).await?;
                                 }
-                                Err(_) => {
-                                    let reply = format!("Упс, уже зарегистрирован {}", username);
+                                Err(e) => {
+                                    log::error!("Command::Register error {}", e);
+                                    let reply = format!("Упс, ошибка {}", username);
                                     bot.send_message(msg.chat.id, reply).await?;
                                 }
                             }

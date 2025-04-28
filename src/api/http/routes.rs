@@ -26,7 +26,7 @@ impl<T: NodeStorage + Send + Sync + Clone + 'static> Http for Api<T> {
             .and(publisher(self.publisher.clone()))
             .and(with_state(self.state.clone()))
             .and_then(move |conn_req, publisher, state| {
-                conn_request(conn_req, publisher, state, limit)
+                create_connection_handler(conn_req, publisher, state, limit)
             });
 
         let nodes_route = warp::get()
@@ -34,14 +34,14 @@ impl<T: NodeStorage + Send + Sync + Clone + 'static> Http for Api<T> {
             .and(auth.clone())
             .and(warp::query::<NodesQueryParams>())
             .and(with_state(self.state.clone()))
-            .and_then(|node_req, state| get_nodes(node_req, state));
+            .and_then(|node_req, state| get_nodes_handler(node_req, state));
 
         let connections_route = warp::get()
             .and(warp::path("conn"))
             .and(auth.clone())
             .and(warp::query::<ConnQueryParams>())
             .and(with_state(self.state.clone()))
-            .and_then(|conn_req, state| get_conn(conn_req, state));
+            .and_then(|conn_req, state| connections_lines_handler(conn_req, state));
 
         let node_register_route = warp::post()
             .and(warp::path("node"))
@@ -59,10 +59,10 @@ impl<T: NodeStorage + Send + Sync + Clone + 'static> Http for Api<T> {
             .and(warp::path("user"))
             .and(warp::path("register"))
             .and(auth)
-            .and(warp::body::json::<NodeRequest>())
+            .and(warp::body::json::<UserRequest>())
             .and(with_state(self.state.clone()))
             .and(db(self.db.clone()))
-            .and_then(|user_req, state, db, publisher| user_register(user_req, state, db));
+            .and_then(|user_req, state, db| user_register(user_req, state, db));
 
         let routes = connection_route
             .or(nodes_route)

@@ -55,7 +55,8 @@ pub struct ResponseMessage<T> {
     pub message: T,
 }
 
-pub async fn conn_request<T>(
+/// Handler creates connection
+pub async fn create_connection_handler<T>(
     conn_req: ConnRequest,
     publisher: ZmqPublisher,
     state: Arc<Mutex<State<T>>>,
@@ -96,25 +97,12 @@ where
     }
 }
 
-// ToDo: users table
-pub async fn create_user<T>(_username: String) -> Result<impl warp::Reply, warp::Rejection>
-where
-    T: NodeStorage + Sync + Send + Clone + 'static,
-{
-    let error_message = format!("Error: Not implemented");
-    let json_error_message = warp::reply::json(&error_message);
-    Ok(warp::reply::with_status(
-        json_error_message,
-        StatusCode::BAD_REQUEST,
-    ))
-}
-
 #[derive(Serialize, Deserialize)]
 pub struct NodesQueryParams {
     pub env: String,
 }
 
-pub async fn get_nodes<T>(
+pub async fn get_nodes_handler<T>(
     node_req: NodesQueryParams,
     state: Arc<Mutex<State<T>>>,
 ) -> Result<impl warp::Reply, warp::Rejection>
@@ -221,7 +209,7 @@ pub struct ConnQueryParams {
     pub id: uuid::Uuid,
 }
 
-pub async fn get_conn<T>(
+pub async fn connections_lines_handler<T>(
     conn_req: ConnQueryParams,
     state: Arc<Mutex<State<T>>>,
 ) -> Result<impl warp::Reply, warp::Rejection>
@@ -288,12 +276,39 @@ where
 {
     log::debug!("Received: {:?}", user_req);
 
-    let _ = db.user().insert(user_req.username);
+    let user_id = uuid::Uuid::new_v4();
 
-    Ok(warp::reply::with_status(
-        warp::reply::json(&response),
-        StatusCode::OK,
-    ))
+    match db.user().insert(&user_id, user_req.username).await {
+        Ok(_) => {
+            {
+                let mut state = state.lock().await;
+                state.users.insert(user_id);
+            }
+
+            let response = ResponseMessage::<String> {
+                status: 200,
+                message: format!("User {} is registered", user_id),
+            };
+
+            Ok(warp::reply::with_status(
+                warp::reply::json(&response),
+                StatusCode::OK,
+            ))
+        }
+        Err(err) => {
+            log::error!("Failed to insert user into DB: {}", err);
+
+            let response = ResponseMessage::<String> {
+                status: 500,
+                message: format!("User {} is not registered", user_id),
+            };
+
+            Ok(warp::reply::with_status(
+                warp::reply::json(&response),
+                StatusCode::INTERNAL_SERVER_ERROR,
+            ))
+        }
+    }
 }
 
 pub async fn rejection(reject: Rejection) -> Result<impl Reply, Rejection> {

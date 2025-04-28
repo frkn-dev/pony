@@ -5,7 +5,6 @@ use tokio::sync::Mutex;
 
 use crate::config::settings::BotSettings;
 
-pub mod actions;
 pub mod handlers;
 pub mod keyboards;
 

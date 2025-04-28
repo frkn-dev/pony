@@ -3,7 +3,7 @@ CREATE TYPE node_status AS ENUM ('online', 'offline');
 
 CREATE TABLE users (
     id UUID PRIMARY KEY,  
-    username TEXT,
+    username TEXT UNIQUE,
     created_at TIMESTAMP DEFAULT NOW(),
     modified_at TIMESTAMP DEFAULT NOW()
 );

@@ -14,7 +14,7 @@
         button {
             padding: 5px 10px;
         }
-        #state-container, #conn-container {
+        #state-container, #conn-container, #users-container {
             margin-top: 20px;
             padding: 10px;
             border: 1px solid #ddd;
@@ -63,6 +63,11 @@
         <pre id="nodes"></pre>
     </div>
 
+    <div id="users-container" style="display:none;">
+        <h3 id="users-header">Current Users:</h3>
+        <pre id="users"></pre>
+    </div>
+
     <div id="conn-container" style="display:none;">
         <h3>Connection Info:</h3>
         <pre id="conn-info"></pre>
@@ -79,9 +84,12 @@
 
         const connsContainer = document.getElementById('conns-container');
         const nodesContainer = document.getElementById('nodes-container');
+        const usersContainer = document.getElementById('users-container');
         const connContainer = document.getElementById('conn-container');
         const connsElement = document.getElementById('conns');
         const nodesElement = document.getElementById('nodes');
+        const usersElement = document.getElementById('users');
+        const usersHeader = document.getElementById('users-header');
         const connElement = document.getElementById('conn-info');
         const connIdInput = document.getElementById('connId');
 
@@ -111,11 +119,13 @@
                 clearInterval(reconnectInterval);
                 requestConns();
                 requestNodes();
+                requestUsers();
 
                 setInterval(() => {
                     if (socket && socket.readyState === WebSocket.OPEN) {
                         requestConns();
                         requestNodes();
+                        requestUsers();
                     }
                 }, 5000);
             };
@@ -132,6 +142,7 @@
                         case "conns": displayConns(response); break;
                         case "nodes": displayNodes(response); break;
                         case "conn": displayConnInfo(response); break;
+                        case "users": displayUsers(response); break;
                         default: console.log("Unknown response kind:", response.kind);
                     }
                 } catch (error) {
@@ -150,8 +161,7 @@
         }
 
         function attemptReconnect() {
-            if (reconnectInterval) return; // уже пробуем
-
+            if (reconnectInterval) return;
             reconnectInterval = setInterval(() => {
                 console.log("Attempting to reconnect...");
                 connectWebSocket();
@@ -181,6 +191,13 @@
         function requestNodes() {
             if (socket && socket.readyState === WebSocket.OPEN) {
                 const request = { kind: "get_nodes", message: "Requesting nodes" };
+                socket.send(JSON.stringify(request));
+            }
+        }
+
+        function requestUsers() {
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                const request = { kind: "get_users", message: "Requesting users" };
                 socket.send(JSON.stringify(request));
             }
         }
@@ -237,6 +254,29 @@
                 nodesElement.appendChild(ul);
             } else {
                 nodesElement.textContent = state.data;
+            }
+        }
+
+        function displayUsers(state) {
+            usersContainer.style.display = 'block';
+            usersElement.innerHTML = "";
+
+            let data = state.data;
+            if (typeof data === 'string') {
+                try { data = JSON.parse(data); } catch {}
+            }
+
+            if (Array.isArray(data)) {
+                usersHeader.textContent = `Current Users (${data.length}):`;
+                const ul = document.createElement('ul');
+                data.forEach(uuid => {
+                    const li = document.createElement('li');
+                    li.textContent = uuid;
+                    ul.appendChild(li);
+                });
+                usersElement.appendChild(ul);
+            } else {
+                usersElement.textContent = state.data;
             }
         }
 

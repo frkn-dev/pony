@@ -3,7 +3,7 @@ use warp::reject;
 pub mod debug;
 mod filters;
 pub mod handlers;
-mod routes;
+pub mod routes;
 
 #[derive(Debug)]
 struct JsonError(String);

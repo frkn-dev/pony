@@ -1,13 +1,11 @@
 use async_trait::async_trait;
-use log::debug;
-use log::error;
 use reqwest::Client as HttpClient;
 use reqwest::StatusCode;
 use reqwest::Url;
 use std::error::Error;
-use uuid::Uuid;
 
 use super::http::handlers::ResponseMessage;
+use super::http::handlers::UserRequest;
 use crate::bot::BotState;
 use crate::postgres::connection::ConnRow;
 use crate::state::state::NodeStorage;
@@ -23,16 +21,20 @@ pub trait ApiRequests {
         Err("register_node not implemented".into())
     }
 
+    async fn register_user(&self, _username: &str) -> Result<(), Box<dyn Error + Send + Sync>> {
+        Err("register_user not implemented".into())
+    }
+
     async fn create_vpn_connection(
         &self,
-        _conn_id: Uuid,
+        _conn_id: &uuid::Uuid,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
         Err("create_vpn_connection not implemented".into())
     }
 
     async fn get_vpn_connection(
         &self,
-        _conn_id: Uuid,
+        _conn_id: &uuid::Uuid,
     ) -> Result<Vec<String>, Box<dyn Error + Send + Sync>> {
         Err("get_vpn_connection not implemented".into())
     }
@@ -62,11 +64,10 @@ impl<T: NodeStorage + Send + Sync + Clone> ApiRequests for Agent<T> {
             .push("register");
 
         let endpoint_str = endpoint_url.to_string();
-        debug!("ENDPOINT: {}", endpoint_str);
 
         match serde_json::to_string_pretty(&node) {
-            Ok(json) => debug!("Serialized node for environment '{}': {}", node.env, json),
-            Err(e) => error!("Error serializing node '{}': {}", node.hostname, e),
+            Ok(json) => log::debug!("Serialized node for environment '{}': {}", node.env, json),
+            Err(e) => log::error!("Error serializing node '{}': {}", node.hostname, e),
         }
 
         let res = HttpClient::new()
@@ -82,15 +83,15 @@ impl<T: NodeStorage + Send + Sync + Clone> ApiRequests for Agent<T> {
 
         if status.is_success() || status == StatusCode::NOT_MODIFIED {
             if body.trim().is_empty() {
-                debug!("Node is already registered");
+                log::debug!("Node is already registered");
                 Ok(())
             } else {
                 let parsed: ResponseMessage<String> = serde_json::from_str(&body)?;
-                debug!("Node is already registered: {:?}", parsed);
+                log::debug!("Node is already registered: {:?}", parsed);
                 Ok(())
             }
         } else {
-            error!("Registration failed: {} - {}", status, body);
+            log::error!("Registration failed: {} - {}", status, body);
             Err(format!("Registration failed: {} - {}", status, body).into())
         }
     }
@@ -98,20 +99,50 @@ impl<T: NodeStorage + Send + Sync + Clone> ApiRequests for Agent<T> {
 
 #[async_trait]
 impl ApiRequests for BotState {
+    async fn register_user(&self, username: &str) -> Result<(), Box<dyn Error + Send + Sync>> {
+        let mut endpoint = Url::parse(&self.settings.api.endpoint)?;
+        endpoint
+            .path_segments_mut()
+            .map_err(|_| "Invalid API endpoint")?
+            .push("user")
+            .push("register");
+
+        let endpoint = endpoint.to_string();
+
+        let user = UserRequest {
+            username: username.to_string(),
+        };
+
+        let res = HttpClient::new()
+            .post(&endpoint)
+            .header("Content-Type", "application/json")
+            .header(
+                "Authorization",
+                format!("Bearer {}", &self.settings.api.token),
+            )
+            .json(&user)
+            .send()
+            .await?;
+
+        if res.status().is_success() || res.status() == StatusCode::NOT_MODIFIED {
+            return Ok(());
+        } else {
+            return Err(format!("/user/register req error: {} {:?}", res.status(), res).into());
+        }
+    }
+
     async fn create_vpn_connection(
         &self,
-        conn_id: uuid::Uuid,
+        conn_id: &uuid::Uuid,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
         let mut endpoint = Url::parse(&self.settings.api.endpoint)?;
         endpoint
             .path_segments_mut()
             .map_err(|_| "Invalid API endpoint")?
-            .push("user");
+            .push("connection");
         let endpoint = endpoint.to_string();
 
-        debug!("ENDPOINT: {}", endpoint);
-
-        let conn = ConnRow::new(conn_id);
+        let conn = ConnRow::new(*conn_id);
         let conn_req = conn.as_create_conn_request();
         let json = serde_json::to_string_pretty(&conn_req).unwrap();
 
@@ -131,18 +162,13 @@ impl ApiRequests for BotState {
         if res.status().is_success() || res.status() == StatusCode::NOT_MODIFIED {
             return Ok(());
         } else {
-            return Err(format!(
-                "create_vpn_connection Req error: {} {:?}",
-                res.status(),
-                res
-            )
-            .into());
+            return Err(format!("/connection req error: {} {:?}", res.status(), res).into());
         }
     }
 
     async fn get_vpn_connection(
         &self,
-        conn_id: uuid::Uuid,
+        conn_id: &uuid::Uuid,
     ) -> Result<Vec<String>, Box<dyn Error + Send + Sync>> {
         let mut endpoint = Url::parse(&self.settings.api.endpoint)?;
         endpoint

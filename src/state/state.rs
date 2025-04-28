@@ -43,8 +43,6 @@ impl State<Node> {
     }
 }
 
-pub trait UserStorage {}
-
 pub trait NodeStorage {
     fn add(&mut self, new_node: Node) -> Result<(), Box<dyn Error>>;
     fn all(&self) -> Option<Vec<Node>>;

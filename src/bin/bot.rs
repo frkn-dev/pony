@@ -1,17 +1,15 @@
-use std::error::Error;
-use std::sync::Arc;
-use teloxide::types::Me;
-
 use clap::Parser;
 use fern::Dispatch;
-use pony::postgres::PgContext;
-
+use std::error::Error;
+use std::sync::Arc;
 use teloxide::prelude::*;
+use teloxide::types::Me;
 
 use pony::bot::handlers::Handlers;
 use pony::bot::BotState;
+use pony::config::settings::BotSettings;
+use pony::config::settings::Settings;
 use pony::utils::*;
-use pony::{postgres::postgres::postgres_client, BotSettings, Settings};
 
 #[derive(Parser)]
 #[command(about = "pony tg-Bot")]
@@ -46,7 +44,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .apply()
         .unwrap();
 
-    let bot = Bot::new(settings.api.token.clone());
+    let bot = Bot::new(settings.bot.token.clone());
     let bot_state = Arc::new(BotState::new(settings));
 
     let handler = dptree::entry()

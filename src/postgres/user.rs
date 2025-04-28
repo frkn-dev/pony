@@ -14,10 +14,13 @@ impl PgUser {
         Self { client }
     }
 
-    pub async fn insert(&self, username: String) -> Result<(), Box<dyn Error + Send + Sync>> {
+    pub async fn insert(
+        &self,
+        user_id: &uuid::Uuid,
+        username: String,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
         let client = self.client.lock().await;
-        let user_id = uuid::Uuid::new_v4();
-        let now = Utc::now();
+        let now = Utc::now().naive_utc();
 
         let query = "
         INSERT INTO users (id, username, created_at, modified_at)

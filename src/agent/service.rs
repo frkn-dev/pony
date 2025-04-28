@@ -26,7 +26,7 @@ use crate::Agent;
 
 type AgentState = State<Node>;
 
-pub async fn service(settings: AgentSettings) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn run(settings: AgentSettings) -> Result<(), Box<dyn std::error::Error>> {
     let debug = settings.debug.enabled;
     let mut tasks: Vec<JoinHandle<()>> = vec![];
 

@@ -2,19 +2,25 @@ use std::collections::HashMap;
 use std::net::Ipv4Addr;
 use std::sync::Arc;
 
-use tokio::time::Duration;
-
 use clap::Parser;
 use fern::Dispatch;
 use futures::future::join_all;
-use log::error;
 use tokio::sync::Mutex;
+use tokio::time::Duration;
 
-use pony::{
-    api::http::routes::Http, api::tasks::Tasks, http::debug::start_ws_server,
-    postgres::postgres_client, utils::*, Api, ApiSettings, ChContext, Node, PgContext, Settings,
-    State, ZmqPublisher,
-};
+use pony::api::http::debug::start_ws_server;
+use pony::api::http::routes::Http;
+use pony::api::tasks::Tasks;
+use pony::clickhouse::ChContext;
+use pony::config::settings::ApiSettings;
+use pony::config::settings::Settings;
+use pony::postgres::postgres_client;
+use pony::postgres::PgContext;
+use pony::state::node::Node;
+use pony::state::state::State;
+use pony::utils::*;
+use pony::zmq::publisher::Publisher as ZmqPublisher;
+use pony::Api;
 
 #[derive(Parser)]
 #[command(about = "Pony Api - control tool for Xray/Wireguard")]
@@ -88,11 +94,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .into_iter()
                     .find(Result::is_err)
                 {
-                    error!("Error during node state initialization: {}", e);
+                    log::error!("Error during node state initialization: {}", e);
                 }
             }
             Err(e) => {
-                error!("Failed to fetch nodes from DB: {}", e);
+                log::error!("Failed to fetch nodes from DB: {}", e);
                 return Err(e);
             }
         }
@@ -109,11 +115,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .into_iter()
                 .find(Result::is_err)
                 {
-                    error!("Error during conn state initialization: {}", e);
+                    log::error!("Error during conn state initialization: {}", e);
                 }
             }
             Err(e) => {
-                error!("Failed to fetch conns from DB: {}", e);
+                log::error!("Failed to fetch conns from DB: {}", e);
                 return Err(e);
             }
         }
@@ -137,7 +143,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         async move {
             loop {
                 if let Err(e) = api.node_healthcheck().await {
-                    error!("Healthcheck failed: {:?}", e);
+                    log::error!("Healthcheck failed: {:?}", e);
                 }
                 tokio::time::sleep(job_interval).await;
             }
@@ -151,7 +157,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         async move {
             loop {
                 if let Err(e) = api.check_conn_uplink_limits().await {
-                    error!("Check limits  failed: {:?}", e);
+                    log::error!("Check limits  failed: {:?}", e);
                 }
                 tokio::time::sleep(job_interval).await;
             }
@@ -165,7 +171,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         async move {
             loop {
                 if let Err(e) = api.reactivate_trial_conns().await {
-                    error!("Reactivate trial conns task failed: {:?}", e);
+                    log::error!("Reactivate trial conns task failed: {:?}", e);
                 }
                 tokio::time::sleep(job_interval).await;
             }

@@ -1,10 +1,11 @@
 use clap::Parser;
 use fern::Dispatch;
 
-use pony::agent;
 use pony::config::settings::AgentSettings;
 use pony::config::settings::Settings;
 use pony::utils::*;
+
+mod core;
 
 #[derive(Parser)]
 #[command(about = "Pony Agent - control tool for Xray/Wireguard")]
@@ -57,7 +58,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build()
         .unwrap();
 
-    runtime.block_on(agent::service::run(settings))?;
+    runtime.block_on(core::service::run(settings))?;
 
     Ok(())
 }

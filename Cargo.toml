@@ -65,13 +65,13 @@ debug = ["console-subscriber"]
 
 [[bin]]
 name = "agent"
-path = "src/bin/agent.rs"
+path = "src/bin/agent/main.rs"
 
 [[bin]]
 name = "api"
-path = "src/bin/api.rs"
+path = "src/bin/api/main.rs"
 
 [[bin]]
 name = "bot"
-path = "src/bin/bot.rs"
+path = "src/bin/bot/main.rs"
 

@@ -4,97 +4,24 @@ use reqwest::StatusCode;
 use reqwest::Url;
 use std::error::Error;
 
-use super::http::handlers::ResponseMessage;
-use super::http::handlers::UserRequest;
-use crate::bot::BotState;
-use crate::postgres::connection::ConnRow;
-use crate::state::state::NodeStorage;
-use crate::Agent;
+use pony::http::UserRequest;
+use pony::postgres::connection::ConnRow;
+
+use super::BotState;
 
 #[async_trait]
 pub trait ApiRequests {
-    async fn register_node(
-        &self,
-        _endpoint: String,
-        _token: String,
-    ) -> Result<(), Box<dyn Error + Send + Sync>> {
-        Err("register_node not implemented".into())
-    }
-
-    async fn register_user(&self, _username: &str) -> Result<(), Box<dyn Error + Send + Sync>> {
-        Err("register_user not implemented".into())
-    }
+    async fn register_user(&self, _username: &str) -> Result<(), Box<dyn Error + Send + Sync>>;
 
     async fn create_vpn_connection(
         &self,
         _conn_id: &uuid::Uuid,
-    ) -> Result<(), Box<dyn Error + Send + Sync>> {
-        Err("create_vpn_connection not implemented".into())
-    }
+    ) -> Result<(), Box<dyn Error + Send + Sync>>;
 
     async fn get_vpn_connection(
         &self,
         _conn_id: &uuid::Uuid,
-    ) -> Result<Vec<String>, Box<dyn Error + Send + Sync>> {
-        Err("get_vpn_connection not implemented".into())
-    }
-}
-
-#[async_trait]
-impl<T: NodeStorage + Send + Sync + Clone> ApiRequests for Agent<T> {
-    async fn register_node(
-        &self,
-        endpoint: String,
-        token: String,
-    ) -> Result<(), Box<dyn Error + Send + Sync>> {
-        let node = {
-            let state = self.state.lock().await;
-            state
-                .nodes
-                .get()
-                .expect("No node available to register")
-                .clone()
-        };
-
-        let mut endpoint_url = Url::parse(&endpoint)?;
-        endpoint_url
-            .path_segments_mut()
-            .map_err(|_| "Invalid API endpoint")?
-            .push("node")
-            .push("register");
-
-        let endpoint_str = endpoint_url.to_string();
-
-        match serde_json::to_string_pretty(&node) {
-            Ok(json) => log::debug!("Serialized node for environment '{}': {}", node.env, json),
-            Err(e) => log::error!("Error serializing node '{}': {}", node.hostname, e),
-        }
-
-        let res = HttpClient::new()
-            .post(&endpoint_str)
-            .header("Content-Type", "application/json")
-            .header("Authorization", format!("Bearer {}", token))
-            .json(&node)
-            .send()
-            .await?;
-
-        let status = res.status();
-        let body = res.text().await?;
-
-        if status.is_success() || status == StatusCode::NOT_MODIFIED {
-            if body.trim().is_empty() {
-                log::debug!("Node is already registered");
-                Ok(())
-            } else {
-                let parsed: ResponseMessage<String> = serde_json::from_str(&body)?;
-                log::debug!("Node is already registered: {:?}", parsed);
-                Ok(())
-            }
-        } else {
-            log::error!("Registration failed: {} - {}", status, body);
-            Err(format!("Registration failed: {} - {}", status, body).into())
-        }
-    }
+    ) -> Result<Vec<String>, Box<dyn Error + Send + Sync>>;
 }
 
 #[async_trait]

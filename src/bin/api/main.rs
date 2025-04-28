@@ -8,19 +8,22 @@ use futures::future::join_all;
 use tokio::sync::Mutex;
 use tokio::time::Duration;
 
-use pony::api::http::debug::start_ws_server;
-use pony::api::http::routes::Http;
-use pony::api::tasks::Tasks;
 use pony::clickhouse::ChContext;
 use pony::config::settings::ApiSettings;
 use pony::config::settings::Settings;
+use pony::http::debug;
 use pony::postgres::postgres_client;
 use pony::postgres::PgContext;
 use pony::state::node::Node;
 use pony::state::state::State;
 use pony::utils::*;
 use pony::zmq::publisher::Publisher as ZmqPublisher;
-use pony::Api;
+
+use crate::core::http::routes::Http;
+use crate::core::tasks::Tasks;
+use crate::core::Api;
+
+mod core;
 
 #[derive(Parser)]
 #[command(about = "Pony Api - control tool for Xray/Wireguard")]
@@ -126,7 +129,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     if debug {
-        tokio::spawn(start_ws_server(
+        tokio::spawn(debug::start_ws_server(
             state.clone(),
             settings
                 .debug

@@ -5,24 +5,26 @@ use tokio::task::JoinHandle;
 use tokio::time::sleep;
 use tokio::time::Duration;
 
-use crate::agent::tasks::Tasks;
-use crate::api::http::debug::start_ws_server;
-use crate::api::requests::ApiRequests;
-use crate::config::settings::AgentSettings;
-use crate::config::xray::Config as XrayConfig;
-use crate::state::connection::Conn;
-use crate::state::node::Node;
-use crate::state::state::ConnStorage;
-use crate::state::state::NodeStorage;
-use crate::state::state::State;
-use crate::state::tag::Tag;
-use crate::utils::*;
-use crate::xray_op::client::HandlerActions;
-use crate::xray_op::client::HandlerClient;
-use crate::xray_op::client::StatsClient;
-use crate::xray_op::client::XrayClient;
-use crate::zmq::subscriber::Subscriber as ZmqSubscriber;
-use crate::Agent;
+use pony::config::settings::AgentSettings;
+use pony::config::xray::Config as XrayConfig;
+use pony::http::debug;
+use pony::state::connection::Conn;
+use pony::state::node::Node;
+use pony::state::state::ConnStorage;
+use pony::state::state::NodeStorage;
+use pony::state::state::State;
+use pony::state::tag::Tag;
+use pony::utils::*;
+use pony::xray_op::client::HandlerActions;
+use pony::xray_op::client::HandlerClient;
+use pony::xray_op::client::StatsClient;
+use pony::xray_op::client::XrayClient;
+use pony::zmq::subscriber::Subscriber as ZmqSubscriber;
+
+use crate::core::http::ApiRequests;
+
+use super::tasks::Tasks;
+use super::Agent;
 
 type AgentState = State<Node>;
 
@@ -69,7 +71,7 @@ pub async fn run(settings: AgentSettings) -> Result<(), Box<dyn std::error::Erro
     ));
 
     if debug && !settings.agent.local {
-        tokio::spawn(start_ws_server(
+        tokio::spawn(debug::start_ws_server(
             state.clone(),
             settings
                 .debug

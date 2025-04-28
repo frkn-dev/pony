@@ -1,26 +1,23 @@
-use std::error::Error;
-
 use async_trait::async_trait;
 use chrono::Duration;
 use chrono::LocalResult;
 use chrono::TimeZone;
 use chrono::Utc;
 use futures::future::join_all;
-use log::debug;
-use log::error;
-use log::warn;
+use std::error::Error;
 
-use crate::clickhouse::query::Queries;
-use crate::postgres::connection::ConnRow;
-use crate::state::connection::Conn;
-use crate::state::connection::ConnStatus;
-use crate::state::node::Node;
-use crate::state::node::NodeStatus;
-use crate::state::state::ConnStorage;
-use crate::state::state::NodeStorage;
-use crate::zmq::message::Action;
-use crate::zmq::message::Message;
-use crate::Api;
+use pony::clickhouse::query::Queries;
+use pony::postgres::connection::ConnRow;
+use pony::state::connection::Conn;
+use pony::state::connection::ConnStatus;
+use pony::state::node::Node;
+use pony::state::node::NodeStatus;
+use pony::state::state::ConnStorage;
+use pony::state::state::NodeStorage;
+use pony::zmq::message::Action;
+use pony::zmq::message::Message;
+
+use super::Api;
 
 #[async_trait]
 pub trait Tasks {
@@ -58,7 +55,7 @@ impl<T: NodeStorage + Send + Sync + Clone> Tasks for Api<T> {
         let mut state = self.state.lock().await;
         match state.nodes.add(db_node.clone()) {
             Ok(_) => {
-                debug!("Node added to State: {}", db_node.uuid);
+                log::debug!("Node added to State: {}", db_node.uuid);
                 Ok(())
             }
             Err(e) => Err(format!(
@@ -152,67 +149,70 @@ impl<T: NodeStorage + Send + Sync + Clone> Tasks for Api<T> {
                 .collect::<Vec<_>>()
         };
 
-        let tasks = conns_map.into_iter().map(|(conn_id, conn)| {
-            let ch = self.ch.clone();
-            let publisher = self.publisher.clone();
-            let state = self.state.clone();
-            let env = conn.env.clone();
-            let modified_at = conn.modified_at;
+        let tasks =
+            conns_map.into_iter().map(|(conn_id, conn)| {
+                let ch = self.ch.clone();
+                let publisher = self.publisher.clone();
+                let state = self.state.clone();
+                let env = conn.env.clone();
+                let modified_at = conn.modified_at;
 
-            async move {
-                let result = ch
-                    .fetch_conn_uplink_traffic::<f64>(&env, conn_id, modified_at)
-                    .await;
+                async move {
+                    let result = ch
+                        .fetch_conn_uplink_traffic::<f64>(&env, conn_id, modified_at)
+                        .await;
 
-                if let Some(metric) = result {
-                    let uplink_mb = metric.value / 1_048_576.0;
+                    if let Some(metric) = result {
+                        let uplink_mb = metric.value / 1_048_576.0;
 
-                    if uplink_mb > conn.limit as f64 {
-                        warn!(
+                        if uplink_mb > conn.limit as f64 {
+                            log::warn!(
                             "🚨 Connection {} in env {} exceeds limit: uplink = {:.2} MB / {} MB",
                             conn_id, env, uplink_mb, conn.limit
                         );
 
-                        let msg = Message {
-                            conn_id: conn_id.clone(),
-                            action: Action::Delete,
-                            env: env.clone(),
-                            trial: conn.trial,
-                            limit: conn.limit,
-                            password: None,
-                        };
+                            let msg = Message {
+                                conn_id: conn_id.clone(),
+                                action: Action::Delete,
+                                env: env.clone(),
+                                trial: conn.trial,
+                                limit: conn.limit,
+                                password: None,
+                            };
 
-                        if let Err(e) = publisher.send(&env, msg).await {
-                            error!("Failed to send DELETE for {}: {}", conn_id, e);
-                        }
-
-                        {
-                            let mut state = state.lock().await;
-                            if let Some(conn) = state.connections.get_mut(&conn_id) {
-                                conn.status = ConnStatus::Expired;
-                                conn.update_modified_at();
-                                debug!("✅ Marked connection {} as Expired", conn_id);
+                            if let Err(e) = publisher.send(&env, msg).await {
+                                log::error!("Failed to send DELETE for {}: {}", conn_id, e);
                             }
+
+                            {
+                                let mut state = state.lock().await;
+                                if let Some(conn) = state.connections.get_mut(&conn_id) {
+                                    conn.status = ConnStatus::Expired;
+                                    conn.update_modified_at();
+                                    log::debug!("✅ Marked connection {} as Expired", conn_id);
+                                }
+                            }
+                        } else {
+                            log::debug!(
+                                "✅ Connection {} uplink OK: {:.2} MB / {} MB",
+                                conn_id,
+                                uplink_mb,
+                                conn.limit
+                            );
                         }
                     } else {
-                        debug!(
-                            "✅ Connection {} uplink OK: {:.2} MB / {} MB",
-                            conn_id, uplink_mb, conn.limit
-                        );
+                        log::debug!("No uplink data for connection {}", conn_id);
                     }
-                } else {
-                    debug!("No uplink data for connection {}", conn_id);
-                }
 
-                Ok::<(), Box<dyn Error + Send + Sync>>(())
-            }
-        });
+                    Ok::<(), Box<dyn Error + Send + Sync>>(())
+                }
+            });
 
         let results = join_all(tasks).await;
 
         for res in results {
             if let Err(e) = res {
-                error!("Error during connection uplink check: {:?}", e);
+                log::error!("Error during connection uplink check: {:?}", e);
             }
         }
 
@@ -244,7 +244,7 @@ impl<T: NodeStorage + Send + Sync + Clone> Tasks for Api<T> {
                         if let Some(conn_mut) = state.connections.get_mut(&conn_id) {
                             conn_mut.status = ConnStatus::Active;
                             conn_mut.update_modified_at();
-                            debug!("✅ Re-activated connection {}", conn_id);
+                            log::debug!("✅ Re-activated connection {}", conn_id);
                         }
                     }
 
@@ -258,7 +258,7 @@ impl<T: NodeStorage + Send + Sync + Clone> Tasks for Api<T> {
                     };
 
                     if let Err(e) = publisher.send(&env, msg).await {
-                        error!("Failed to send CREATE for {}: {}", conn_id, e);
+                        log::error!("Failed to send CREATE for {}: {}", conn_id, e);
                     }
                 }
 
@@ -270,7 +270,7 @@ impl<T: NodeStorage + Send + Sync + Clone> Tasks for Api<T> {
 
         for res in results {
             if let Err(e) = res {
-                error!("Error during connection reactivation: {:?}", e);
+                log::error!("Error during connection reactivation: {:?}", e);
             }
         }
 

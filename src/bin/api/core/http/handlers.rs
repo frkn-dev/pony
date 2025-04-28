@@ -3,20 +3,23 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use warp::{http::StatusCode, reject, Rejection, Reply};
 
+use pony::http::ResponseMessage;
+use pony::http::UserRequest;
+use pony::postgres::PgContext;
+use pony::state::connection::Conn;
+use pony::state::node::NodeRequest;
+use pony::state::node::NodeResponse;
+use pony::state::node::NodeStatus;
+use pony::state::state::ConnStorage;
+use pony::state::state::NodeStorage;
+use pony::state::state::State;
+use pony::state::tag::Tag;
+use pony::utils;
+use pony::zmq::message::Action;
+use pony::zmq::message::Message;
+use pony::zmq::publisher::Publisher as ZmqPublisher;
+
 use super::JsonError;
-use crate::postgres::PgContext;
-use crate::state::connection::Conn;
-use crate::state::node::NodeRequest;
-use crate::state::node::NodeResponse;
-use crate::state::node::NodeStatus;
-use crate::state::state::ConnStorage;
-use crate::state::state::NodeStorage;
-use crate::state::state::State;
-use crate::state::tag::Tag;
-use crate::utils;
-use crate::zmq::message::Action;
-use crate::zmq::message::Message;
-use crate::zmq::publisher::Publisher as ZmqPublisher;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct ConnRequest {
@@ -48,12 +51,6 @@ impl warp::reject::Reject for AuthError {}
 #[derive(Debug)]
 struct MethodError;
 impl reject::Reject for MethodError {}
-
-#[derive(Serialize, Debug, Deserialize)]
-pub struct ResponseMessage<T> {
-    pub status: u16,
-    pub message: T,
-}
 
 /// Handler creates connection
 pub async fn create_connection_handler<T>(
@@ -259,11 +256,6 @@ where
     }
 
     Err(warp::reject::not_found())
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct UserRequest {
-    pub username: String,
 }
 
 pub async fn user_register<T>(

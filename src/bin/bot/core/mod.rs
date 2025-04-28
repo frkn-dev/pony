@@ -3,10 +3,11 @@ use std::sync::Arc;
 use teloxide::utils::command::BotCommands;
 use tokio::sync::Mutex;
 
-use crate::config::settings::BotSettings;
+use pony::config::settings::BotSettings;
 
 pub mod handlers;
-pub mod keyboards;
+mod http;
+mod keyboards;
 
 #[derive(BotCommands)]
 #[command(rename_rule = "lowercase")]

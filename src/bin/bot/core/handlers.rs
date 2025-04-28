@@ -3,8 +3,7 @@ use std::error::Error;
 
 use teloxide::{payloads::SendMessageSetters, prelude::*, types::Me, utils::command::BotCommands};
 
-use crate::api::requests::ApiRequests;
-
+use super::http::ApiRequests;
 use super::BotState;
 use super::Command;
 

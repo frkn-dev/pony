@@ -5,11 +5,14 @@ use std::sync::Arc;
 use teloxide::prelude::*;
 use teloxide::types::Me;
 
-use pony::bot::handlers::Handlers;
-use pony::bot::BotState;
+use crate::core::handlers::Handlers;
+use crate::core::BotState;
+
 use pony::config::settings::BotSettings;
 use pony::config::settings::Settings;
 use pony::utils::*;
+
+mod core;
 
 #[derive(Parser)]
 #[command(about = "pony tg-Bot")]

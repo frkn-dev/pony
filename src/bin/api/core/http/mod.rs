@@ -1,6 +1,5 @@
 use warp::reject;
 
-pub mod debug;
 mod filters;
 pub mod handlers;
 pub mod routes;

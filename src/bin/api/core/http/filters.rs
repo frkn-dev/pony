@@ -3,10 +3,10 @@ use tokio::sync::Mutex;
 use warp::{Filter, Rejection};
 
 use super::handlers::AuthError;
-use crate::postgres::PgContext;
-use crate::state::state::NodeStorage;
-use crate::state::state::State;
-use crate::zmq::publisher::Publisher as ZmqPublisher;
+use pony::postgres::PgContext;
+use pony::state::state::NodeStorage;
+use pony::state::state::State;
+use pony::zmq::publisher::Publisher as ZmqPublisher;
 
 /// Provides authentication filter based on API token
 pub fn auth(token: Arc<String>) -> impl Filter<Extract = (), Error = Rejection> + Clone {

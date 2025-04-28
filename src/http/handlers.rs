@@ -102,6 +102,42 @@ where
     }
 }
 
+pub async fn create_user_from_tg<T>(username: String) -> Result<impl warp::Reply, warp::Rejection>
+where
+    T: NodeStorage + Sync + Send + Clone + 'static,
+{
+    let message = user_req.as_message(limit);
+    println!("{}", message);
+    match publisher.send(&user_req.env, message).await {
+        Ok(_) => {
+            let trial = user_req.trial.unwrap_or(true);
+            let limit = user_req.limit.unwrap_or(limit);
+
+            let mut state = state.lock().await;
+            let user = User::new(trial, limit, user_req.env, user_req.password);
+            let _ = state.add_or_update_user(user_req.user_id, user);
+
+            let response = ResponseMessage {
+                status: 200,
+                message: "User Created".to_string(),
+            };
+
+            Ok(warp::reply::with_status(
+                warp::reply::json(&response),
+                StatusCode::OK,
+            ))
+        }
+        Err(err) => {
+            let error_message = format!("Error: Cannot handle /user req: {}", err);
+            let json_error_message = warp::reply::json(&error_message);
+            Ok(warp::reply::with_status(
+                json_error_message,
+                StatusCode::BAD_REQUEST,
+            ))
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize)]
 pub struct NodesQueryParams {
     pub env: String,

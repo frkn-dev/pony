@@ -24,7 +24,7 @@ use crate::UserStorage;
 
 #[async_trait]
 pub trait Tasks {
-    async fn node_healthcheck(&self, timeout: i16) -> Result<(), Box<dyn Error + Send + Sync>>;
+    async fn node_healthcheck(&self) -> Result<(), Box<dyn Error + Send + Sync>>;
     async fn check_user_uplink_limits(&self) -> Result<(), Box<dyn Error + Send + Sync>>;
     async fn reactivate_trial_users(&self) -> Result<(), Box<dyn Error + Send + Sync>>;
     async fn add_node(&self, db_node: Node) -> Result<(), Box<dyn Error + Send + Sync>>;
@@ -65,7 +65,7 @@ impl<T: NodeStorage + std::marker::Send + std::marker::Sync + std::clone::Clone>
             .into()),
         }
     }
-    async fn node_healthcheck(&self, timeout: i16) -> Result<(), Box<dyn Error + Send + Sync>> {
+    async fn node_healthcheck(&self) -> Result<(), Box<dyn Error + Send + Sync>> {
         let state_lock = self.state.lock().await;
         let nodes = match state_lock.nodes.get_all_nodes() {
             Some(n) => n.clone(),
@@ -73,7 +73,8 @@ impl<T: NodeStorage + std::marker::Send + std::marker::Sync + std::clone::Clone>
         };
         drop(state_lock);
 
-        let timeout_duration = Duration::seconds(timeout as i64);
+        let timeout_duration =
+            Duration::seconds(self.settings.api.node_health_check_timeout as i64);
 
         let tasks = nodes.into_iter().map(|node| {
             let ch = self.ch.clone();

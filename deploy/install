@@ -46,6 +46,10 @@ else
 fi
 
 
+apt-get update -y 
+apt-get install -y unzip, wget, curl
+
+
 mkdir -p "$INSTALL_DIR"
 cd "$INSTALL_DIR"
 

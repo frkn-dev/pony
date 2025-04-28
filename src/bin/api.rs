@@ -13,7 +13,8 @@ use tokio::sync::Mutex;
 use pony::{
     api::tasks::Tasks,
     config::settings::{ApiSettings, Settings},
-    http::{self, debug::start_ws_server},
+    http::api::Http,
+    http::debug::start_ws_server,
     postgres::{postgres::postgres_client, DbContext},
     utils::*,
     Api, ChContext, Node, State, ZmqPublisher,
@@ -78,6 +79,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ch.clone(),
         publisher.clone(),
         state.clone(),
+        settings.clone(),
     ));
 
     let _ = {
@@ -130,13 +132,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let _ = tokio::spawn({
-        let node_timeout = settings.api.node_health_check_timeout;
         let job_interval = Duration::from_secs(settings.api.healthcheck_interval);
         let api = api.clone();
 
         async move {
             loop {
-                if let Err(e) = api.node_healthcheck(node_timeout).await {
+                if let Err(e) = api.node_healthcheck().await {
                     error!("Healthcheck failed: {:?}", e);
                 }
                 tokio::time::sleep(job_interval).await;
@@ -172,15 +173,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
-    tokio::spawn(http::api::run_api_server(
-        state.clone(),
-        db,
-        publisher.clone(),
-        settings.api.address.unwrap_or(Ipv4Addr::new(127, 0, 0, 1)),
-        settings.api.port,
-        settings.api.token,
-        settings.api.user_limit_mb,
-    ));
+    let api = api.clone();
+    tokio::spawn(async move { api.run().await });
     tokio::signal::ctrl_c()
         .await
         .expect("Failed to listen for event");

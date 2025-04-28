@@ -26,8 +26,7 @@
 # level = "debug"
 
 [zmq]
-# sub_endpoint = "tcp://localhost:3000"
-# pub_endpoint = "tcp://*:3000"
+# endpoint = "tcp://*:3000"
 
 [clickhouse]
 # address = "http://localhost:8123"

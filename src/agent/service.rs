@@ -1,3 +1,4 @@
+use crate::api::requests::ApiRequests;
 use crate::{
     agent::tasks::Tasks, http::debug::start_ws_server, utils::*, Agent, AgentSettings,
     HandlerActions, HandlerClient, Node, NodeStorage, State, StatsClient, Tag, User, UserStorage,
@@ -134,7 +135,7 @@ pub async fn service(settings: AgentSettings) -> Result<(), Box<dyn std::error::
 
         let _ = {
             let settings = settings.clone();
-            debug!("----->> Register node task");
+            debug!("Register node task");
             if let Err(e) = agent
                 .register_node(settings.api.endpoint.clone(), settings.api.token.clone())
                 .await

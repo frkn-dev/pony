@@ -2,6 +2,7 @@ use warp::reject;
 
 pub mod api;
 pub mod debug;
+pub mod filters;
 pub mod handlers;
 
 #[derive(Debug)]

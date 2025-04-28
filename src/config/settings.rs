@@ -424,13 +424,6 @@ impl Settings for AgentSettings {
 pub struct BotConfig {
     #[serde(default = "default_tg_token")]
     pub token: String,
-    pub address: String,
-    #[serde(default = "default_api_token")]
-    pub webhook_token: String,
-    #[serde(default = "default_api_web_listen")]
-    pub bind_addr: Option<Ipv4Addr>,
-
-    pub bind_port: u16,
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]
@@ -438,13 +431,9 @@ pub struct BotSettings {
     #[serde(default)]
     pub logging: LoggingConfig,
     #[serde(default)]
-    pub pg: PostgresConfig,
-    #[serde(default)]
     pub api: ApiAccessConfig,
     #[serde(default)]
     pub bot: BotConfig,
-    #[serde(default)]
-    pub pay: PaymentConfig,
 }
 
 impl Settings for BotSettings {

@@ -153,4 +153,22 @@ impl PgUserRequest {
 
         Ok(())
     }
+
+    pub async fn insert_tg_user(
+        &self,
+        username: String,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        let client = self.client.lock().await;
+        let user_id = uuid::Uuid::new_v4();
+        let now = Utc::now();
+
+        let query = "
+        INSERT INTO tg_users (id, username, created)
+        VALUES ($1, $2, $3)
+    ";
+
+        client.execute(query, &[&user_id, &username, &now]).await?;
+
+        Ok(())
+    }
 }

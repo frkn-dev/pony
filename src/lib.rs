@@ -1,5 +1,6 @@
 pub mod agent;
 pub mod api;
+pub mod bot;
 pub mod clickhouse;
 pub mod config;
 pub mod http;
@@ -11,9 +12,7 @@ pub mod xray_api;
 pub mod xray_op;
 pub mod zmq;
 
-#[cfg(feature = "bot")]
-pub mod jobs;
-#[cfg(feature = "bot")]
+#[cfg(feature = "payment")]
 pub mod payment;
 
 pub use agent::Agent;

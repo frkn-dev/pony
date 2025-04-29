@@ -2,8 +2,12 @@ use async_trait::async_trait;
 use std::sync::Arc;
 use warp::Filter;
 
-use pony::http::UserRequest;
-use pony::state::node::NodeRequest;
+use pony::http::requests::NodeRequest;
+use pony::http::requests::NodesQueryParams;
+use pony::http::requests::UserQueryParam;
+use pony::state::connection::Conn;
+use pony::state::connection::ConnApiOp;
+use pony::state::connection::ConnBaseOp;
 use pony::state::state::NodeStorage;
 use pony::Result;
 
@@ -17,12 +21,27 @@ pub trait Http {
 }
 
 #[async_trait]
-impl<T: NodeStorage + Send + Sync + Clone + 'static> Http for Api<T> {
+impl<T, C> Http for Api<T, C>
+where
+    C: ConnApiOp + ConnBaseOp + Sync + Send + Clone + 'static + From<Conn>,
+    T: NodeStorage + Send + Sync + Clone,
+{
     async fn run(&self) -> Result<()> {
         let auth = auth(Arc::new(self.settings.api.token.clone()));
         let limit = self.settings.api.conn_limit_mb;
 
-        let connection_route = warp::post()
+        // let connection_get_route = warp::get()
+        //     .and(warp::path("connection"))
+        //     .and(auth.clone())
+        //     .and(warp::query::<UserQueryParam>())
+        //     .and(with_state(self.state.clone()))
+        //     .and(publisher(self.publisher.clone()))
+        //     .and(db(self.db.clone()))
+        //     .and_then(|conn_req, state, publisher, db| {
+        //         connections_lines_handler(conn_req, state, publisher, db)
+        //     });
+        //
+        let connection_post_route = warp::post()
             .and(warp::path("connection"))
             .and(auth.clone())
             .and(warp::body::json())
@@ -32,19 +51,12 @@ impl<T: NodeStorage + Send + Sync + Clone + 'static> Http for Api<T> {
                 create_connection_handler(conn_req, publisher, state, limit)
             });
 
-        let nodes_route = warp::get()
+        let nodes_get_route = warp::get()
             .and(warp::path("nodes"))
             .and(auth.clone())
             .and(warp::query::<NodesQueryParams>())
             .and(with_state(self.state.clone()))
             .and_then(|node_req, state| get_nodes_handler(node_req, state));
-
-        let connections_route = warp::get()
-            .and(warp::path("conn"))
-            .and(auth.clone())
-            .and(warp::query::<ConnQueryParams>())
-            .and(with_state(self.state.clone()))
-            .and_then(|conn_req, state| connections_lines_handler(conn_req, state));
 
         let node_register_route = warp::post()
             .and(warp::path("node"))
@@ -62,16 +74,15 @@ impl<T: NodeStorage + Send + Sync + Clone + 'static> Http for Api<T> {
             .and(warp::path("user"))
             .and(warp::path("register"))
             .and(auth)
-            .and(warp::body::json::<UserRequest>())
+            .and(warp::body::json::<UserQueryParam>())
             .and(with_state(self.state.clone()))
             .and(db(self.db.clone()))
             .and_then(|user_req, state, db| user_register(user_req, state, db));
 
-        let routes = connection_route
-            .or(nodes_route)
+        let routes = connection_post_route
+            .or(nodes_get_route)
             .or(node_register_route)
             .or(user_register_route)
-            .or(connections_route)
             .recover(rejection);
 
         if let Some(ipv4) = self.settings.api.address {

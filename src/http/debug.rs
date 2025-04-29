@@ -8,8 +8,9 @@ use tokio::sync::Mutex;
 use warp::ws::Message;
 use warp::Filter;
 
+use crate::state::connection::{ConnApiOp, ConnBaseOp};
 use crate::state::state::NodeStorage;
-use crate::state::state::State;
+use crate::state::state::{ConnStorageBase, State};
 
 enum Kind {
     Conn,
@@ -43,9 +44,10 @@ pub struct Response {
     pub len: usize,
 }
 
-pub async fn start_ws_server<T>(state: Arc<Mutex<State<T>>>, ipaddr: Ipv4Addr, port: u16)
+pub async fn start_ws_server<T, C>(state: Arc<Mutex<State<T, C>>>, ipaddr: Ipv4Addr, port: u16)
 where
     T: NodeStorage + Sync + Send + Clone + 'static,
+    C: ConnApiOp + ConnBaseOp + Sync + Send + Clone + 'static + std::fmt::Display,
 {
     let health_check = warp::path("health-check").map(|| format!("Server OK"));
 
@@ -65,9 +67,12 @@ where
         .await;
 }
 
-pub async fn handle_debug_connection<T>(socket: warp::ws::WebSocket, state: Arc<Mutex<State<T>>>)
-where
+pub async fn handle_debug_connection<T, C>(
+    socket: warp::ws::WebSocket,
+    state: Arc<Mutex<State<T, C>>>,
+) where
     T: NodeStorage + Sync + Send + Clone + 'static,
+    C: ConnApiOp + ConnBaseOp + Sync + Send + Clone + 'static + std::fmt::Display,
 {
     let (mut sender, mut receiver) = socket.split();
 

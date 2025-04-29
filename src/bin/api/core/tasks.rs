@@ -1,24 +1,24 @@
+use crate::core::Conn;
+use crate::core::NodeStorage;
+use crate::join_all;
+use crate::Api;
 use async_trait::async_trait;
 use chrono::Duration;
 use chrono::LocalResult;
 use chrono::TimeZone;
 use chrono::Utc;
-use futures::future::join_all;
 use std::error::Error;
 
 use pony::clickhouse::query::Queries;
 use pony::postgres::connection::ConnRow;
-use pony::state::connection::Conn;
 use pony::state::connection::ConnStatus;
+use pony::state::connection::{ConnApiOp, ConnBaseOp};
 use pony::state::node::Node;
 use pony::state::node::NodeStatus;
-use pony::state::state::ConnStorage;
-use pony::state::state::NodeStorage;
+use pony::state::state::ConnStorageApi;
 use pony::zmq::message::Action;
 use pony::zmq::message::Message;
 use pony::Result;
-
-use super::Api;
 
 #[async_trait]
 pub trait Tasks {
@@ -30,7 +30,11 @@ pub trait Tasks {
 }
 
 #[async_trait]
-impl<T: NodeStorage + Send + Sync + Clone> Tasks for Api<T> {
+impl<T, C> Tasks for Api<T, C>
+where
+    T: NodeStorage + Send + Sync + Clone + 'static,
+    C: ConnApiOp + ConnBaseOp + Send + Sync + Clone + 'static + From<Conn>,
+{
     async fn add_conn(&self, db_conn: ConnRow) -> Result<()> {
         let conn = Conn::new(
             db_conn.trial,
@@ -42,7 +46,7 @@ impl<T: NodeStorage + Send + Sync + Clone> Tasks for Api<T> {
         let mut state = self.state.lock().await;
         match state
             .connections
-            .add_or_update(&db_conn.conn_id.clone(), conn.clone())
+            .add_or_update(&db_conn.conn_id.clone(), conn.clone().into())
         {
             Ok(_) => Ok(()),
             Err(e) => Err(format!(
@@ -145,7 +149,7 @@ impl<T: NodeStorage + Send + Sync + Clone> Tasks for Api<T> {
             state
                 .connections
                 .iter()
-                .filter(|(_, conn)| conn.trial && conn.status == ConnStatus::Active)
+                .filter(|(_, conn)| conn.get_trial() && conn.get_status() == ConnStatus::Active)
                 .map(|(k, v)| (k.clone(), v.clone()))
                 .collect::<Vec<_>>()
         };
@@ -155,8 +159,8 @@ impl<T: NodeStorage + Send + Sync + Clone> Tasks for Api<T> {
                 let ch = self.ch.clone();
                 let publisher = self.publisher.clone();
                 let state = self.state.clone();
-                let env = conn.env.clone();
-                let modified_at = conn.modified_at;
+                let env = conn.get_env();
+                let modified_at = conn.get_modified_at();
 
                 async move {
                     let result = ch
@@ -166,18 +170,15 @@ impl<T: NodeStorage + Send + Sync + Clone> Tasks for Api<T> {
                     if let Some(metric) = result {
                         let uplink_mb = metric.value / 1_048_576.0;
 
-                        if uplink_mb > conn.limit as f64 {
+                        if uplink_mb > conn.get_limit() as f64 {
                             log::warn!(
                             "🚨 Connection {} in env {} exceeds limit: uplink = {:.2} MB / {} MB",
-                            conn_id, env, uplink_mb, conn.limit
+                            conn_id, env, uplink_mb, conn.get_limit()
                         );
 
                             let msg = Message {
                                 conn_id: conn_id.clone(),
                                 action: Action::Delete,
-                                env: env.clone(),
-                                trial: conn.trial,
-                                limit: conn.limit,
                                 password: None,
                             };
 
@@ -188,7 +189,7 @@ impl<T: NodeStorage + Send + Sync + Clone> Tasks for Api<T> {
                             {
                                 let mut state = state.lock().await;
                                 if let Some(conn) = state.connections.get_mut(&conn_id) {
-                                    conn.status = ConnStatus::Expired;
+                                    conn.set_status(ConnStatus::Expired);
                                     conn.update_modified_at();
                                     log::debug!("✅ Marked connection {} as Expired", conn_id);
                                 }
@@ -198,7 +199,7 @@ impl<T: NodeStorage + Send + Sync + Clone> Tasks for Api<T> {
                                 "✅ Connection {} uplink OK: {:.2} MB / {} MB",
                                 conn_id,
                                 uplink_mb,
-                                conn.limit
+                                conn.get_limit()
                             );
                         }
                     } else {
@@ -226,7 +227,7 @@ impl<T: NodeStorage + Send + Sync + Clone> Tasks for Api<T> {
             state
                 .connections
                 .iter()
-                .filter(|(_, conn)| conn.trial && conn.status == ConnStatus::Expired)
+                .filter(|(_, conn)| conn.get_trial() && conn.get_status() == ConnStatus::Expired)
                 .map(|(k, v)| (k.clone(), v.clone()))
                 .collect::<Vec<_>>()
         };
@@ -235,15 +236,15 @@ impl<T: NodeStorage + Send + Sync + Clone> Tasks for Api<T> {
             let publisher = self.publisher.clone();
             let state = self.state.clone();
             let now = chrono::Utc::now();
-            let modified_at = conn.modified_at;
-            let env = conn.env.clone();
+            let modified_at = conn.get_modified_at();
+            let env = conn.get_env();
 
             async move {
                 if now.signed_duration_since(modified_at) >= chrono::Duration::hours(24) {
                     {
                         let mut state = state.lock().await;
                         if let Some(conn_mut) = state.connections.get_mut(&conn_id) {
-                            conn_mut.status = ConnStatus::Active;
+                            conn_mut.set_status(ConnStatus::Active);
                             conn_mut.update_modified_at();
                             log::debug!("✅ Re-activated connection {}", conn_id);
                         }
@@ -252,10 +253,7 @@ impl<T: NodeStorage + Send + Sync + Clone> Tasks for Api<T> {
                     let msg = Message {
                         conn_id: conn_id.clone(),
                         action: Action::Create,
-                        env: env.clone(),
-                        trial: conn.trial,
-                        limit: conn.limit,
-                        password: Some(conn.password.clone().unwrap_or_default()),
+                        password: Some(conn.get_password().unwrap_or_default()),
                     };
 
                     if let Err(e) = publisher.send(&env, msg).await {

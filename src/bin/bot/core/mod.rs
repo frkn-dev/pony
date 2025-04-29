@@ -18,8 +18,8 @@ enum Command {
     Start,
     /// Reg
     Register,
-    //Get Vpn
-    //Getvpn,
+    //Get connection line
+    Connect,
 }
 
 pub struct BotState {

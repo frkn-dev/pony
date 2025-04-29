@@ -1,7 +1,7 @@
-use std::collections::HashMap;
+use crate::state::connection::ConnBaseOp;
+use crate::state::state::Connections;
 
 use super::metrics::{AsMetric, Metric, MetricType};
-use crate::state::connection::Conn;
 use crate::state::node::Node;
 use crate::state::stats::{ConnStat, InboundStat};
 use crate::utils::current_timestamp;
@@ -77,14 +77,17 @@ pub fn xray_stat_metrics(node: Node) -> Vec<MetricType> {
     xray_stat_metrics.into_iter().map(MetricType::I64).collect()
 }
 
-pub fn xray_conn_metrics(
-    connections: HashMap<uuid::Uuid, Conn>,
+pub fn xray_conn_metrics<C>(
+    connections: Connections<C>,
     env: &str,
     hostname: &str,
-) -> Vec<MetricType> {
+) -> Vec<MetricType>
+where
+    C: ConnBaseOp + Send + Sync + Clone + 'static,
+{
     let conn_stat_metrics: Vec<_> = connections
         .clone()
-        .into_iter()
+        .iter()
         .map(|(user_id, user)| {
             user.as_conn_stat()
                 .as_metric(&user_id.to_string(), env, hostname)

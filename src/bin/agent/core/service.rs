@@ -1,4 +1,3 @@
-use std::net::Ipv4Addr;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
@@ -7,13 +6,13 @@ use tokio::time::Duration;
 
 use pony::config::settings::AgentSettings;
 use pony::config::xray::Config as XrayConfig;
-use pony::http::debug;
 use pony::state::connection::Conn;
+use pony::state::connection::ConnBase;
 use pony::state::node::Node;
-use pony::state::state::ConnStorage;
 use pony::state::state::NodeStorage;
 use pony::state::state::State;
 use pony::state::tag::Tag;
+use pony::state::AgentState;
 use pony::utils::*;
 use pony::xray_op::client::HandlerActions;
 use pony::xray_op::client::HandlerClient;
@@ -22,15 +21,11 @@ use pony::xray_op::client::XrayClient;
 use pony::zmq::subscriber::Subscriber as ZmqSubscriber;
 use pony::Result;
 
-use crate::core::http::ApiRequests;
-
 use super::tasks::Tasks;
 use super::Agent;
-
-type AgentState = State<Node>;
+use crate::core::http::ApiRequests;
 
 pub async fn run(settings: AgentSettings) -> Result<()> {
-    let debug = settings.debug.enabled;
     let mut tasks: Vec<JoinHandle<()>> = vec![];
 
     let xray_config = match XrayConfig::new(&settings.xray.xray_config_path) {
@@ -71,16 +66,16 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
         xray_handler_client.clone(),
     ));
 
-    if debug && !settings.agent.local {
-        tokio::spawn(debug::start_ws_server(
-            state.clone(),
-            settings
-                .debug
-                .web_server
-                .unwrap_or(Ipv4Addr::new(127, 0, 0, 1)),
-            settings.debug.web_port,
-        ));
-    }
+    //if debug && !settings.agent.local {
+    //    tokio::spawn(debug::start_ws_server(
+    //        state.clone(),
+    //        settings
+    //            .debug
+    //            .web_server
+    //            .unwrap_or(Ipv4Addr::new(127, 0, 0, 1)),
+    //        settings.debug.web_port,
+    //    ));
+    //}
 
     if settings.agent.metrics_enabled && !settings.agent.local {
         log::info!("Running metrics send task");
@@ -106,7 +101,7 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
             async move {
                 loop {
                     sleep(Duration::from_secs(settings.agent.stat_job_interval)).await;
-                    let _ = <Arc<Agent<Node>> as Clone>::clone(&agent)
+                    let _ = <Arc<Agent<Node, ConnBase>> as Clone>::clone(&agent)
                         .collect_stats()
                         .await;
                 }
@@ -149,7 +144,7 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
             let _ = {
                 let mut state = agent.state.lock().await;
                 let conn = Conn::new(false, 1024, settings.node.env.clone(), None);
-                let _ = state.connections.add_or_update(&conn_id, conn);
+                let _ = state.connections.insert(conn_id, conn.into());
             };
 
             let state = agent.state.lock().await;

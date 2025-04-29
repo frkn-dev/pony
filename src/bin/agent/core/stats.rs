@@ -1,10 +1,7 @@
 use async_trait::async_trait;
-use pony::xray_op::stats::Prefix;
-use pony::xray_op::stats::StatOp;
 use tonic::{Request, Status};
 
-use super::Agent;
-
+use pony::state::connection::ConnBaseOp;
 use pony::state::state::NodeStorage;
 use pony::state::stats::ConnStat;
 use pony::state::stats::InboundStat;
@@ -13,9 +10,17 @@ use pony::state::stats::StatType;
 use pony::state::tag::Tag;
 use pony::xray_api::xray::app::stats::command::{GetStatsRequest, GetStatsResponse};
 use pony::xray_op::connections::ConnOp;
+use pony::xray_op::stats::Prefix;
+use pony::xray_op::stats::StatOp;
+
+use super::Agent;
 
 #[async_trait]
-impl<T: NodeStorage + Send + Sync + Clone> StatOp for Agent<T> {
+impl<T, C> StatOp for Agent<T, C>
+where
+    T: NodeStorage + Send + Sync + Clone,
+    C: ConnBaseOp + Send + Sync + Clone + 'static,
+{
     async fn stat(
         &self,
         prefix: Prefix,

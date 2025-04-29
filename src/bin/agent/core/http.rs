@@ -4,6 +4,7 @@ use reqwest::StatusCode;
 use reqwest::Url;
 
 use pony::http::ResponseMessage;
+use pony::state::connection::ConnBaseOp;
 use pony::state::state::NodeStorage;
 use pony::{PonyError, Result};
 
@@ -15,7 +16,11 @@ pub trait ApiRequests {
 }
 
 #[async_trait]
-impl<T: NodeStorage + Send + Sync + Clone> ApiRequests for Agent<T> {
+impl<T, C> ApiRequests for Agent<T, C>
+where
+    T: NodeStorage + Send + Sync + Clone,
+    C: ConnBaseOp + Send + Sync + Clone + 'static,
+{
     async fn register_node(&self, endpoint: String, token: String) -> Result<()> {
         let node = {
             let state = self.state.lock().await;

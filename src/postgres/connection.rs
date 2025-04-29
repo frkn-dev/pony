@@ -40,9 +40,6 @@ impl ConnRow {
         ConnRequest {
             conn_id: self.conn_id,
             action: Action::Create,
-            env: self.env.clone(),
-            trial: self.trial,
-            limit: self.limit,
             password: Some(self.password.clone()),
         }
     }

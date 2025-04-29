@@ -11,3 +11,4 @@ pub mod xray_op;
 pub mod zmq;
 
 pub use crate::error::{PonyError, Result};
+pub use crate::state::{AgentState, ApiState};

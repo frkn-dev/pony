@@ -1,8 +1,5 @@
 use async_trait::async_trait;
 use futures::future::join_all;
-use log::debug;
-use log::error;
-use log::warn;
 use std::sync::Arc;
 use tokio::task::JoinHandle;
 
@@ -13,8 +10,9 @@ use pony::metrics::loadavg::loadavg_metrics;
 use pony::metrics::memory::mem_metrics;
 use pony::metrics::metrics::MetricType;
 use pony::metrics::xray::*;
-use pony::state::connection::Conn;
-use pony::state::state::ConnStorage;
+use pony::state::connection::ConnBase;
+use pony::state::connection::ConnBaseOp;
+use pony::state::state::ConnStorageBase;
 use pony::state::state::NodeStorage;
 use pony::state::tag::Tag;
 use pony::xray_op::client::HandlerActions;
@@ -30,14 +28,17 @@ use super::Agent;
 #[async_trait]
 pub trait Tasks {
     async fn send_metrics(&self, carbon_address: String) -> Result<()>;
-
     async fn collect_metrics<M>(&self) -> Vec<MetricType>;
     async fn run_subscriber(&self) -> Result<()>;
     async fn handle_message(&self, msg: Message) -> Result<()>;
 }
 
 #[async_trait]
-impl<T: NodeStorage + Send + Sync + Clone> Tasks for Agent<T> {
+impl<T, C> Tasks for Agent<T, C>
+where
+    T: NodeStorage + Send + Sync + Clone,
+    C: ConnBaseOp + Send + Sync + Clone + 'static + From<ConnBase>,
+{
     async fn send_metrics(&self, carbon_address: String) -> Result<()> {
         let metrics = self.collect_metrics::<T>().await;
 
@@ -83,7 +84,7 @@ impl<T: NodeStorage + Send + Sync + Clone> Tasks for Agent<T> {
             metrics.extend(heartbeat);
         }
 
-        debug!("Total metrics collected: {}", metrics.len());
+        log::debug!("Total metrics collected: {}", metrics.len());
 
         metrics
     }
@@ -102,15 +103,15 @@ impl<T: NodeStorage + Send + Sync + Clone> Tasks for Agent<T> {
 
                 match Topic::from_raw(topic_str) {
                     Topic::Init(uuid) if uuid != topic0 => {
-                        warn!("ZMQ: Skipping init for another node: {}", uuid);
+                        log::warn!("ZMQ: Skipping init for another node: {}", uuid);
                         continue;
                     }
                     Topic::Updates(env) if env != topic1 => {
-                        warn!("ZMQ: Skipping update for another env: {}", env);
+                        log::warn!("ZMQ: Skipping update for another env: {}", env);
                         continue;
                     }
                     Topic::Unknown(raw) => {
-                        warn!("ZMQ: Unknown topic: {}", raw);
+                        log::warn!("ZMQ: Unknown topic: {}", raw);
                         continue;
                     }
                     _ => {}
@@ -118,10 +119,10 @@ impl<T: NodeStorage + Send + Sync + Clone> Tasks for Agent<T> {
 
                 if let Ok(message) = serde_json::from_str::<Message>(payload) {
                     if let Err(err) = self.handle_message(message).await {
-                        error!("ZMQ SUB: Failed to handle message: {}", err);
+                        log::error!("ZMQ SUB: Failed to handle message: {}", err);
                     }
                 } else {
-                    error!("ZMQ SUB: Failed to parse payload: {}", payload);
+                    log::error!("ZMQ SUB: Failed to parse payload: {}", payload);
                 }
             }
         }
@@ -129,10 +130,10 @@ impl<T: NodeStorage + Send + Sync + Clone> Tasks for Agent<T> {
 
     async fn handle_message(&self, msg: Message) -> Result<()> {
         match msg.action {
-            Action::Create | Action::Update => {
+            Action::Create => {
                 let conn_id = msg.conn_id;
 
-                let conn = Conn::new(msg.trial, msg.limit, msg.env.clone(), msg.password.clone());
+                let conn = ConnBase::new(msg.password.clone());
 
                 match self
                     .xray_handler_client
@@ -144,14 +145,14 @@ impl<T: NodeStorage + Send + Sync + Clone> Tasks for Agent<T> {
 
                         state
                             .connections
-                            .add_or_update(&conn_id.clone(), conn)
+                            .add(&conn_id.clone(), conn.into())
                             .map_err(|err| {
-                                error!("Failed to add conn {}: {:?}", msg.conn_id, err);
+                                log::error!("Failed to add conn {}: {:?}", msg.conn_id, err);
                                 format!("Failed to add conn {}", msg.conn_id).into()
                             })
                     }
                     Err(err) => {
-                        error!("Failed to create conn {}: {:?}", msg.conn_id, err);
+                        log::error!("Failed to create conn {}: {:?}", msg.conn_id, err);
                         Err(
                             PonyError::Custom(format!("Failed to create conn {}", msg.conn_id))
                                 .into(),
@@ -178,7 +179,11 @@ impl<T: NodeStorage + Send + Sync + Clone> Tasks for Agent<T> {
     }
 }
 
-impl<T: NodeStorage + Send + Sync + Clone> Agent<T> {
+impl<T, C> Agent<T, C>
+where
+    T: NodeStorage + Send + Sync + Clone,
+    C: ConnBaseOp + Send + Sync + Clone + 'static,
+{
     async fn collect_conn_stats(self: Arc<Self>, conn_id: uuid::Uuid) -> Result<()> {
         let conn_stat = self.conn_stats(Prefix::ConnPrefix(conn_id)).await?;
         let mut state = self.state.lock().await;
@@ -213,7 +218,7 @@ impl<T: NodeStorage + Send + Sync + Clone> Agent<T> {
     }
 
     pub async fn collect_stats(self: Arc<Self>) -> Result<()> {
-        debug!("Running xray stat job");
+        log::debug!("Running xray stat job");
         let mut tasks: Vec<JoinHandle<()>> = Vec::new();
 
         let conn_ids = {
@@ -225,7 +230,7 @@ impl<T: NodeStorage + Send + Sync + Clone> Agent<T> {
             let agent = self.clone();
             tasks.push(tokio::spawn(async move {
                 if let Err(e) = agent.collect_conn_stats(conn_id).await {
-                    error!("Failed to collect stats for connection {}: {}", conn_id, e);
+                    log::error!("Failed to collect stats for connection {}: {}", conn_id, e);
                 }
             }));
         }
@@ -244,7 +249,7 @@ impl<T: NodeStorage + Send + Sync + Clone> Agent<T> {
                         .collect_inbound_stats(tag.clone(), env, node_uuid)
                         .await
                     {
-                        error!("Failed to collect stats for inbound {}: {}", tag.clone(), e);
+                        log::error!("Failed to collect stats for inbound {}: {}", tag.clone(), e);
                     }
                 }));
             }
@@ -253,7 +258,7 @@ impl<T: NodeStorage + Send + Sync + Clone> Agent<T> {
         let results = join_all(tasks).await;
         for result in results {
             if let Err(e) = result {
-                error!("Task panicked: {:?}", e);
+                log::error!("Task panicked: {:?}", e);
             }
         }
 

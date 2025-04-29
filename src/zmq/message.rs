@@ -8,17 +8,12 @@ pub enum Action {
     Create,
     #[serde(rename = "delete")]
     Delete,
-    #[serde(rename = "update")]
-    Update,
 }
 
 #[derive(Deserialize, Serialize, Clone, Debug)]
 pub struct Message {
     pub conn_id: uuid::Uuid,
     pub action: Action,
-    pub env: String,
-    pub trial: bool,
-    pub limit: i64,
     pub password: Option<String>,
 }
 

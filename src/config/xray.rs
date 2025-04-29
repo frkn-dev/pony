@@ -1,3 +1,4 @@
+use crate::http::requests::InboundResponse;
 use serde::{Deserialize, Serialize};
 use std::{error::Error, fs::File, io::Read};
 
@@ -49,12 +50,6 @@ pub struct TcpRequest {
     pub method: String,
     pub path: Vec<String>,
     pub headers: Option<std::collections::HashMap<String, Vec<String>>>,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct InboundResponse {
-    pub port: u16,
-    pub stream_settings: Option<StreamSettings>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

@@ -9,7 +9,8 @@ use serde::{Deserialize, Serialize};
 
 use super::tag::Tag;
 use crate::config::settings::NodeConfig;
-use crate::config::xray::{Config as XrayConfig, Inbound, InboundResponse};
+use crate::config::xray::{Config as XrayConfig, Inbound};
+use crate::http::requests::NodeResponse;
 
 #[derive(Clone, Debug, Deserialize, Serialize, Copy, ToSql, FromSql)]
 #[postgres(name = "node_status", rename_all = "snake_case")]
@@ -47,45 +48,6 @@ impl FromStr for NodeStatus {
             _ => Ok(NodeStatus::Offline),
         }
     }
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct NodeRequest {
-    pub env: String,
-    pub hostname: String,
-    pub address: Ipv4Addr,
-    pub inbounds: HashMap<Tag, Inbound>,
-    pub uuid: uuid::Uuid,
-    pub label: String,
-    pub interface: String,
-}
-
-impl NodeRequest {
-    pub fn as_node(self) -> Node {
-        let now = Utc::now();
-        Node {
-            uuid: self.uuid,
-            env: self.env,
-            hostname: self.hostname,
-            address: self.address,
-            inbounds: self.inbounds,
-            status: NodeStatus::Online,
-            created_at: now,
-            modified_at: now,
-            label: self.label,
-            interface: self.interface,
-        }
-    }
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct NodeResponse {
-    pub uuid: uuid::Uuid,
-    pub env: String,
-    pub hostname: String,
-    pub address: Ipv4Addr,
-    pub inbounds: HashMap<Tag, InboundResponse>,
-    pub status: NodeStatus,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

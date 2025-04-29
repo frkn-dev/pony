@@ -1,19 +1,23 @@
-use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use warp::{http::StatusCode, reject, Rejection, Reply};
+use warp::{http::StatusCode, Rejection, Reply};
 
+use pony::http::requests::ConnRequest;
+use pony::http::requests::NodeRequest;
+use pony::http::requests::NodeResponse;
+use pony::http::requests::NodesQueryParams;
+use pony::http::requests::UserQueryParam;
+use pony::http::AuthError;
+use pony::http::MethodError;
 use pony::http::ResponseMessage;
-use pony::http::UserRequest;
 use pony::postgres::PgContext;
 use pony::state::connection::Conn;
-use pony::state::node::NodeRequest;
-use pony::state::node::NodeResponse;
+use pony::state::connection::ConnApiOp;
+use pony::state::connection::ConnBaseOp;
 use pony::state::node::NodeStatus;
-use pony::state::state::ConnStorage;
+use pony::state::state::ConnStorageApi;
 use pony::state::state::NodeStorage;
 use pony::state::state::State;
-use pony::state::tag::Tag;
 use pony::utils;
 use pony::zmq::message::Action;
 use pony::zmq::message::Message;
@@ -21,56 +25,27 @@ use pony::zmq::publisher::Publisher as ZmqPublisher;
 
 use super::JsonError;
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct ConnRequest {
-    pub conn_id: uuid::Uuid,
-    pub action: Action,
-    pub env: String,
-    pub trial: Option<bool>,
-    pub limit: Option<i64>,
-    pub password: Option<String>,
-}
-
-impl ConnRequest {
-    pub fn as_message(&self, limit: i64) -> Message {
-        Message {
-            conn_id: self.conn_id,
-            action: self.action.clone(),
-            env: self.env.clone(),
-            trial: self.trial.unwrap_or(true),
-            limit: self.limit.unwrap_or(limit),
-            password: self.password.clone(),
-        }
-    }
-}
-
-#[derive(Debug)]
-pub struct AuthError(pub String);
-impl warp::reject::Reject for AuthError {}
-
-#[derive(Debug)]
-struct MethodError;
-impl reject::Reject for MethodError {}
-
 /// Handler creates connection
-pub async fn create_connection_handler<T>(
+pub async fn create_connection_handler<T, C>(
     conn_req: ConnRequest,
     publisher: ZmqPublisher,
-    state: Arc<Mutex<State<T>>>,
+    state: Arc<Mutex<State<T, C>>>,
     limit: i64,
 ) -> Result<impl warp::Reply, warp::Rejection>
 where
     T: NodeStorage + Sync + Send + Clone + 'static,
+    C: ConnBaseOp + ConnApiOp + Sync + Send + Clone + 'static + From<Conn>,
 {
-    let message = conn_req.as_message(limit);
-    println!("{}", message);
+    let message = conn_req.as_message();
+    log::debug!("Message sent {}", message);
     match publisher.send(&conn_req.env, message).await {
         Ok(_) => {
             let trial = conn_req.trial.unwrap_or(true);
             let limit = conn_req.limit.unwrap_or(limit);
 
             let mut state = state.lock().await;
-            let conn = Conn::new(trial, limit, conn_req.env, conn_req.password);
+            let conn: C = Conn::new(trial, limit, conn_req.env, conn_req.password).into();
+
             let _ = state.connections.add_or_update(&conn_req.conn_id, conn);
 
             let response = ResponseMessage {
@@ -94,17 +69,13 @@ where
     }
 }
 
-#[derive(Serialize, Deserialize)]
-pub struct NodesQueryParams {
-    pub env: String,
-}
-
-pub async fn get_nodes_handler<T>(
+pub async fn get_nodes_handler<T, C>(
     node_req: NodesQueryParams,
-    state: Arc<Mutex<State<T>>>,
+    state: Arc<Mutex<State<T, C>>>,
 ) -> Result<impl warp::Reply, warp::Rejection>
 where
     T: NodeStorage + Sync + Send + Clone + 'static,
+    C: ConnBaseOp + ConnApiOp + Sync + Send + Clone + 'static,
 {
     let state = state.lock().await;
 
@@ -137,14 +108,15 @@ where
     }
 }
 
-pub async fn node_register<T>(
+pub async fn node_register<T, C>(
     node_req: NodeRequest,
-    state: Arc<Mutex<State<T>>>,
+    state: Arc<Mutex<State<T, C>>>,
     db: PgContext,
     publisher: ZmqPublisher,
 ) -> Result<impl Reply, Rejection>
 where
     T: NodeStorage + Sync + Send + Clone + 'static,
+    C: ConnApiOp + ConnBaseOp + Sync + Send + Clone + 'static,
 {
     log::debug!("Received: {:?}", node_req);
 
@@ -167,9 +139,6 @@ where
                 let message = Message {
                     conn_id: conn.conn_id,
                     action: Action::Create,
-                    env: node.env.clone(),
-                    trial: conn.trial,
-                    limit: conn.limit,
                     password: Some(conn.password.clone()),
                 };
 
@@ -201,76 +170,79 @@ where
     ))
 }
 
-#[derive(Serialize, Deserialize)]
-pub struct ConnQueryParams {
-    pub id: uuid::Uuid,
-}
+//pub async fn connections_lines_handler<T, C>(
+//    user_req: UserQueryParam,
+//    state: Arc<Mutex<State<T, C>>>,
+//    publisher: ZmqPublisher,
+//    db: PgContext,
+//) -> Result<impl warp::Reply, warp::Rejection>
+//where
+//    T: NodeStorage + Sync + Send + Clone + 'static,
+//    C: ConnBaseOp + ConnApiOp + Sync + Send + Clone + 'static,
+//{
+//    let state = state.lock().await;
+//
+//    let username = user_req.username;
+//
+//    if let Some(user) = db.user().get(&username).await {
+//        if let Some(user_id) = state.users.get(&user.user_id) {
+//            if let Some(connections) = state.connections.get_by_user_id(&user_id) {}
+//        }
+//    }
+//
+//    let conn = state.connections.get(&conn_id);
+//    if let Some(conn) = conn {
+//        if let Some(nodes) = state.nodes.by_env(env) {
+//            let connections: Vec<String> = nodes
+//                .iter()
+//                .filter(|node| node.status == NodeStatus::Online)
+//                .flat_map(|node| {
+//                    node.inbounds.iter().filter_map(|(tag, inbound)| match tag {
+//                        Tag::VlessXtls => utils::vless_xtls_conn(
+//                            &conn_id,
+//                            node.address,
+//                            inbound.clone(),
+//                            node.label.clone(),
+//                        ),
+//                        Tag::VlessGrpc => utils::vless_grpc_conn(
+//                            &conn_id,
+//                            node.address,
+//                            inbound.clone(),
+//                            node.label.clone(),
+//                        ),
+//                        Tag::Vmess => {
+//                            utils::vmess_tcp_conn(&conn_id, node.address, inbound.clone())
+//                        }
+//                        _ => None,
+//                    })
+//                })
+//                .collect();
+//
+//            return Ok(warp::reply::json(&connections));
+//        } else {
+//            return Ok(warp::reply::json(
+//                &serde_json::json!({ "error": "NODES NOT FOUND" }),
+//            ));
+//        }
+//    }
+//
+//    Err(warp::reject::not_found())
+//}
 
-pub async fn connections_lines_handler<T>(
-    conn_req: ConnQueryParams,
-    state: Arc<Mutex<State<T>>>,
-) -> Result<impl warp::Reply, warp::Rejection>
-where
-    T: NodeStorage + Sync + Send + Clone + 'static,
-{
-    let state = state.lock().await;
-
-    let conn_id = conn_req.id;
-
-    let conn = state.connections.get(&conn_id);
-    if let Some(conn) = conn {
-        let env = &conn.env;
-
-        if let Some(nodes) = state.nodes.by_env(env) {
-            let connections: Vec<String> = nodes
-                .iter()
-                .filter(|node| node.status == NodeStatus::Online)
-                .flat_map(|node| {
-                    node.inbounds.iter().filter_map(|(tag, inbound)| match tag {
-                        Tag::VlessXtls => utils::vless_xtls_conn(
-                            &conn_id,
-                            node.address,
-                            inbound.clone(),
-                            node.label.clone(),
-                        ),
-                        Tag::VlessGrpc => utils::vless_grpc_conn(
-                            &conn_id,
-                            node.address,
-                            inbound.clone(),
-                            node.label.clone(),
-                        ),
-                        Tag::Vmess => {
-                            utils::vmess_tcp_conn(&conn_id, node.address, inbound.clone())
-                        }
-                        _ => None,
-                    })
-                })
-                .collect();
-
-            return Ok(warp::reply::json(&connections));
-        } else {
-            return Ok(warp::reply::json(
-                &serde_json::json!({ "error": "NODES NOT FOUND" }),
-            ));
-        }
-    }
-
-    Err(warp::reject::not_found())
-}
-
-pub async fn user_register<T>(
-    user_req: UserRequest,
-    state: Arc<Mutex<State<T>>>,
+pub async fn user_register<T, C>(
+    user_req: UserQueryParam,
+    state: Arc<Mutex<State<T, C>>>,
     db: PgContext,
 ) -> Result<impl Reply, Rejection>
 where
     T: NodeStorage + Sync + Send + Clone + 'static,
+    C: ConnApiOp + ConnBaseOp + Sync + Send + Clone + 'static,
 {
     log::debug!("Received: {:?}", user_req);
 
     let user_id = uuid::Uuid::new_v4();
 
-    match db.user().insert(&user_id, user_req.username).await {
+    match db.user().insert(&user_id, &user_req.username).await {
         Ok(_) => {
             {
                 let mut state = state.lock().await;

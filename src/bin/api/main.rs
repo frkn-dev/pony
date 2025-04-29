@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::net::Ipv4Addr;
 use std::sync::Arc;
 
@@ -14,10 +13,10 @@ use pony::config::settings::Settings;
 use pony::http::debug;
 use pony::postgres::postgres_client;
 use pony::postgres::PgContext;
-use pony::state::node::Node;
 use pony::state::state::State;
 use pony::utils::*;
 use pony::zmq::publisher::Publisher as ZmqPublisher;
+use pony::ApiState;
 use pony::PonyError;
 use pony::Result;
 
@@ -33,8 +32,6 @@ struct Cli {
     #[arg(short, long, default_value = "config.toml")]
     config: String,
 }
-
-type ApiState = State<HashMap<String, Vec<Node>>>;
 
 #[tokio::main]
 async fn main() -> Result<()> {

@@ -15,7 +15,7 @@ pub trait ApiRequests {
 
     async fn create_vpn_connection(&self, _conn_id: &uuid::Uuid) -> Result<()>;
 
-    async fn get_vpn_connection(&self, _conn_id: &uuid::Uuid) -> Result<Vec<String>>;
+    async fn get_vpn_connection(&self, username: &str) -> Result<Vec<String>>;
 }
 
 #[async_trait]
@@ -94,7 +94,7 @@ impl ApiRequests for BotState {
         }
     }
 
-    async fn get_vpn_connection(&self, conn_id: &uuid::Uuid) -> Result<Vec<String>> {
+    async fn get_vpn_connection(&self, username: &str) -> Result<Vec<String>> {
         let mut endpoint = Url::parse(&self.settings.api.endpoint)?;
         endpoint
             .path_segments_mut()
@@ -103,7 +103,7 @@ impl ApiRequests for BotState {
 
         endpoint
             .query_pairs_mut()
-            .append_pair("id", &conn_id.to_string());
+            .append_pair("", &conn_id.to_string());
 
         let endpoint = endpoint.to_string();
 

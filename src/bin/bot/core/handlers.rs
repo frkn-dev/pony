@@ -51,6 +51,14 @@ impl Handlers for BotState {
                     }
                 }
 
+                Ok(Command::Connect) => {
+                    if let Some(user) = msg.from {
+                        if let Some(username) = user.username {
+                            match self.get_vpn_connection(&username) {}
+                        }
+                    }
+                }
+
                 Err(_) => {
                     bot.send_message(msg.chat.id, "Command not found!").await?;
                 }

@@ -3,7 +3,6 @@ use futures::future::join_all;
 use log::debug;
 use log::error;
 use log::warn;
-use std::error::Error;
 use std::sync::Arc;
 use tokio::task::JoinHandle;
 
@@ -24,27 +23,22 @@ use pony::xray_op::stats::StatOp;
 use pony::zmq::message::Action;
 use pony::zmq::message::Message;
 use pony::zmq::Topic;
+use pony::{PonyError, Result};
 
 use super::Agent;
 
 #[async_trait]
 pub trait Tasks {
-    async fn send_metrics(
-        &self,
-        carbon_address: String,
-    ) -> Result<(), Box<dyn Error + Send + Sync>>;
+    async fn send_metrics(&self, carbon_address: String) -> Result<()>;
 
     async fn collect_metrics<M>(&self) -> Vec<MetricType>;
-    async fn run_subscriber(&self) -> Result<(), Box<dyn Error + Send + Sync>>;
-    async fn handle_message(&self, msg: Message) -> Result<(), Box<dyn Error + Send + Sync>>;
+    async fn run_subscriber(&self) -> Result<()>;
+    async fn handle_message(&self, msg: Message) -> Result<()>;
 }
 
 #[async_trait]
 impl<T: NodeStorage + Send + Sync + Clone> Tasks for Agent<T> {
-    async fn send_metrics(
-        &self,
-        carbon_address: String,
-    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+    async fn send_metrics(&self, carbon_address: String) -> Result<()> {
         let metrics = self.collect_metrics::<T>().await;
 
         for metric in metrics {
@@ -94,7 +88,7 @@ impl<T: NodeStorage + Send + Sync + Clone> Tasks for Agent<T> {
         metrics
     }
 
-    async fn run_subscriber(&self) -> Result<(), Box<dyn Error + Send + Sync>> {
+    async fn run_subscriber(&self) -> Result<()> {
         let sub = self.subscriber.clone();
 
         let topic0 = self.subscriber.topics[0].clone();
@@ -133,7 +127,7 @@ impl<T: NodeStorage + Send + Sync + Clone> Tasks for Agent<T> {
         }
     }
 
-    async fn handle_message(&self, msg: Message) -> Result<(), Box<dyn Error + Send + Sync>> {
+    async fn handle_message(&self, msg: Message) -> Result<()> {
         match msg.action {
             Action::Create | Action::Update => {
                 let conn_id = msg.conn_id;
@@ -158,13 +152,20 @@ impl<T: NodeStorage + Send + Sync + Clone> Tasks for Agent<T> {
                     }
                     Err(err) => {
                         error!("Failed to create conn {}: {:?}", msg.conn_id, err);
-                        Err(format!("Failed to create conn {}", msg.conn_id).into())
+                        Err(
+                            PonyError::Custom(format!("Failed to create conn {}", msg.conn_id))
+                                .into(),
+                        )
                     }
                 }
             }
             Action::Delete => {
                 if let Err(e) = self.xray_handler_client.remove_all(&msg.conn_id).await {
-                    return Err(format!("Couldn't remove connections from Xray: {}", e).into());
+                    return Err(PonyError::Custom(format!(
+                        "Couldn't remove connections from Xray: {}",
+                        e
+                    ))
+                    .into());
                 } else {
                     let mut state = self.state.lock().await;
 
@@ -178,10 +179,7 @@ impl<T: NodeStorage + Send + Sync + Clone> Tasks for Agent<T> {
 }
 
 impl<T: NodeStorage + Send + Sync + Clone> Agent<T> {
-    async fn collect_conn_stats(
-        self: Arc<Self>,
-        conn_id: uuid::Uuid,
-    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+    async fn collect_conn_stats(self: Arc<Self>, conn_id: uuid::Uuid) -> Result<()> {
         let conn_stat = self.conn_stats(Prefix::ConnPrefix(conn_id)).await?;
         let mut state = self.state.lock().await;
         let _ = state
@@ -197,7 +195,7 @@ impl<T: NodeStorage + Send + Sync + Clone> Agent<T> {
         tag: Tag,
         env: String,
         node_uuid: uuid::Uuid,
-    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+    ) -> Result<()> {
         let inbound_stat = self
             .inbound_stats(Prefix::InboundPrefix(tag.clone()))
             .await?;
@@ -214,7 +212,7 @@ impl<T: NodeStorage + Send + Sync + Clone> Agent<T> {
         Ok(())
     }
 
-    pub async fn collect_stats(self: Arc<Self>) -> Result<(), Box<dyn Error + Send + Sync>> {
+    pub async fn collect_stats(self: Arc<Self>) -> Result<()> {
         debug!("Running xray stat job");
         let mut tasks: Vec<JoinHandle<()>> = Vec::new();
 

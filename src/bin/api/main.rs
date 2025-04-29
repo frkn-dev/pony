@@ -18,6 +18,8 @@ use pony::state::node::Node;
 use pony::state::state::State;
 use pony::utils::*;
 use pony::zmq::publisher::Publisher as ZmqPublisher;
+use pony::PonyError;
+use pony::Result;
 
 use crate::core::http::routes::Http;
 use crate::core::tasks::Tasks;
@@ -35,7 +37,7 @@ struct Cli {
 type ApiState = State<HashMap<String, Vec<Node>>>;
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() -> Result<()> {
     #[cfg(feature = "debug")]
     console_subscriber::init();
 
@@ -95,14 +97,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 if let Some(Err(e)) = measure_time(join_all(futures), "Add nodes".to_string())
                     .await
                     .into_iter()
-                    .find(Result::is_err)
+                    .find(|r| r.is_err())
                 {
                     log::error!("Error during node state initialization: {}", e);
                 }
             }
             Err(e) => {
                 log::error!("Failed to fetch nodes from DB: {}", e);
-                return Err(e);
+                return Err(PonyError::Custom(e.to_string()));
             }
         }
 
@@ -116,14 +118,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 )
                 .await
                 .into_iter()
-                .find(Result::is_err)
+                .find(|r| r.is_err())
                 {
                     log::error!("Error during conn state initialization: {}", e);
                 }
             }
             Err(e) => {
                 log::error!("Failed to fetch conns from DB: {}", e);
-                return Err(e);
+                return Err(PonyError::Custom(e.to_string()));
             }
         }
     };
@@ -182,10 +184,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     let api = api.clone();
-    tokio::spawn(async move { api.run().await });
-    tokio::signal::ctrl_c()
-        .await
-        .expect("Failed to listen for event");
+    let api_handle = tokio::spawn(async move {
+        if let Err(e) = api.run().await {
+            eprintln!("API server exited with error: {}", e);
+        }
+    });
 
-    Ok(())
+    let res: Result<()> = tokio::select! {
+        _ = api_handle => {
+            println!("API server finished");
+            Ok(())
+        }
+        _ = tokio::signal::ctrl_c() => {
+            println!("Ctrl+C received, shutting down...");
+            Ok(())
+        }
+    };
+    res
 }

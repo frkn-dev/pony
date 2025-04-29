@@ -9,7 +9,6 @@ use pony::state::state::State;
 use pony::zmq::publisher::Publisher as ZmqPublisher;
 
 pub mod http;
-mod requests;
 pub mod tasks;
 
 pub struct Api<T>

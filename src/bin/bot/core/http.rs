@@ -2,35 +2,29 @@ use async_trait::async_trait;
 use reqwest::Client as HttpClient;
 use reqwest::StatusCode;
 use reqwest::Url;
-use std::error::Error;
 
 use pony::http::UserRequest;
 use pony::postgres::connection::ConnRow;
+use pony::{PonyError, Result};
 
 use super::BotState;
 
 #[async_trait]
 pub trait ApiRequests {
-    async fn register_user(&self, _username: &str) -> Result<(), Box<dyn Error + Send + Sync>>;
+    async fn register_user(&self, _username: &str) -> Result<()>;
 
-    async fn create_vpn_connection(
-        &self,
-        _conn_id: &uuid::Uuid,
-    ) -> Result<(), Box<dyn Error + Send + Sync>>;
+    async fn create_vpn_connection(&self, _conn_id: &uuid::Uuid) -> Result<()>;
 
-    async fn get_vpn_connection(
-        &self,
-        _conn_id: &uuid::Uuid,
-    ) -> Result<Vec<String>, Box<dyn Error + Send + Sync>>;
+    async fn get_vpn_connection(&self, _conn_id: &uuid::Uuid) -> Result<Vec<String>>;
 }
 
 #[async_trait]
 impl ApiRequests for BotState {
-    async fn register_user(&self, username: &str) -> Result<(), Box<dyn Error + Send + Sync>> {
+    async fn register_user(&self, username: &str) -> Result<()> {
         let mut endpoint = Url::parse(&self.settings.api.endpoint)?;
         endpoint
             .path_segments_mut()
-            .map_err(|_| "Invalid API endpoint")?
+            .map_err(|_| PonyError::Custom("Invalid API endpoint".to_string()))?
             .push("user")
             .push("register");
 
@@ -54,18 +48,20 @@ impl ApiRequests for BotState {
         if res.status().is_success() || res.status() == StatusCode::NOT_MODIFIED {
             return Ok(());
         } else {
-            return Err(format!("/user/register req error: {} {:?}", res.status(), res).into());
+            return Err(PonyError::Custom(format!(
+                "/user/register req error: {} {:?}",
+                res.status(),
+                res
+            ))
+            .into());
         }
     }
 
-    async fn create_vpn_connection(
-        &self,
-        conn_id: &uuid::Uuid,
-    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+    async fn create_vpn_connection(&self, conn_id: &uuid::Uuid) -> Result<()> {
         let mut endpoint = Url::parse(&self.settings.api.endpoint)?;
         endpoint
             .path_segments_mut()
-            .map_err(|_| "Invalid API endpoint")?
+            .map_err(|_| PonyError::Custom("Invalid API endpoint".to_string()))?
             .push("connection");
         let endpoint = endpoint.to_string();
 
@@ -89,18 +85,20 @@ impl ApiRequests for BotState {
         if res.status().is_success() || res.status() == StatusCode::NOT_MODIFIED {
             return Ok(());
         } else {
-            return Err(format!("/connection req error: {} {:?}", res.status(), res).into());
+            return Err(PonyError::Custom(format!(
+                "/connection req error: {} {:?}",
+                res.status(),
+                res
+            ))
+            .into());
         }
     }
 
-    async fn get_vpn_connection(
-        &self,
-        conn_id: &uuid::Uuid,
-    ) -> Result<Vec<String>, Box<dyn Error + Send + Sync>> {
+    async fn get_vpn_connection(&self, conn_id: &uuid::Uuid) -> Result<Vec<String>> {
         let mut endpoint = Url::parse(&self.settings.api.endpoint)?;
         endpoint
             .path_segments_mut()
-            .map_err(|_| "Invalid API endpoint")?
+            .map_err(|_| PonyError::Custom("Invalid API endpoint".to_string()))?
             .push("conn");
 
         endpoint
@@ -124,7 +122,12 @@ impl ApiRequests for BotState {
             let data: Vec<String> = serde_json::from_str(&body)?;
             return Ok(data);
         } else {
-            return Err(format!("get_vpn_connection Req error: {} {:?}", res.status(), res).into());
+            return Err(PonyError::Custom(format!(
+                "get_vpn_connection Req error: {} {:?}",
+                res.status(),
+                res
+            ))
+            .into());
         }
     }
 }

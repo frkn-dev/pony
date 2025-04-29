@@ -1,5 +1,4 @@
 use async_trait::async_trait;
-use std::error::Error;
 
 use teloxide::{payloads::SendMessageSetters, prelude::*, types::Me, utils::command::BotCommands};
 
@@ -7,30 +6,18 @@ use super::http::ApiRequests;
 use super::BotState;
 use super::Command;
 
+use pony::Result;
+
 #[async_trait]
 pub trait Handlers {
-    async fn message_handler(
-        &self,
-        bot: Bot,
-        msg: Message,
-        me: Me,
-    ) -> Result<(), Box<dyn Error + Send + Sync>>;
+    async fn message_handler(&self, bot: Bot, msg: Message, me: Me) -> Result<()>;
 
-    async fn callback_handler(
-        &self,
-        bot: Bot,
-        q: CallbackQuery,
-    ) -> Result<(), Box<dyn Error + Send + Sync>>;
+    async fn callback_handler(&self, bot: Bot, q: CallbackQuery) -> Result<()>;
 }
 
 #[async_trait]
 impl Handlers for BotState {
-    async fn message_handler(
-        &self,
-        bot: Bot,
-        msg: Message,
-        me: Me,
-    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+    async fn message_handler(&self, bot: Bot, msg: Message, me: Me) -> Result<()> {
         if let Some(text) = msg.text() {
             match BotCommands::parse(text, me.username()) {
                 Ok(Command::Help) => {
@@ -73,11 +60,7 @@ impl Handlers for BotState {
         Ok(())
     }
 
-    async fn callback_handler(
-        &self,
-        bot: Bot,
-        q: CallbackQuery,
-    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+    async fn callback_handler(&self, bot: Bot, q: CallbackQuery) -> Result<()> {
         println!("Callback data {:?}", q.data);
 
         if let Some(ref key) = q.data {

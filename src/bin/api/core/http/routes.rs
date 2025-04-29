@@ -2,8 +2,10 @@ use async_trait::async_trait;
 use std::sync::Arc;
 use warp::Filter;
 
+use pony::http::UserRequest;
 use pony::state::node::NodeRequest;
 use pony::state::state::NodeStorage;
+use pony::Result;
 
 use super::super::Api;
 use super::filters::*;
@@ -11,12 +13,12 @@ use super::handlers::*;
 
 #[async_trait]
 pub trait Http {
-    async fn run(&self);
+    async fn run(&self) -> Result<()>;
 }
 
 #[async_trait]
 impl<T: NodeStorage + Send + Sync + Clone + 'static> Http for Api<T> {
-    async fn run(&self) {
+    async fn run(&self) -> Result<()> {
         let auth = auth(Arc::new(self.settings.api.token.clone()));
         let limit = self.settings.api.conn_limit_mb;
 
@@ -77,5 +79,6 @@ impl<T: NodeStorage + Send + Sync + Clone + 'static> Http for Api<T> {
                 .run((ipv4, self.settings.api.port))
                 .await;
         }
+        Ok(())
     }
 }

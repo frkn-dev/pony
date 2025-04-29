@@ -155,7 +155,7 @@ where
     let _ = db.node().insert(node.clone()).await;
     let _ = db
         .node()
-        .update_status(node.uuid, &node.env, NodeStatus::Online)
+        .update_status(&node.uuid, &node.env, NodeStatus::Online)
         .await;
     if let Some(node_mut) = state.nodes.get_mut(&node.env, &node.uuid) {
         let _ = node_mut.update_status(NodeStatus::Online);

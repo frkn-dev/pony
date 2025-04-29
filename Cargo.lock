@@ -2040,6 +2040,7 @@ dependencies = [
  "log",
  "netstat2",
  "openssl",
+ "postgres-types",
  "prost",
  "prost-derive",
  "rand",
@@ -2048,6 +2049,7 @@ dependencies = [
  "serde_json",
  "sysinfo",
  "teloxide",
+ "thiserror 2.0.12",
  "time",
  "tokio",
  "tokio-postgres",
@@ -2057,11 +2059,24 @@ dependencies = [
  "tonic-build",
  "tracing",
  "tracing-subscriber",
+ "url",
  "urlencoding",
  "uuid",
  "walkdir",
  "warp",
  "zmq",
+]
+
+[[package]]
+name = "postgres-derive"
+version = "0.4.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "69700ea4603c5ef32d447708e6a19cd3e8ac197a000842e97f527daea5e4175f"
+dependencies = [
+ "heck",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.101",
 ]
 
 [[package]]
@@ -2091,6 +2106,7 @@ dependencies = [
  "bytes",
  "chrono",
  "fallible-iterator",
+ "postgres-derive",
  "postgres-protocol",
  "serde",
  "serde_json",

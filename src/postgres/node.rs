@@ -26,11 +26,10 @@ impl PgNode {
         let client = self.client.lock().await;
 
         let query = "
-            INSERT INTO nodes (uuid, env, hostname, address, status, inbounds, created_at, modified_at, label)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            INSERT INTO nodes (uuid, env, hostname, address, status, inbounds, created_at, modified_at, label, interface)
+            VALUES ($1, $2, $3, $4, $5::node_status, $6, $7, $8, $9, $10)
         ";
 
-        let status_str = node.status.to_string();
         let address: IpAddr = IpAddr::V4(node.address);
         let inbounds_json = serde_json::to_value(&node.inbounds)?;
 
@@ -42,11 +41,12 @@ impl PgNode {
                     &node.env,
                     &node.hostname,
                     &address,
-                    &status_str,
+                    &node.status,
                     &inbounds_json,
                     &node.created_at,
                     &node.modified_at,
                     &node.label,
+                    &node.interface,
                 ],
             )
             .await;
@@ -107,7 +107,7 @@ impl PgNode {
 
     pub async fn update_status(
         &self,
-        uuid: uuid::Uuid,
+        uuid: &uuid::Uuid,
         env: &str,
         new_status: NodeStatus,
     ) -> Result<(), Box<dyn Error>> {
@@ -115,15 +115,13 @@ impl PgNode {
 
         let query = "
             UPDATE nodes
-            SET status = $1, modified_at = $2
+            SET status = $1::node_status, modified_at = $2
             WHERE uuid = $3 AND env = $4
         ";
-
-        let status_str = new_status.to_string();
         let modified_at = Utc::now();
 
         let result = client
-            .execute(query, &[&status_str, &modified_at, &uuid, &env])
+            .execute(query, &[&new_status, &modified_at, &uuid, &env])
             .await;
 
         match result {
@@ -131,7 +129,7 @@ impl PgNode {
                 if rows_updated == 0 {
                     log::warn!("No node found with UUID {}", uuid);
                 } else {
-                    log::debug!("Updated node {} status to {}", uuid, status_str);
+                    log::debug!("Updated node {} status to {}", uuid, new_status);
                 }
             }
             Err(e) => {

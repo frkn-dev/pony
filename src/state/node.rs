@@ -4,13 +4,15 @@ use std::{collections::HashMap, net::Ipv4Addr};
 
 use chrono::DateTime;
 use chrono::Utc;
+use postgres_types::{FromSql, ToSql};
 use serde::{Deserialize, Serialize};
 
 use super::tag::Tag;
 use crate::config::settings::NodeConfig;
 use crate::config::xray::{Config as XrayConfig, Inbound, InboundResponse};
 
-#[derive(Clone, Debug, Deserialize, Serialize, Copy)]
+#[derive(Clone, Debug, Deserialize, Serialize, Copy, ToSql, FromSql)]
+#[postgres(name = "node_status", rename_all = "snake_case")]
 pub enum NodeStatus {
     Online,
     Offline,

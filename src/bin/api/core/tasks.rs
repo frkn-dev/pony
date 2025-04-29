@@ -98,14 +98,14 @@ impl<T: NodeStorage + Send + Sync + Clone> Tasks for Api<T> {
                                         node_mut.update_status(NodeStatus::Offline)?;
                                         let _ = db
                                             .node()
-                                            .update_status(uuid, &env, NodeStatus::Offline)
+                                            .update_status(&uuid, &env, NodeStatus::Offline)
                                             .await;
                                     }
                                     NodeStatus::Offline if time_diff <= timeout_duration => {
                                         node_mut.update_status(NodeStatus::Online)?;
                                         let _ = db
                                             .node()
-                                            .update_status(uuid, &env, NodeStatus::Online)
+                                            .update_status(&uuid, &env, NodeStatus::Online)
                                             .await;
                                     }
                                     _ => {}
@@ -120,7 +120,7 @@ impl<T: NodeStorage + Send + Sync + Clone> Tasks for Api<T> {
                         }
                         let _ = db
                             .node()
-                            .update_status(uuid, &env, NodeStatus::Offline)
+                            .update_status(&uuid, &env, NodeStatus::Offline)
                             .await;
                     }
                 }

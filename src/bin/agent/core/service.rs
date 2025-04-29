@@ -20,6 +20,7 @@ use pony::xray_op::client::HandlerClient;
 use pony::xray_op::client::StatsClient;
 use pony::xray_op::client::XrayClient;
 use pony::zmq::subscriber::Subscriber as ZmqSubscriber;
+use pony::Result;
 
 use crate::core::http::ApiRequests;
 
@@ -28,7 +29,7 @@ use super::Agent;
 
 type AgentState = State<Node>;
 
-pub async fn run(settings: AgentSettings) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn run(settings: AgentSettings) -> Result<()> {
     let debug = settings.debug.enabled;
     let mut tasks: Vec<JoinHandle<()>> = vec![];
 

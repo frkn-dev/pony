@@ -11,6 +11,7 @@ use crate::core::BotState;
 use pony::config::settings::BotSettings;
 use pony::config::settings::Settings;
 use pony::utils::*;
+use pony::Result;
 
 mod core;
 
@@ -22,7 +23,7 @@ struct Cli {
 }
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn Error>> {
+async fn main() -> Result<()> {
     let args = Cli::parse();
     println!("Config file {:?}", args.config);
 

@@ -1,4 +1,3 @@
-use std::error::Error;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tonic::transport::Channel;
@@ -12,13 +11,12 @@ use crate::xray_api::xray::app::{
     proxyman::command::handler_service_client::HandlerServiceClient,
     stats::command::stats_service_client::StatsServiceClient,
 };
+use crate::Result;
 
 pub trait XrayClient {
     type Client;
 
-    fn new(
-        endpoint: &str,
-    ) -> impl std::future::Future<Output = Result<Self, Box<dyn Error>>> + Send
+    fn new(endpoint: &str) -> impl std::future::Future<Output = Result<Self>> + Send
     where
         Self: Sized;
 }
@@ -31,7 +29,7 @@ pub struct HandlerClient {
 impl XrayClient for HandlerClient {
     type Client = HandlerServiceClient<Channel>;
 
-    async fn new(endpoint: &str) -> Result<Self, Box<dyn Error>> {
+    async fn new(endpoint: &str) -> Result<Self> {
         let channel = Channel::from_shared(endpoint.to_string())?
             .connect()
             .await
@@ -53,7 +51,7 @@ pub struct StatsClient {
 
 impl XrayClient for StatsClient {
     type Client = StatsServiceClient<Channel>;
-    async fn new(endpoint: &str) -> Result<Self, Box<dyn Error>> {
+    async fn new(endpoint: &str) -> Result<Self> {
         let channel = Channel::from_shared(endpoint.to_string())?
             .connect()
             .await
@@ -70,25 +68,14 @@ impl XrayClient for StatsClient {
 
 #[async_trait::async_trait]
 pub trait HandlerActions {
-    async fn create_all(
-        &self,
-        conn_id: &uuid::Uuid,
-        password: Option<String>,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
+    async fn create_all(&self, conn_id: &uuid::Uuid, password: Option<String>) -> Result<()>;
 
-    async fn remove_all(
-        &self,
-        conn_id: &uuid::Uuid,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
+    async fn remove_all(&self, conn_id: &uuid::Uuid) -> Result<()>;
 }
 
 #[async_trait::async_trait]
 impl HandlerActions for Arc<Mutex<HandlerClient>> {
-    async fn create_all(
-        &self,
-        conn_id: &uuid::Uuid,
-        password: Option<String>,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn create_all(&self, conn_id: &uuid::Uuid, password: Option<String>) -> Result<()> {
         let mut protos: Vec<Box<dyn ProtocolConn>> = vec![];
 
         protos.push(Box::new(VmessConnInfo::new(conn_id)));
@@ -114,10 +101,7 @@ impl HandlerActions for Arc<Mutex<HandlerClient>> {
         Ok(())
     }
 
-    async fn remove_all(
-        &self,
-        conn_id: &uuid::Uuid,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn remove_all(&self, conn_id: &uuid::Uuid) -> Result<()> {
         let protos: Vec<Box<dyn ProtocolConn>> = vec![
             Box::new(VmessConnInfo::new(conn_id)),
             Box::new(VlessConnInfo::new(conn_id, ConnFlow::Vision)),

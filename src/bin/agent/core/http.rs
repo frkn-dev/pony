@@ -2,29 +2,21 @@ use async_trait::async_trait;
 use reqwest::Client as HttpClient;
 use reqwest::StatusCode;
 use reqwest::Url;
-use std::error::Error;
 
 use pony::http::ResponseMessage;
 use pony::state::state::NodeStorage;
+use pony::{PonyError, Result};
 
 use super::Agent;
 
 #[async_trait]
 pub trait ApiRequests {
-    async fn register_node(
-        &self,
-        _endpoint: String,
-        _token: String,
-    ) -> Result<(), Box<dyn Error + Send + Sync>>;
+    async fn register_node(&self, _endpoint: String, _token: String) -> Result<()>;
 }
 
 #[async_trait]
 impl<T: NodeStorage + Send + Sync + Clone> ApiRequests for Agent<T> {
-    async fn register_node(
-        &self,
-        endpoint: String,
-        token: String,
-    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+    async fn register_node(&self, endpoint: String, token: String) -> Result<()> {
         let node = {
             let state = self.state.lock().await;
             state
@@ -37,7 +29,7 @@ impl<T: NodeStorage + Send + Sync + Clone> ApiRequests for Agent<T> {
         let mut endpoint_url = Url::parse(&endpoint)?;
         endpoint_url
             .path_segments_mut()
-            .map_err(|_| "Invalid API endpoint")?
+            .map_err(|_| PonyError::Custom("Invalid API endpoint".to_string()))?
             .push("node")
             .push("register");
 
@@ -70,7 +62,9 @@ impl<T: NodeStorage + Send + Sync + Clone> ApiRequests for Agent<T> {
             }
         } else {
             log::error!("Registration failed: {} - {}", status, body);
-            Err(format!("Registration failed: {} - {}", status, body).into())
+            Err(PonyError::Custom(
+                format!("Registration failed: {} - {}", status, body).into(),
+            ))
         }
     }
 }

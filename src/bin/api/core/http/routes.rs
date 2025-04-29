@@ -30,17 +30,17 @@ where
         let auth = auth(Arc::new(self.settings.api.token.clone()));
         let limit = self.settings.api.conn_limit_mb;
 
-        // let connection_get_route = warp::get()
-        //     .and(warp::path("connection"))
-        //     .and(auth.clone())
-        //     .and(warp::query::<UserQueryParam>())
-        //     .and(with_state(self.state.clone()))
-        //     .and(publisher(self.publisher.clone()))
-        //     .and(db(self.db.clone()))
-        //     .and_then(|conn_req, state, publisher, db| {
-        //         connections_lines_handler(conn_req, state, publisher, db)
-        //     });
-        //
+        let connection_get_route = warp::get()
+            .and(warp::path("connection"))
+            .and(auth.clone())
+            .and(warp::query::<UserQueryParam>())
+            .and(with_state(self.state.clone()))
+            .and(publisher(self.publisher.clone()))
+            .and(db(self.db.clone()))
+            .and_then(|conn_req, state, publisher, db| {
+                connections_lines_handler(conn_req, state, publisher, db)
+            });
+
         let connection_post_route = warp::post()
             .and(warp::path("connection"))
             .and(auth.clone())
@@ -80,6 +80,7 @@ where
             .and_then(|user_req, state, db| user_register(user_req, state, db));
 
         let routes = connection_post_route
+            .or(connection_get_route)
             .or(nodes_get_route)
             .or(node_register_route)
             .or(user_register_route)

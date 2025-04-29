@@ -16,8 +16,10 @@ use pony::state::connection::ConnApiOp;
 use pony::state::connection::ConnBaseOp;
 use pony::state::node::NodeStatus;
 use pony::state::state::ConnStorageApi;
+use pony::state::state::ConnStorageBase;
 use pony::state::state::NodeStorage;
 use pony::state::state::State;
+use pony::state::tag::Tag;
 use pony::utils;
 use pony::zmq::message::Action;
 use pony::zmq::message::Message;
@@ -170,64 +172,90 @@ where
     ))
 }
 
-//pub async fn connections_lines_handler<T, C>(
-//    user_req: UserQueryParam,
-//    state: Arc<Mutex<State<T, C>>>,
-//    publisher: ZmqPublisher,
-//    db: PgContext,
-//) -> Result<impl warp::Reply, warp::Rejection>
-//where
-//    T: NodeStorage + Sync + Send + Clone + 'static,
-//    C: ConnBaseOp + ConnApiOp + Sync + Send + Clone + 'static,
-//{
-//    let state = state.lock().await;
-//
-//    let username = user_req.username;
-//
-//    if let Some(user) = db.user().get(&username).await {
-//        if let Some(user_id) = state.users.get(&user.user_id) {
-//            if let Some(connections) = state.connections.get_by_user_id(&user_id) {}
-//        }
-//    }
-//
-//    let conn = state.connections.get(&conn_id);
-//    if let Some(conn) = conn {
-//        if let Some(nodes) = state.nodes.by_env(env) {
-//            let connections: Vec<String> = nodes
-//                .iter()
-//                .filter(|node| node.status == NodeStatus::Online)
-//                .flat_map(|node| {
-//                    node.inbounds.iter().filter_map(|(tag, inbound)| match tag {
-//                        Tag::VlessXtls => utils::vless_xtls_conn(
-//                            &conn_id,
-//                            node.address,
-//                            inbound.clone(),
-//                            node.label.clone(),
-//                        ),
-//                        Tag::VlessGrpc => utils::vless_grpc_conn(
-//                            &conn_id,
-//                            node.address,
-//                            inbound.clone(),
-//                            node.label.clone(),
-//                        ),
-//                        Tag::Vmess => {
-//                            utils::vmess_tcp_conn(&conn_id, node.address, inbound.clone())
-//                        }
-//                        _ => None,
-//                    })
-//                })
-//                .collect();
-//
-//            return Ok(warp::reply::json(&connections));
-//        } else {
-//            return Ok(warp::reply::json(
-//                &serde_json::json!({ "error": "NODES NOT FOUND" }),
-//            ));
-//        }
-//    }
-//
-//    Err(warp::reject::not_found())
-//}
+pub async fn connections_lines_handler<T, C>(
+    user_req: UserQueryParam,
+    state: Arc<Mutex<State<T, C>>>,
+    publisher: ZmqPublisher,
+    db: PgContext,
+) -> Result<impl warp::Reply, warp::Rejection>
+where
+    T: NodeStorage + Sync + Send + Clone + 'static,
+    C: ConnBaseOp + ConnApiOp + Sync + Send + Clone + 'static,
+{
+    let username = user_req.username;
+
+    let user = match db.user().get(&username).await {
+        Some(user) => user,
+        None => {
+            return Ok(warp::reply::with_status(
+                warp::reply::json(&serde_json::json!({ "error": "USER NOT FOUND" })),
+                warp::http::StatusCode::NOT_FOUND,
+            ))
+        }
+    };
+
+    let mut state = state.lock().await;
+
+    let connections = match state.connections.get_by_user_id(&user.user_id) {
+        Some(conns) => conns,
+        None => {
+            let message = format!("Create conn for user {}", user.user_id);
+            let _ = publisher.send("all", message); // Отправляем в топик all
+            return Ok(warp::reply::with_status(
+                warp::reply::json(&serde_json::json!({ "error": "USER CONNECTIONS NOT FOUND" })),
+                warp::http::StatusCode::NOT_FOUND,
+            ));
+        }
+    };
+
+    let mut connection_links = Vec::new();
+
+    for conn in connections {
+        if let Some(nodes) = state.nodes.by_env(&conn.get_env()) {
+            for node in nodes
+                .iter()
+                .filter(|node| node.status == NodeStatus::Online)
+            {
+                for (tag, inbound) in &node.inbounds {
+                    let link = match tag {
+                        Tag::VlessXtls => utils::vless_xtls_conn(
+                            &user.user_id,
+                            node.address,
+                            inbound.clone(),
+                            node.label.clone(),
+                        ),
+                        Tag::VlessGrpc => utils::vless_grpc_conn(
+                            &user.user_id,
+                            node.address,
+                            inbound.clone(),
+                            node.label.clone(),
+                        ),
+                        Tag::Vmess => {
+                            utils::vmess_tcp_conn(&user.user_id, node.address, inbound.clone())
+                        }
+                        _ => None,
+                    };
+
+                    if let Some(link) = link {
+                        connection_links.push(link);
+                    }
+                }
+            }
+        }
+    }
+
+    if connection_links.is_empty() {
+        return Ok(warp::reply::with_status(
+            warp::reply::json(&serde_json::json!({ "error": "NO CONNECTIONS AVAILABLE" })),
+            warp::http::StatusCode::NOT_FOUND,
+        ));
+    }
+
+    Ok(warp::reply::with_status(
+        warp::reply::json(&connection_links),
+        warp::http::StatusCode::OK,
+    ))
+}
 
 pub async fn user_register<T, C>(
     user_req: UserQueryParam,

@@ -76,7 +76,7 @@ impl PgNode {
                 let env: String = row.get(1);
                 let hostname: String = row.get(2);
                 let address: IpAddr = row.get(3);
-                let status: String = row.get(4);
+                let status: NodeStatus = row.get(4);
                 let inbounds: Value = row.get(5);
                 let created_at: DateTime<Utc> = row.get(6);
                 let modified_at: DateTime<Utc> = row.get(7);
@@ -90,7 +90,7 @@ impl PgNode {
                         hostname: hostname,
                         address: ipv4_addr,
                         interface: interface,
-                        status: NodeStatus::from_str(&status).unwrap_or(NodeStatus::Offline),
+                        status: status,
                         inbounds: serde_json::from_value(inbounds).unwrap_or_default(),
                         created_at,
                         modified_at,

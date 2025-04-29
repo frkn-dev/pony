@@ -16,21 +16,22 @@ use pony::state::state::ConnStorage;
 use pony::state::state::NodeStorage;
 use pony::zmq::message::Action;
 use pony::zmq::message::Message;
+use pony::Result;
 
 use super::Api;
 
 #[async_trait]
 pub trait Tasks {
-    async fn node_healthcheck(&self) -> Result<(), Box<dyn Error + Send + Sync>>;
-    async fn check_conn_uplink_limits(&self) -> Result<(), Box<dyn Error + Send + Sync>>;
-    async fn reactivate_trial_conns(&self) -> Result<(), Box<dyn Error + Send + Sync>>;
-    async fn add_node(&self, db_node: Node) -> Result<(), Box<dyn Error + Send + Sync>>;
-    async fn add_conn(&self, db_conn: ConnRow) -> Result<(), Box<dyn Error + Send + Sync>>;
+    async fn node_healthcheck(&self) -> Result<()>;
+    async fn check_conn_uplink_limits(&self) -> Result<()>;
+    async fn reactivate_trial_conns(&self) -> Result<()>;
+    async fn add_node(&self, db_node: Node) -> Result<()>;
+    async fn add_conn(&self, db_conn: ConnRow) -> Result<()>;
 }
 
 #[async_trait]
 impl<T: NodeStorage + Send + Sync + Clone> Tasks for Api<T> {
-    async fn add_conn(&self, db_conn: ConnRow) -> Result<(), Box<dyn Error + Send + Sync>> {
+    async fn add_conn(&self, db_conn: ConnRow) -> Result<()> {
         let conn = Conn::new(
             db_conn.trial,
             db_conn.limit,
@@ -51,7 +52,7 @@ impl<T: NodeStorage + Send + Sync + Clone> Tasks for Api<T> {
             .into()),
         }
     }
-    async fn add_node(&self, db_node: Node) -> Result<(), Box<dyn Error + Send + Sync>> {
+    async fn add_node(&self, db_node: Node) -> Result<()> {
         let mut state = self.state.lock().await;
         match state.nodes.add(db_node.clone()) {
             Ok(_) => {
@@ -65,7 +66,7 @@ impl<T: NodeStorage + Send + Sync + Clone> Tasks for Api<T> {
             .into()),
         }
     }
-    async fn node_healthcheck(&self) -> Result<(), Box<dyn Error + Send + Sync>> {
+    async fn node_healthcheck(&self) -> Result<()> {
         let state_lock = self.state.lock().await;
         let nodes = match state_lock.nodes.all() {
             Some(n) => n.clone(),
@@ -138,7 +139,7 @@ impl<T: NodeStorage + Send + Sync + Clone> Tasks for Api<T> {
         Ok(())
     }
 
-    async fn check_conn_uplink_limits(&self) -> Result<(), Box<dyn Error + Send + Sync>> {
+    async fn check_conn_uplink_limits(&self) -> Result<()> {
         let conns_map = {
             let state = self.state.lock().await;
             state
@@ -219,7 +220,7 @@ impl<T: NodeStorage + Send + Sync + Clone> Tasks for Api<T> {
         Ok(())
     }
 
-    async fn reactivate_trial_conns(&self) -> Result<(), Box<dyn Error + Send + Sync>> {
+    async fn reactivate_trial_conns(&self) -> Result<()> {
         let conns_map = {
             let state = self.state.lock().await;
             state

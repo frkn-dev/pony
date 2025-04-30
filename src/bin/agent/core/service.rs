@@ -1,3 +1,4 @@
+use std::net::Ipv4Addr;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
@@ -5,6 +6,8 @@ use tokio::time::sleep;
 use tokio::time::Duration;
 
 use pony::config::settings::AgentSettings;
+use pony::http::debug;
+
 use pony::config::xray::Config as XrayConfig;
 use pony::state::connection::Conn;
 use pony::state::connection::ConnBase;
@@ -65,17 +68,6 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
         xray_stats_client.clone(),
         xray_handler_client.clone(),
     ));
-
-    //if debug && !settings.agent.local {
-    //    tokio::spawn(debug::start_ws_server(
-    //        state.clone(),
-    //        settings
-    //            .debug
-    //            .web_server
-    //            .unwrap_or(Ipv4Addr::new(127, 0, 0, 1)),
-    //        settings.debug.web_port,
-    //    ));
-    //}
 
     if settings.agent.metrics_enabled && !settings.agent.local {
         log::info!("Running metrics send task");
@@ -143,7 +135,7 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
 
             let _ = {
                 let mut state = agent.state.lock().await;
-                let conn = Conn::new(false, 1024, settings.node.env.clone(), None);
+                let conn = Conn::new(false, 1024, &settings.node.env.clone(), None, None);
                 let _ = state.connections.insert(conn_id, conn.into());
             };
 
@@ -156,7 +148,7 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
                         .get(&Tag::VlessGrpc)
                         .expect("VLESS gRPC inbound")
                         .clone(),
-                    "🚀🚀🚀".to_string(),
+                    "🚀🚀🚀",
                 );
                 let vless_xtls_conn = vless_xtls_conn(
                     &conn_id,
@@ -165,7 +157,7 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
                         .get(&Tag::VlessXtls)
                         .expect("VLESS XTLS inbound")
                         .clone(),
-                    "🚀🚀🚀".to_string(),
+                    "🚀🚀🚀",
                 );
                 let vmess_conn = vmess_tcp_conn(
                     &conn_id,
@@ -174,6 +166,7 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
                         .get(&Tag::Vmess)
                         .expect("VMESS inbound")
                         .clone(),
+                    "🚀🚀🚀",
                 );
 
                 println!(
@@ -197,6 +190,21 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
             }
         }
     });
+
+    if settings.debug.enabled {
+        log::debug!(
+            "Running debug server: localhost:{}",
+            settings.debug.web_port
+        );
+        tokio::spawn(debug::start_ws_server(
+            state.clone(),
+            settings
+                .debug
+                .web_server
+                .unwrap_or(Ipv4Addr::new(127, 0, 0, 1)),
+            settings.debug.web_port,
+        ));
+    }
 
     tasks.push(conn_task);
 

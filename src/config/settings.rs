@@ -19,7 +19,7 @@ fn default_env() -> String {
     "dev".to_string()
 }
 
-fn default_conn_daily_limit_mb() -> i64 {
+fn default_conn_daily_limit_mb() -> i32 {
     1000
 }
 
@@ -150,7 +150,7 @@ pub struct ApiServiceConfig {
     #[serde(default = "default_conn_reactivate_interval")]
     pub conn_reactivate_interval: u64,
     #[serde(default = "default_conn_daily_limit_mb")]
-    pub conn_limit_mb: i64,
+    pub conn_limit_mb: i32,
     #[serde(default = "default_healthcheck_interval")]
     pub healthcheck_interval: u64,
     #[serde(default = "default_api_token")]

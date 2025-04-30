@@ -10,6 +10,7 @@ use super::BotState;
 #[async_trait]
 pub trait Keyboards {
     async fn conn_keyboard(&self, conns: Vec<String>) -> InlineKeyboardMarkup;
+    fn extract_info(conn: &str) -> (String, String);
 }
 
 #[async_trait]
@@ -20,7 +21,7 @@ impl Keyboards for BotState {
 
         for (i, conn) in conns.iter().enumerate() {
             let key = format!("conn_{}", i);
-            let (protocol, name) = extract_info(conn);
+            let (protocol, name) = Self::extract_info(conn);
             new_entries.insert(key.clone(), conn.clone());
 
             keyboard.push(vec![InlineKeyboardButton::callback(
@@ -35,18 +36,18 @@ impl Keyboards for BotState {
         }
         InlineKeyboardMarkup::new(keyboard)
     }
-}
 
-fn extract_info(conn: &str) -> (String, String) {
-    if let Ok(url) = Url::parse(conn) {
-        let scheme = url.scheme().to_uppercase();
-        let name = url.fragment().unwrap_or("UNKNOWN").to_string();
+    fn extract_info(conn: &str) -> (String, String) {
+        if let Ok(url) = Url::parse(conn) {
+            let scheme = url.scheme().to_uppercase();
+            let name = url.fragment().unwrap_or("UNKNOWN").to_string();
 
-        let name = urlencoding::decode(&name)
-            .map(|cow| cow.into_owned())
-            .unwrap_or(name);
-        (scheme, name)
-    } else {
-        ("UNKNOWN".to_string(), "INVALID".to_string())
+            let name = urlencoding::decode(&name)
+                .map(|cow| cow.into_owned())
+                .unwrap_or(name);
+            (scheme, name)
+        } else {
+            ("UNKNOWN".to_string(), "INVALID".to_string())
+        }
     }
 }

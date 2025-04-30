@@ -47,7 +47,7 @@ pub struct Response {
 pub async fn start_ws_server<T, C>(state: Arc<Mutex<State<T, C>>>, ipaddr: Ipv4Addr, port: u16)
 where
     T: NodeStorage + Sync + Send + Clone + 'static,
-    C: ConnApiOp + ConnBaseOp + Sync + Send + Clone + 'static + std::fmt::Display,
+    C: ConnBaseOp + Sync + Send + Clone + 'static + std::fmt::Display,
 {
     let health_check = warp::path("health-check").map(|| format!("Server OK"));
 
@@ -72,7 +72,7 @@ pub async fn handle_debug_connection<T, C>(
     state: Arc<Mutex<State<T, C>>>,
 ) where
     T: NodeStorage + Sync + Send + Clone + 'static,
-    C: ConnApiOp + ConnBaseOp + Sync + Send + Clone + 'static + std::fmt::Display,
+    C: ConnBaseOp + Sync + Send + Clone + 'static + std::fmt::Display,
 {
     let (mut sender, mut receiver) = socket.split();
 

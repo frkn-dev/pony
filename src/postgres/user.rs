@@ -1,10 +1,11 @@
 use chrono::{NaiveDateTime, Utc};
+use tokio_postgres::error::SqlState;
 use tokio_postgres::Client as PgClient;
 
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
-use crate::Result;
+use crate::{PonyError, Result};
 
 pub struct UserRow {
     pub user_id: uuid::Uuid,
@@ -31,11 +32,15 @@ impl PgUser {
         VALUES ($1, $2, $3, $4)
     ";
 
-        client
+        let res = client
             .execute(query, &[&user_id, &username, &now, &now])
-            .await?;
+            .await;
 
-        Ok(())
+        match res {
+            Ok(_) => Ok(()),
+            Err(e) if e.code() == Some(&SqlState::UNIQUE_VIOLATION) => Err(PonyError::Conflict),
+            Err(e) => Err(PonyError::Database(e)),
+        }
     }
 
     pub async fn get(&self, username: &str) -> Option<UserRow> {

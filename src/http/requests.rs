@@ -13,10 +13,20 @@ use std::net::Ipv4Addr;
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct UserQueryParam {
     pub username: String,
+    pub limit: i32,
+    pub trial: bool,
+    pub password: Option<String>,
+    pub env: String,
 }
 
 #[derive(Serialize, Deserialize)]
 pub struct NodesQueryParams {
+    pub env: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct ConnQueryParam {
+    pub conn_id: uuid::Uuid,
     pub env: String,
 }
 
@@ -71,7 +81,7 @@ pub struct ConnRequest {
     pub action: Action,
     pub env: String,
     pub trial: Option<bool>,
-    pub limit: Option<i64>,
+    pub limit: Option<i32>,
     pub password: Option<String>,
 }
 

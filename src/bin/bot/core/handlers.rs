@@ -2,11 +2,14 @@ use async_trait::async_trait;
 
 use teloxide::{payloads::SendMessageSetters, prelude::*, types::Me, utils::command::BotCommands};
 
-use super::http::ApiRequests;
-use super::BotState;
 use super::Command;
 
 use pony::Result;
+
+use super::keyboards::Keyboards;
+use super::BotState;
+use crate::core::http::ApiRequests;
+use crate::core::http::RegisterStatus;
 
 #[async_trait]
 pub trait Handlers {
@@ -36,9 +39,15 @@ impl Handlers for BotState {
                     if let Some(user) = msg.from {
                         if let Some(username) = user.username {
                             match self.register_user(&username).await {
-                                Ok(_) => {
+                                Ok(RegisterStatus::Ok) => {
                                     let reply = format!("Спасибо за регистрацию {}", username);
-
+                                    bot.send_message(msg.chat.id, reply).await?;
+                                }
+                                Ok(RegisterStatus::AlreadyExist) => {
+                                    let reply = format!(
+                                        "Уже зарегистрирован, используй комманду /connect  {}",
+                                        username
+                                    );
                                     bot.send_message(msg.chat.id, reply).await?;
                                 }
                                 Err(e) => {
@@ -54,11 +63,37 @@ impl Handlers for BotState {
                 Ok(Command::Connect) => {
                     if let Some(user) = msg.from {
                         if let Some(username) = user.username {
-                            match self.get_vpn_connection(&username) {}
+                            let res = self.get_user_vpn_connection(&username).await;
+                            log::debug!("{:?}", res);
+                            match res {
+                                Ok(Some(connection_info)) => {
+                                    let response = "Выбери VPN кофигурацию".to_string();
+
+                                    let keyboard = self.conn_keyboard(connection_info).await;
+
+                                    bot.send_message(msg.chat.id, response)
+                                        .reply_markup(keyboard)
+                                        .await?;
+                                }
+                                Ok(None) => {
+                                    bot.send_message(
+                                        msg.chat.id,
+                                        "Нет ни одной конфигурации. Создаем, попробуйте /connect через пару минут ",
+                                    )
+                                    .await?;
+                                }
+                                Err(e) => {
+                                    log::error!("VPN conn error: {:?}", e);
+                                    bot.send_message(
+                                        msg.chat.id,
+                                        "Не удалось получить подключение",
+                                    )
+                                    .await?;
+                                }
+                            }
                         }
                     }
                 }
-
                 Err(_) => {
                     bot.send_message(msg.chat.id, "Command not found!").await?;
                 }

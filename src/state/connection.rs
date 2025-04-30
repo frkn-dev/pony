@@ -102,7 +102,7 @@ impl fmt::Display for ConnBase {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Conn {
     pub trial: bool,
-    pub limit: i64,
+    pub limit: i32,
     pub env: String,
     pub status: ConnStatus,
     pub uplink: Option<i64>,
@@ -118,6 +118,12 @@ pub struct Conn {
 impl fmt::Display for Conn {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "Connection {{\n")?;
+
+        if let Some(user_id) = self.user_id {
+            write!(f, "  user_id: {},\n", user_id)?;
+        } else {
+            write!(f, "  user_id: None,\n")?;
+        }
 
         write!(f, "  trial: {},\n", self.trial)?;
         write!(f, "  env: {},\n", self.env)?;
@@ -158,12 +164,18 @@ impl fmt::Display for Conn {
 }
 
 impl Conn {
-    pub fn new(trial: bool, limit: i64, env: String, password: Option<String>) -> Self {
+    pub fn new(
+        trial: bool,
+        limit: i32,
+        env: &str,
+        password: Option<String>,
+        user_id: Option<uuid::Uuid>,
+    ) -> Self {
         let now = Utc::now();
         Self {
             trial,
             limit,
-            env,
+            env: env.to_string(),
             status: ConnStatus::Active,
             uplink: Some(0),
             downlink: Some(0),
@@ -172,7 +184,7 @@ impl Conn {
             modified_at: now,
             proto: None,
             password: password,
-            user_id: None,
+            user_id: user_id,
         }
     }
 }
@@ -223,8 +235,8 @@ pub trait ConnApiOp {
     fn get_trial(&self) -> bool;
     fn set_trial(&mut self, v: bool);
 
-    fn get_limit(&self) -> i64;
-    fn set_limit(&mut self, v: i64);
+    fn get_limit(&self) -> i32;
+    fn set_limit(&mut self, v: i32);
 
     fn get_status(&self) -> ConnStatus;
     fn set_status(&mut self, s: ConnStatus);
@@ -312,10 +324,10 @@ impl ConnApiOp for Conn {
         self.trial = v;
     }
 
-    fn get_limit(&self) -> i64 {
+    fn get_limit(&self) -> i32 {
         self.limit
     }
-    fn set_limit(&mut self, v: i64) {
+    fn set_limit(&mut self, v: i32) {
         self.limit = v;
     }
 

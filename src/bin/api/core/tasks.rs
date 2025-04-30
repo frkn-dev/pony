@@ -39,9 +39,12 @@ where
         let conn = Conn::new(
             db_conn.trial,
             db_conn.limit,
-            db_conn.env.clone(),
+            &db_conn.env,
             Some(db_conn.password.clone()),
+            db_conn.user_id,
         );
+
+        log::debug!("--> {:?} Add connection", conn);
 
         let mut state = self.state.lock().await;
         match state

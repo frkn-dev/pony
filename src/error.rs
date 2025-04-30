@@ -5,6 +5,9 @@ pub enum PonyError {
     #[error(transparent)]
     Database(#[from] tokio_postgres::Error),
 
+    #[error("DB conflict")]
+    Conflict,
+
     #[error(transparent)]
     Io(#[from] std::io::Error),
 
@@ -31,6 +34,9 @@ pub enum PonyError {
 
     #[error(transparent)]
     Grpc(#[from] tonic::Status),
+
+    #[error(transparent)]
+    SerdeUrlEnc(#[from] serde_urlencoded::ser::Error),
 
     #[error("Custom error: {0}")]
     Custom(String),

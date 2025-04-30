@@ -1,7 +1,7 @@
 
 
-### Badges
-Dev [![Release](https://github.com/frkn-dev/pony/actions/workflows/release.yml/badge.svg?branch=dev)](https://github.com/frkn-dev/pony/actions/workflows/release.yml)  [![Pony Build](https://github.com/frkn-dev/pony/actions/workflows/rust.yml/badge.svg?branch=main)](https://github.com/frkn-dev/pony/actions/workflows/rust.yml) Main  [![Release](https://github.com/frkn-dev/pony/actions/workflows/release.yml/badge.svg?branch=main)](https://github.com/frkn-dev/pony/actions/workflows/release.yml) [![Pony Build](https://github.com/frkn-dev/pony/actions/workflows/rust.yml/badge.svg?branch=main)](https://github.com/frkn-dev/pony/actions/workflows/rust.yml)
+
+[![Release](https://github.com/frkn-dev/pony/actions/workflows/release.yml/badge.svg?branch=main)](https://github.com/frkn-dev/pony/actions/workflows/release.yml) [![Pony Build](https://github.com/frkn-dev/pony/actions/workflows/rust.yml/badge.svg?branch=main)](https://github.com/frkn-dev/pony/actions/workflows/rust.yml)
 
 # Pony - a cluster platform for Xray/Wiregard
 
@@ -24,7 +24,7 @@ Contains 3 parts
 - Nginx — reverse proxy 
 
 
-## Agent Instalation 
+## Agent Installation 
 
 1. Create .env file 
 

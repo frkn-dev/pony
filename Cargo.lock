@@ -2047,6 +2047,7 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
+ "serde_urlencoded",
  "sysinfo",
  "teloxide",
  "thiserror 2.0.12",

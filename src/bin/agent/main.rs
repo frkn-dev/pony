@@ -1,5 +1,6 @@
 use clap::Parser;
 use fern::Dispatch;
+use pony::http::debug;
 
 use pony::config::settings::AgentSettings;
 use pony::config::settings::Settings;

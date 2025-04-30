@@ -94,12 +94,17 @@ where
 
         let topic0 = self.subscriber.topics[0].clone();
         let topic1 = self.subscriber.topics[1].clone();
+        let _topic2 = self.subscriber.topics[2].clone();
+
+        assert!(self.subscriber.topics.contains(&"all".to_string()));
 
         loop {
             if let Some(data) = sub.recv().await {
                 let mut parts = data.splitn(2, ' ');
                 let topic_str = parts.next().unwrap_or("");
                 let payload = parts.next().unwrap_or("");
+
+                log::debug!("ZMQ: topic: {}, payload: {}", topic_str, payload);
 
                 match Topic::from_raw(topic_str) {
                     Topic::Init(uuid) if uuid != topic0 => {
@@ -113,6 +118,9 @@ where
                     Topic::Unknown(raw) => {
                         log::warn!("ZMQ: Unknown topic: {}", raw);
                         continue;
+                    }
+                    Topic::All => {
+                        log::debug!("ZMQ: message for All topic recieved");
                     }
                     _ => {}
                 }

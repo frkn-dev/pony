@@ -72,7 +72,7 @@ pub fn vless_xtls_conn(
     user_id: &uuid::Uuid,
     ipv4: Ipv4Addr,
     inbound: Inbound,
-    label: String,
+    label: &str,
 ) -> Option<String> {
     let port = inbound.port;
     let stream_settings = inbound.stream_settings?;
@@ -91,7 +91,7 @@ pub fn vless_grpc_conn(
     user_id: &uuid::Uuid,
     ipv4: Ipv4Addr,
     inbound: Inbound,
-    label: String,
+    label: &str,
 ) -> Option<String> {
     let port = inbound.port;
     let stream_settings = inbound.stream_settings?;
@@ -108,7 +108,12 @@ pub fn vless_grpc_conn(
     Some(conn)
 }
 
-pub fn vmess_tcp_conn(user_id: &uuid::Uuid, ipv4: Ipv4Addr, inbound: Inbound) -> Option<String> {
+pub fn vmess_tcp_conn(
+    user_id: &uuid::Uuid,
+    ipv4: Ipv4Addr,
+    inbound: Inbound,
+    label: &str,
+) -> Option<String> {
     let mut conn: HashMap<String, String> = HashMap::new();
     let port = inbound.port;
     let stream_settings = inbound.stream_settings?;
@@ -136,5 +141,5 @@ pub fn vmess_tcp_conn(user_id: &uuid::Uuid, ipv4: Ipv4Addr, inbound: Inbound) ->
     let json_str = serde_json::to_string(&conn).ok()?;
     let base64_str = base64::engine::general_purpose::STANDARD.encode(json_str);
 
-    Some(format!("vmess://{base64_str}"))
+    Some(format!("vmess://{base64_str}#{label}"))
 }

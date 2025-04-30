@@ -20,7 +20,11 @@ impl Subscriber {
             .connect(endpoint)
             .expect("Failed to connect SUB socket");
 
-        let topics = vec![format!("{}", *uuid), format!("{}", env)];
+        let topics = vec![
+            Topic::Init(uuid.to_string()).as_zmq_topic(),
+            Topic::Updates(env.to_string()).as_zmq_topic(),
+            Topic::All.as_zmq_topic(),
+        ];
         log::info!("Subscribed to topics: {:?}", Topic::all(uuid, env));
 
         for topic in &topics {

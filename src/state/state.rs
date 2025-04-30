@@ -214,8 +214,23 @@ impl NodeStorage for HashMap<String, Vec<Node>> {
     }
 
     fn by_env(&self, env: &str) -> Option<Vec<Node>> {
-        self.get(env).cloned()
+        let mut result = Vec::new();
+
+        if let Some(nodes) = self.get(env) {
+            result.extend_from_slice(nodes);
+        }
+
+        if let Some(all_nodes) = self.get("all") {
+            result.extend_from_slice(all_nodes);
+        }
+
+        if result.is_empty() {
+            None
+        } else {
+            Some(result)
+        }
     }
+
     fn all(&self) -> Option<Vec<Node>> {
         let nodes: Vec<Node> = self.values().flatten().cloned().collect();
 
@@ -293,7 +308,7 @@ where
     fn add_or_update(&mut self, conn_id: &uuid::Uuid, new_conn: C) -> Result<()>;
     fn restore(&mut self, conn_id: &uuid::Uuid) -> Result<()>;
     fn expire(&mut self, conn_id: &uuid::Uuid) -> Result<()>;
-    fn update_limit(&mut self, conn_id: &uuid::Uuid, new_limit: i64) -> Result<()>;
+    fn update_limit(&mut self, conn_id: &uuid::Uuid, new_limit: i32) -> Result<()>;
     fn update_trial(&mut self, conn_id: &uuid::Uuid, new_trial: bool) -> Result<()>;
     fn reset_stat(&mut self, conn_id: &uuid::Uuid, stat: StatType);
     fn all_trial(&self, status: ConnStatus) -> HashMap<uuid::Uuid, C>;
@@ -306,7 +321,7 @@ where
     fn add(&mut self, conn_id: &uuid::Uuid, new_conn: C) -> Result<()>;
     fn remove(&mut self, conn_id: &uuid::Uuid) -> Result<()>;
     fn get(&self, conn_id: &uuid::Uuid) -> Option<C>;
-    fn get_by_user_id(&self, user_id: &uuid::Uuid) -> Option<Vec<C>>;
+    fn get_by_user_id(&self, user_id: &uuid::Uuid) -> Option<Vec<(uuid::Uuid, C)>>;
     fn update_stat(
         &mut self,
         conn_id: &uuid::Uuid,
@@ -346,11 +361,11 @@ where
         self.0.get(conn_id).cloned()
     }
 
-    fn get_by_user_id(&self, user_id: &uuid::Uuid) -> Option<Vec<C>> {
-        let conns: Vec<C> = self
-            .values()
-            .filter(|conn| conn.get_user_id() == Some(*user_id))
-            .cloned()
+    fn get_by_user_id(&self, user_id: &uuid::Uuid) -> Option<Vec<(uuid::Uuid, C)>> {
+        let conns: Vec<(uuid::Uuid, C)> = self
+            .iter()
+            .filter(|(_, conn)| conn.get_user_id() == Some(*user_id))
+            .map(|(conn_id, conn)| (*conn_id, conn.clone()))
             .collect();
 
         if conns.is_empty() {
@@ -471,7 +486,7 @@ where
         }
     }
 
-    fn update_limit(&mut self, conn_id: &uuid::Uuid, new_limit: i64) -> Result<()> {
+    fn update_limit(&mut self, conn_id: &uuid::Uuid, new_limit: i32) -> Result<()> {
         if let Some(conn) = self.get_mut(conn_id) {
             conn.set_limit(new_limit);
             conn.update_modified_at();

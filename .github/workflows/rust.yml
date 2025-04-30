@@ -92,8 +92,7 @@ jobs:
         run: sudo apt-get install -y protobuf-compiler
   
       - name: Build Bot
-        run: cargo build --release --bin bot --no-default-features --features bot
-
+        run: cargo build --release --bin bot --no-default-features 
       - name: Upload Bot binary
         uses: actions/upload-artifact@v4
         with:

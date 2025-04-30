@@ -3,7 +3,7 @@ WORKDIR /app
 COPY . .
 
 RUN apt-get update && apt-get install -y protobuf-compiler && \
-    cargo build --bin bot --no-default-features --features bot --release
+    cargo build --bin bot --no-default-features --release
 
 FROM rust:latest
 COPY --from=builder /app/target/release/bot /app/bot

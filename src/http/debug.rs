@@ -8,7 +8,7 @@ use tokio::sync::Mutex;
 use warp::ws::Message;
 use warp::Filter;
 
-use crate::state::connection::{ConnApiOp, ConnBaseOp};
+use crate::state::connection::ConnBaseOp;
 use crate::state::state::NodeStorage;
 use crate::state::state::{ConnStorageBase, State};
 

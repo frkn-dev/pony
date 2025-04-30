@@ -1,3 +1,5 @@
+deploy/env
+dev/
 .DS_Store
 */.DS_Store
 dev/config-bot.toml

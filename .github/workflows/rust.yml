@@ -1,4 +1,4 @@
-name: Rust
+name: Pony Build
 
 on:
   push:
@@ -10,20 +10,120 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build:
+  build-agent:
     runs-on: ubuntu-latest
+    outputs:
+      agent-artifact: pony-agent
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v1
+        uses: actions/checkout@v4
 
       - name: Install latest rust toolchain
         uses: actions-rs/toolchain@v1
         with:
-          toolchain: stable
+          toolchain: nightly
           default: true
           override: true
 
-      - name: Build
-        run: cargo build --all
+      - name: Install protobuf-compiler
+        run: sudo apt-get install -y protobuf-compiler
+
+      - name: Install zig
+        run: pip3 install ziglang
+      
+      - name: Install cargo-zigbuild
+        run: cargo install --locked cargo-zigbuild
+      
+      - name: Add target
+        run: rustup target add x86_64-unknown-linux-gnu
+      
+      - name: Build statically linked binary
+        run: cargo zigbuild --release --bin agent --no-default-features --target x86_64-unknown-linux-gnu
+
+      - name: Upload Agent binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: pony-agent
+          path: target/x86_64-unknown-linux-gnu/release/agent
+  
+  build-api:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install latest rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: nightly
+          default: true
+          override: true
+
+      - name: Install protobuf-compiler
+        run: sudo apt-get install -y protobuf-compiler
+
+      - name: Build API
+        run: cargo build --release --bin api --no-default-features
+
+      - name: Upload API binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: pony-api
+          path: target/release/api
+
     
+  build-bot:
+    runs-on: ubuntu-latest
+  
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+  
+      - name: Install latest rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: nightly
+          default: true
+          override: true
+
+      - name: Install protobuf-compiler
+        run: sudo apt-get install -y protobuf-compiler
+  
+      - name: Build Bot
+        run: cargo build --release --bin bot --no-default-features 
+      - name: Upload Bot binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: pony-bot
+          path: target/release/bot
+
+  collect-binaries:
+    runs-on: ubuntu-latest
+    needs: [build-agent, build-api, build-bot]
+
+    steps:
+      - name: Download agent
+        uses: actions/download-artifact@v4
+        with:
+          name: pony-agent
+          path: collected
+
+      - name: Download api
+        uses: actions/download-artifact@v4
+        with:
+          name: pony-api
+          path: collected
+
+      - name: Download bot
+        uses: actions/download-artifact@v4
+        with:
+          name: pony-bot
+          path: collected
+
+      - name: Upload combined binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: pony-binaries
+          path: collected/

@@ -1,44 +1,42 @@
-use log::{error, info, warn, LevelFilter};
-use std::error::Error;
-use std::io;
-use std::net::SocketAddr;
-
-use chrono::{TimeZone, Utc};
-use std::time::{SystemTime, UNIX_EPOCH};
-use tokio::io::AsyncWriteExt;
-use tokio::net::TcpStream;
-
-use crate::geoip;
-use crate::metrics::Metric;
+use std::collections::HashMap;
 use std::net::IpAddr;
+use std::net::Ipv4Addr;
+use std::{
+    time::Instant,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
-pub async fn send_to_carbon<T: ToString>(
-    metric: &Metric<T>,
-    server: &str,
-) -> Result<(), io::Error> {
-    let metric_string = metric.to_string();
+use base64::Engine;
+use chrono::{TimeZone, Utc};
+use log::LevelFilter;
+use rand::{distributions::Alphanumeric, Rng};
 
-    match TcpStream::connect(server).await {
-        Ok(mut stream) => {
-            if let Err(e) = stream.write_all(metric_string.as_bytes()).await {
-                warn!("Failed to send metric: {}", e);
-                return Err(e);
-            }
+use crate::config::xray::Inbound;
 
-            info!("Sent metric to Carbon: {}", metric_string);
+pub fn generate_random_password(length: usize) -> String {
+    rand::thread_rng()
+        .sample_iter(&Alphanumeric)
+        .take(length)
+        .map(char::from)
+        .collect()
+}
 
-            if let Err(e) = stream.flush().await {
-                warn!("Failed to flush stream: {}", e);
-                return Err(e);
-            }
-
-            Ok(())
-        }
-        Err(e) => {
-            error!("Failed to connect to Carbon server: {}", e);
-            Err(e)
-        }
+pub fn to_ipv4(ip: IpAddr) -> Option<Ipv4Addr> {
+    match ip {
+        IpAddr::V4(ipv4) => Some(ipv4),
+        IpAddr::V6(_) => None,
     }
+}
+
+pub async fn measure_time<T, F>(task: F, name: String) -> T
+where
+    F: std::future::Future<Output = T>,
+{
+    let start_time = Instant::now();
+    let result = task.await;
+    let duration = start_time.elapsed();
+    log::info!("Task {} completed in {:?}", name, duration);
+    result
 }
 
 pub fn current_timestamp() -> u64 {
@@ -70,36 +68,78 @@ pub fn level_from_settings(level: &str) -> LevelFilter {
     }
 }
 
-fn remove_prefix(input: &str) -> String {
-    input.replace("::ffff:", "")
+pub fn vless_xtls_conn(
+    user_id: &uuid::Uuid,
+    ipv4: Ipv4Addr,
+    inbound: Inbound,
+    label: &str,
+) -> Option<String> {
+    let port = inbound.port;
+    let stream_settings = inbound.stream_settings?;
+    let reality_settings = stream_settings.reality_settings?;
+    let pbk = reality_settings.public_key;
+    let sid = reality_settings.short_ids.first()?;
+    let sni = reality_settings.server_names.first()?;
+
+    let conn = format!(
+        "vless://{user_id}@{ipv4}:{port}?security=reality&flow=xtls-rprx-vision&type=tcp&sni={sni}&fp=chrome&pbk={pbk}&sid={sid}#{label} XTLS"
+    );
+    Some(conn)
 }
 
-fn trim_quotes(s: &str) -> String {
-    s.replace("\"", "").trim().to_string()
+pub fn vless_grpc_conn(
+    user_id: &uuid::Uuid,
+    ipv4: Ipv4Addr,
+    inbound: Inbound,
+    label: &str,
+) -> Option<String> {
+    let port = inbound.port;
+    let stream_settings = inbound.stream_settings?;
+    let reality_settings = stream_settings.reality_settings?;
+    let grpc_settings = stream_settings.grpc_settings?;
+    let service_name = grpc_settings.service_name;
+    let pbk = reality_settings.public_key;
+    let sid = reality_settings.short_ids.first()?;
+    let sni = reality_settings.server_names.first()?;
+
+    let conn = format!(
+        "vless://{user_id}@{ipv4}:{port}?security=reality&type=grpc&mode=gun&serviceName={service_name}&fp=chrome&sni={sni}&pbk={pbk}&sid={sid}#{label} GRPC"
+    );
+    Some(conn)
 }
 
-fn parse_ip(ip: &str) -> Result<String, Box<dyn Error + 'static>> {
-    if let Ok(ip_addr) = ip.parse::<IpAddr>() {
-        return Ok(ip_addr.to_string());
-    }
+pub fn vmess_tcp_conn(
+    user_id: &uuid::Uuid,
+    ipv4: Ipv4Addr,
+    inbound: Inbound,
+    label: &str,
+) -> Option<String> {
+    let mut conn: HashMap<String, String> = HashMap::new();
+    let port = inbound.port;
+    let stream_settings = inbound.stream_settings?;
+    let tcp_settings = stream_settings.tcp_settings?;
+    let header = tcp_settings.header?;
+    let req = header.request?;
+    let headers = req.headers?;
 
-    match ip.parse::<SocketAddr>() {
-        Ok(socket_addr) => {
-            let ip: IpAddr = socket_addr.ip();
-            Ok(ip.to_string())
-        }
-        Err(_) => Err("Failed to parse IP or SocketAddr".into()),
-    }
-}
+    let host = headers.get("Host")?.first()?;
+    let path = req.path.first()?;
 
-pub async fn country(ip: String) -> Result<String, Box<dyn Error>> {
-    let parsed_ip = parse_ip(&ip)?;
+    conn.insert("add".to_string(), ipv4.to_string());
+    conn.insert("aid".to_string(), "0".to_string());
+    conn.insert("host".to_string(), host.to_string());
+    conn.insert("id".to_string(), user_id.to_string());
+    conn.insert("net".to_string(), "tcp".to_string());
+    conn.insert("path".to_string(), path.to_string());
+    conn.insert("port".to_string(), port.to_string());
+    conn.insert("ps".to_string(), "VmessTCP".to_string());
+    conn.insert("scy".to_string(), "auto".to_string());
+    conn.insert("tls".to_string(), "none".to_string());
+    conn.insert("type".to_string(), "http".to_string());
+    conn.insert("v".to_string(), "2".to_string());
 
-    let country_info = geoip::find(&remove_prefix(&parsed_ip))
-        .await
-        .map_err(|_| "Failed to find country by IP")?;
+    let json_str = serde_json::to_string(&conn).ok()?;
+    let base64_str = base64::engine::general_purpose::STANDARD.encode(json_str);
 
-    let country = trim_quotes(&country_info.country);
-
-    Ok(country)
+    Some(format!("vmess://{base64_str}#{label}"))
 }

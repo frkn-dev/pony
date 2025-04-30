@@ -1,0 +1,39 @@
+[api]
+# address = "127.0.0.1"
+# port = 3005
+# endpoint = "http://localhost:3005"
+# node_health_check_timeout = 60
+# user_limit_check_interval = 60
+# user_reactivate_interval = 60
+# token = "supetsecrettoken"
+# user_limit_mb = 1000
+# healthcheck_interval = 60
+
+[debug]
+# enabled = true
+# web_server = "127.0.0.1"
+# web_port = 3001
+
+[node]
+# env = "dev"
+# hostname = "<define in env or config>"
+# default_interface = "<autodetected>"
+# ipv4 = "<autodetected>"
+# uuid = "9658b391-01cb-4031-a3f5-6cbdd749bcff"
+# label = "🏴‍☠️🏴‍☠️🏴‍☠️ dev"
+
+[logging]
+# level = "debug"
+
+[zmq]
+# endpoint = "tcp://*:3000"
+
+[clickhouse]
+# address = "http://localhost:8123"
+
+[pg]
+# host = "localhost"
+# port = 5432
+# db = "postgres"
+# username = "postgres"
+# password = "password"

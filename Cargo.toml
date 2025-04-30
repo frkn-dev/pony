@@ -1,24 +1,80 @@
 [package]
 name = "pony"
-version = "0.0.23"
+version = "0.0.28-dev"
 edition = "2021"
+build = "build.rs" 
+
+[profile.release]
+strip = true 
+debug = false
+lto = true
+codegen-units = 1
+panic = "abort"
+
+[profile.release.package."*"]
+strip = true
 
 [dependencies]
-sysinfo = "0.31.4"  
-serde = { version = "1.0", features = ["derive"] }  
-serde_json = "1.0"  
-tokio = { version = "1", features = ["full"] }
-netstat2 = "0.9"
-config = "0.14"
-openssl = { version = "0.10", features = ["vendored"] }
-log = "0.4"
-fern = "0.6"
-chrono = "0.4"
-reqwest = "0.12"
-toml = "0.7"
-futures = "0.3"
-actix-web = "4"
-actix-web-httpauth = "0.7"
-clickhouse = "0.13.0"
+anyhow = "1"
+async-trait = "0.1"
+base64 = "0.22"
+chrono = { version = "0.4", features = ["serde"] }
 clap = { version = "4.0", features = ["derive"] }
+config = "0.14"
+clickhouse = { version = "0.13.0" }
+fern = "0.7"
+futures = "0.3"
+log = "0.4"
+netstat2 = { version = "0.11.1" } 
+openssl = { version = "0.10", features = ["vendored"] }
+prost = { version = "0.13" }
+prost-derive = { version = "0.13" }
+rand = "0.8"
+reqwest = { version = "0.12", features = ["json"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+serde_urlencoded = "0.7"
+sysinfo = { version = "0.33"}
 time = "0.3"
+thiserror = "2.0"
+tonic = { version = "0.12" }
+toml = "0.8"
+tokio = { version = "1", features = ["full"] }
+tokio-postgres = { version="0.7", features=["with-uuid-1", "with-chrono-0_4", "with-serde_json-1"]}
+postgres-types = { version = "0.2", features = ["derive"] }
+uuid = { version = "1", features = ["serde", "v4"]  }
+zmq = "0.10"
+default-net = "0.22"
+warp = "0.3"
+url = "2"
+console-subscriber = {version = "0.4", optional = true} 
+teloxide = { version = "0.15", features = ["macros"] }
+urlencoding = "2.1.3"
+
+
+[build-dependencies]
+tonic-build = "0.12"
+walkdir = "2.0"
+
+[dev-dependencies]
+tracing = "0.1" 
+tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] } 
+tokio-util = "0.7"
+
+[features]
+
+default = []
+debug = ["console-subscriber"]
+
+[[bin]]
+name = "agent"
+path = "src/bin/agent/main.rs"
+
+[[bin]]
+name = "api"
+path = "src/bin/api/main.rs"
+
+[[bin]]
+name = "bot"
+path = "src/bin/bot/main.rs"
+

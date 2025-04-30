@@ -1,0 +1,43 @@
+[debug]
+# enabled = true
+# web_server = "127.0.0.1"
+# web_port = 3001
+
+[carbon]
+# address = "localhost:2003"
+
+[logging]
+# level = "debug"
+
+[agent]
+# local = false
+# metrics_enabled = true
+# metrics_interval = 60
+# stat_enabled = true
+# stat_job_interval = 60
+
+[xray]
+# xray_config_path = "dev/xray-config.json"
+
+[zmq]
+# sub_endpoint = "tcp://localhost:3000"
+# pub_endpoint = "tcp://*:3000"
+
+[node]
+# env = "dev"
+# hostname = "<define in env or config>"
+# default_interface = "<autodetected>"
+# ipv4 = "<autodetected>"
+# uuid = "9658b391-01cb-4031-a3f5-6cbdd749bcff"
+# label = "🏴‍☠️🏴‍☠️🏴‍☠️ dev"
+
+[api]
+# address = "127.0.0.1"
+# port = 3005
+# endpoint = "http://localhost:3005"
+# node_health_check_timeout = 60
+# user_limit_check_interval = 60
+# user_reactivate_interval = 60
+# token = "supetsecrettoken"
+# user_limit_mb = 1000
+# healthcheck_interval = 60

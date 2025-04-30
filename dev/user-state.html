@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>State Info</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+        }
+        input, label {
+            margin: 5px;
+        }
+        button {
+            padding: 5px 10px;
+        }
+        #state-container, #conn-container, #users-container {
+            margin-top: 20px;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            background-color: #f9f9f9;
+        }
+        pre {
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            background-color: #f4f4f4;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Connections Info</h1>
+
+    <div>
+        <label for="host">Host:</label>
+        <input type="text" id="host" placeholder="127.0.0.1" value="127.0.0.1" />
+
+        <label for="port">Port:</label>
+        <input type="text" id="port" placeholder="3333" value="3333" />
+
+        <label for="path">Path:</label>
+        <input type="text" id="path" placeholder="debug/ws" value="debug/ws" />
+
+        <label for="ssl">Use SSL:</label>
+        <input type="checkbox" id="ssl" checked />
+
+        <button id="connectBtn">Connect</button>
+    </div>
+
+    <br>
+
+    <div>
+        <label for="connId">Connection ID:</label>
+        <input type="text" id="connId" placeholder="Conn ID" />
+        <button id="getConnBtn">Get Conn Info</button>
+    </div>
+
+    <div id="nodes-container" style="display:none;">
+        <h3>Current Nodes:</h3>
+        <pre id="nodes"></pre>
+    </div>
+
+    <div id="users-container" style="display:none;">
+        <h3 id="users-header">Current Users:</h3>
+        <pre id="users"></pre>
+    </div>
+
+    <div id="conn-container" style="display:none;">
+        <h3>Connection Info:</h3>
+        <pre id="conn-info"></pre>
+    </div>
+
+    <div id="conns-container" style="display:none;">
+        <h3>Current Connections:</h3>
+        <pre id="conns"></pre>
+    </div>
+
+    <script>
+        let socket = null;
+        let reconnectInterval = null;
+
+        const connsContainer = document.getElementById('conns-container');
+        const nodesContainer = document.getElementById('nodes-container');
+        const usersContainer = document.getElementById('users-container');
+        const connContainer = document.getElementById('conn-container');
+        const connsElement = document.getElementById('conns');
+        const nodesElement = document.getElementById('nodes');
+        const usersElement = document.getElementById('users');
+        const usersHeader = document.getElementById('users-header');
+        const connElement = document.getElementById('conn-info');
+        const connIdInput = document.getElementById('connId');
+
+        function buildWebSocketUrl({ host, port, ssl = true, path = '' }) {
+            let protocol = ssl ? 'wss' : 'ws';
+            let address = host.includes(':') ? host : port ? `${host}:${port}` : host;
+            let finalPath = path && path.length > 0 ? `/${path.replace(/^\/+/, '')}` : '';
+            return `${protocol}://${address}${finalPath}`;
+        }
+
+        function connectWebSocket() {
+            const host = document.getElementById('host').value.trim();
+            const port = document.getElementById('port').value.trim();
+            const ssl = document.getElementById('ssl') ? document.getElementById('ssl').checked : true;
+            const path = document.getElementById('path') ? document.getElementById('path').value.trim() : '';
+
+            if (!host) {
+                alert("Please enter a valid host");
+                return;
+            }
+
+            const url = buildWebSocketUrl({ host, port, ssl, path });
+            socket = new WebSocket(url);
+
+            socket.onopen = () => {
+                console.log(`Connected to WebSocket server at ${url}`);
+                clearInterval(reconnectInterval);
+                requestConns();
+                requestNodes();
+                requestUsers();
+
+                setInterval(() => {
+                    if (socket && socket.readyState === WebSocket.OPEN) {
+                        requestConns();
+                        requestNodes();
+                        requestUsers();
+                    }
+                }, 5000);
+            };
+
+            socket.onmessage = (event) => {
+                const data = event.data;
+                console.log('Received from server:', data);
+
+                try {
+                    const response = JSON.parse(data);
+                    if (!response.kind) return;
+
+                    switch (response.kind) {
+                        case "conns": displayConns(response); break;
+                        case "nodes": displayNodes(response); break;
+                        case "conn": displayConnInfo(response); break;
+                        case "users": displayUsers(response); break;
+                        default: console.log("Unknown response kind:", response.kind);
+                    }
+                } catch (error) {
+                    console.error("Error parsing response:", error);
+                }
+            };
+
+            socket.onerror = (error) => {
+                console.error("WebSocket error:", error);
+            };
+
+            socket.onclose = () => {
+                console.log("WebSocket connection closed.");
+                attemptReconnect();
+            };
+        }
+
+        function attemptReconnect() {
+            if (reconnectInterval) return;
+            reconnectInterval = setInterval(() => {
+                console.log("Attempting to reconnect...");
+                connectWebSocket();
+            }, 5000);
+        }
+
+        document.getElementById('connectBtn').addEventListener('click', () => {
+            connectWebSocket();
+        });
+
+        document.getElementById('getConnBtn').addEventListener('click', () => {
+            const connId = connIdInput.value.trim();
+            if (connId) {
+                requestConnInfo(connId);
+            } else {
+                alert('Please enter a valid conn ID');
+            }
+        });
+
+        function requestConns() {
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                const request = { kind: "get_connections", message: "Requesting connections" };
+                socket.send(JSON.stringify(request));
+            }
+        }
+
+        function requestNodes() {
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                const request = { kind: "get_nodes", message: "Requesting nodes" };
+                socket.send(JSON.stringify(request));
+            }
+        }
+
+        function requestUsers() {
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                const request = { kind: "get_users", message: "Requesting users" };
+                socket.send(JSON.stringify(request));
+            }
+        }
+
+        function requestConnInfo(connId) {
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                const request = {
+                    kind: "get_conn_info",
+                    message: `Requesting info for conn ${connId}`,
+                    conn_id: connId
+                };
+                socket.send(JSON.stringify(request));
+            }
+        }
+
+        function displayConns(state) {
+            connsContainer.style.display = 'block';
+            connsElement.innerHTML = "";
+
+            let data = state.data;
+            if (typeof data === 'string') {
+                try { data = JSON.parse(data); } catch {}
+            }
+
+            if (Array.isArray(data)) {
+                const ul = document.createElement('ul');
+                data.forEach(item => {
+                    const li = document.createElement('li');
+                    li.textContent = item;
+                    ul.appendChild(li);
+                });
+                connsElement.appendChild(ul);
+            } else {
+                connsElement.textContent = `Connections count: ${state.len}, Data: ${state.data}`;
+            }
+        }
+
+        function displayNodes(state) {
+            nodesContainer.style.display = 'block';
+            nodesElement.innerHTML = "";
+
+            let data = state.data;
+            if (typeof data === 'string') {
+                try { data = JSON.parse(data); } catch {}
+            }
+
+            if (Array.isArray(data)) {
+                const ul = document.createElement('ul');
+                data.forEach(item => {
+                    const li = document.createElement('li');
+                    li.textContent = `Node ID: ${item.uuid}, Hostname: ${item.hostname}, IP: ${item.address}, Status: ${item.status}, Env: ${item.env}`;
+                    ul.appendChild(li);
+                });
+                nodesElement.appendChild(ul);
+            } else {
+                nodesElement.textContent = state.data;
+            }
+        }
+
+        function displayUsers(state) {
+            usersContainer.style.display = 'block';
+            usersElement.innerHTML = "";
+
+            let data = state.data;
+            if (typeof data === 'string') {
+                try { data = JSON.parse(data); } catch {}
+            }
+
+            if (Array.isArray(data)) {
+                usersHeader.textContent = `Current Users (${data.length}):`;
+                const ul = document.createElement('ul');
+                data.forEach(uuid => {
+                    const li = document.createElement('li');
+                    li.textContent = uuid;
+                    ul.appendChild(li);
+                });
+                usersElement.appendChild(ul);
+            } else {
+                usersElement.textContent = state.data;
+            }
+        }
+
+        function displayConnInfo(connInfo) {
+            connContainer.style.display = 'block';
+            connElement.textContent = connInfo.data;
+        }
+    </script>
+</body>
+</html>

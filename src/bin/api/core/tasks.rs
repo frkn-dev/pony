@@ -28,13 +28,13 @@ use crate::Api;
 
 #[async_trait]
 pub trait Tasks {
-    async fn node_healthcheck(&self) -> Result<()>;
-    async fn collect_conn_stat(&self) -> Result<()>;
-    async fn restore_trial_conns(&self) -> Result<()>;
     async fn add_node(&self, db_node: Node) -> Result<()>;
     async fn add_conn(&self, db_conn: ConnRow) -> Result<()>;
     async fn add_user(&self, db_user: UserRow) -> Result<()>;
+    async fn node_healthcheck(&self) -> Result<()>;
+    async fn collect_conn_stat(&self) -> Result<()>;
     async fn check_limit_and_expire_conns(&self) -> Result<()>;
+    async fn restore_trial_conns(&self) -> Result<()>;
 }
 
 #[async_trait]
@@ -213,8 +213,10 @@ where
 
             async move {
                 let msg = msg.clone();
-                if let Ok(_) = SyncOp::check_limit_and_expire_conn(&state, &conn_id).await {
-                    let _ = publisher.send(&conn.get_env(), msg).await;
+                if let Ok(status) = SyncOp::check_limit_and_expire_conn(&state, &conn_id).await {
+                    if status == ConnStatus::Expired {
+                        let _ = publisher.send(&conn.get_env(), msg).await;
+                    }
                     Ok(())
                 } else {
                     Err(PonyError::Custom(

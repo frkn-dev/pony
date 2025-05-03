@@ -35,7 +35,7 @@ where
         status: NodeStatus,
     ) -> Result<()>;
     async fn update_conn_stat(&self, conn_id: &uuid::Uuid, stat: ConnStat) -> Result<()>;
-    async fn check_limit_and_expire_conn(&self, conn_id: &uuid::Uuid) -> Result<()>;
+    async fn check_limit_and_expire_conn(&self, conn_id: &uuid::Uuid) -> Result<ConnStatus>;
     async fn activate_trial_conn(&self, conn_id: &uuid::Uuid) -> Result<()>;
 }
 
@@ -143,7 +143,7 @@ where
         Ok(())
     }
 
-    async fn check_limit_and_expire_conn(&self, conn_id: &uuid::Uuid) -> Result<()> {
+    async fn check_limit_and_expire_conn(&self, conn_id: &uuid::Uuid) -> Result<ConnStatus> {
         let mut mem = self.memory.lock().await;
 
         if let Some(conn) = mem.connections.get_mut(&conn_id) {
@@ -161,6 +161,8 @@ where
                             status: ConnStatus::Expired,
                         })
                         .await;
+
+                    return Ok(ConnStatus::Expired);
                 }
             }
         } else {
@@ -169,7 +171,7 @@ where
             ));
         }
 
-        Ok(())
+        Ok(ConnStatus::Active)
     }
 
     async fn activate_trial_conn(&self, conn_id: &uuid::Uuid) -> Result<()> {

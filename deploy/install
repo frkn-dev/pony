@@ -32,6 +32,7 @@ ZMQ_ENDPOINT="${ZMQ_ENDPOINT:-tcp://localhost:3000}"
 ENV="${ENV:-dev}"
 API_ENDPOINT=${API_ENDPOINT:-http://localhost:3005}
 API_TOKEN=${API_TOKEN:-mysecrettoken}
+LABEL="${LABEL:-🏴‍☠️🏴‍☠️🏴‍☠️ dev}"
 
 # set up UUID
 if [ -n "$UUID" ]; then
@@ -364,7 +365,7 @@ uuid = "$FINAL_UUID"
 hostname = "$HOSTNAME"
 default_interface = "$default_interface"
 ipv4 = "$default_ip"
-label = "🏴‍☠️🏴‍☠️🏴‍☠️ dev"
+label = $LABEL
 
 [api]
 endpoint = "$API_ENDPOINT"

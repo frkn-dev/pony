@@ -114,6 +114,9 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
         });
         tasks.push(zmq_task);
 
+        // uglyhuck for ZMQ
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
         let _ = {
             let settings = settings.clone();
             log::debug!("Register node task");

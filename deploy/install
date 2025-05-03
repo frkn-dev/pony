@@ -34,6 +34,12 @@ API_ENDPOINT=${API_ENDPOINT:-http://localhost:3005}
 API_TOKEN=${API_TOKEN:-mysecrettoken}
 LABEL="${LABEL:-🏴‍☠️🏴‍☠️🏴‍☠️ dev}"
 
+echo alias dc="docker-compose" >> ~/.bashrc
+echo alias s="systemctl" >> ~/.bashrc
+echo alias j="journalctl" >> ~/.bashrc
+
+source ~/.bashrc
+
 # set up UUID
 if [ -n "$UUID" ]; then
   FINAL_UUID="$UUID"
@@ -48,7 +54,7 @@ fi
 
 
 apt-get update -y 
-apt-get install -y unzip wget curl
+apt-get install -y unzip wget curl net-tools
 
 
 mkdir -p "$INSTALL_DIR"
@@ -357,7 +363,7 @@ stat_job_interval = 60
 xray_config_path = "$XRAY_CONFIG_PATH"
 
 [zmq]
-sub_endpoint = "$ZMQ_ENDPOINT"
+endpoint = "$ZMQ_ENDPOINT"
 
 [node]
 env = "$ENV"

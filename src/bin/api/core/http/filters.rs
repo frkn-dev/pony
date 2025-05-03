@@ -15,7 +15,6 @@ pub fn auth(token: Arc<String>) -> impl Filter<Extract = (), Error = Rejection> 
         .and_then(move |auth_header: String| {
             let token = token.clone();
             async move {
-                log::debug!("{} - {}", auth_header, *token);
                 if auth_header
                     .strip_prefix("Bearer ")
                     .map_or(false, |t| t == token.as_str())

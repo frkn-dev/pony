@@ -1,28 +1,19 @@
 version: '3.8'
 
 services:
-  pony-api:
-    image: frknorg/pony-api:latest
-    container_name: pony-api
-    ports:
-      - 3000:3000
-    networks:
-      - mynetwork
+  db:
+    image: postgres:latest
+    container_name: postgres-container
+    environment:  
+      POSTGRES_PASSWORD: password
+   
     volumes:
-      - ./config-api.toml:/app/config.toml
-    command: ["/app/api", "--config", "/app/config.toml"]
-
-  pony-bot:
-    image: frknorg/pony-bot:latest
-    container_name: pony-bot
+      - ./data:/var/lib/postgresql/data
     ports:
-      - 3000:3000
+      - "127.0.0.1:5432:5432"
     networks:
-      - mynetwork
-    volumes:
-      - ./config-bot.toml:/app/config.toml
-    command: ["/app/api", "--config", "/app/config.toml"]
+      - pony-network
 
 networks:
-  mynetwork:
+  pony-network:
     driver: bridge

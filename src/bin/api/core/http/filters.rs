@@ -1,14 +1,12 @@
 use std::sync::Arc;
-use tokio::sync::Mutex;
 use warp::{Filter, Rejection};
 
 use pony::http::AuthError;
-use pony::postgres::PgContext;
-use pony::state::connection::Conn;
-use pony::state::connection::ConnApiOp;
-use pony::state::connection::ConnBaseOp;
-use pony::state::state::NodeStorage;
-use pony::state::state::State;
+use pony::state::Conn;
+use pony::state::ConnApiOp;
+use pony::state::ConnBaseOp;
+use pony::state::NodeStorage;
+use pony::state::SyncState;
 use pony::zmq::publisher::Publisher as ZmqPublisher;
 
 /// Provides authentication filter based on API token
@@ -33,20 +31,13 @@ pub fn auth(token: Arc<String>) -> impl Filter<Extract = (), Error = Rejection> 
 
 /// Provides application state filter
 pub fn with_state<T, C>(
-    state: Arc<Mutex<State<T, C>>>,
-) -> impl Filter<Extract = (Arc<Mutex<State<T, C>>>,), Error = std::convert::Infallible> + Clone
+    sync_state: SyncState<T, C>,
+) -> impl Filter<Extract = (SyncState<T, C>,), Error = std::convert::Infallible> + Clone
 where
     T: NodeStorage + Sync + Send + Clone + 'static,
     C: ConnApiOp + ConnBaseOp + Sync + Send + Clone + 'static + From<Conn>,
 {
-    warp::any().map(move || state.clone())
-}
-
-/// Provides database context filter
-pub fn db(
-    db: PgContext,
-) -> impl Filter<Extract = (PgContext,), Error = std::convert::Infallible> + Clone {
-    warp::any().map(move || db.clone())
+    warp::any().map(move || sync_state.clone())
 }
 
 /// Provides zmq publisher filter

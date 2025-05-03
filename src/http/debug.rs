@@ -1,16 +1,16 @@
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use std::sync::Arc;
-
 use core::fmt;
 use futures::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::sync::Arc;
 use tokio::sync::Mutex;
 use warp::ws::Message;
 use warp::Filter;
 
-use crate::state::connection::ConnBaseOp;
-use crate::state::state::NodeStorage;
-use crate::state::state::{ConnStorageBase, State};
+use crate::state::ConnBaseOp;
+use crate::state::ConnStorageBase;
+use crate::state::NodeStorage;
+use crate::state::State;
 
 enum Kind {
     Conn,
@@ -44,9 +44,9 @@ pub struct Response {
     pub len: usize,
 }
 
-pub async fn start_ws_server<T, C>(state: Arc<Mutex<State<T, C>>>, ipaddr: Ipv4Addr, port: u16)
+pub async fn start_ws_server<N, C>(state: Arc<Mutex<State<N, C>>>, ipaddr: Ipv4Addr, port: u16)
 where
-    T: NodeStorage + Sync + Send + Clone + 'static,
+    N: NodeStorage + Sync + Send + Clone + 'static,
     C: ConnBaseOp + Sync + Send + Clone + 'static + std::fmt::Display,
 {
     let health_check = warp::path("health-check").map(|| format!("Server OK"));
@@ -56,7 +56,7 @@ where
         .map(move |ws: warp::ws::Ws| {
             let state = state.clone();
             log::info!("Upgrading connection to websocket");
-            ws.on_upgrade(move |socket| handle_debug_connection(socket, state))
+            ws.on_upgrade(move |socket| handle_debug_connection::<N, C>(socket, state))
         });
 
     log::info!("Debug Server is running on ws://{}:{}", ipaddr, port);
@@ -67,11 +67,11 @@ where
         .await;
 }
 
-pub async fn handle_debug_connection<T, C>(
+pub async fn handle_debug_connection<N, C>(
     socket: warp::ws::WebSocket,
-    state: Arc<Mutex<State<T, C>>>,
+    state: Arc<Mutex<State<N, C>>>,
 ) where
-    T: NodeStorage + Sync + Send + Clone + 'static,
+    N: NodeStorage + Sync + Send + Clone + 'static,
     C: ConnBaseOp + Sync + Send + Clone + 'static + std::fmt::Display,
 {
     let (mut sender, mut receiver) = socket.split();

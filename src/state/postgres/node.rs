@@ -1,4 +1,3 @@
-use std::error::Error;
 use std::net::IpAddr;
 use std::sync::Arc;
 
@@ -12,6 +11,8 @@ use crate::state::node::Node;
 use crate::state::node::NodeStatus;
 use crate::utils::to_ipv4;
 
+use crate::Result;
+
 pub struct PgNode {
     pub client: Arc<Mutex<PgClient>>,
 }
@@ -21,12 +22,12 @@ impl PgNode {
         Self { client }
     }
 
-    pub async fn insert(&self, node: Node) -> Result<(), Box<dyn Error>> {
+    pub async fn insert(&self, node_id: uuid::Uuid, node: Node) -> Result<()> {
         let client = self.client.lock().await;
 
         let query = "
-            INSERT INTO nodes (uuid, env, hostname, address, status, inbounds, created_at, modified_at, label, interface)
-            VALUES ($1, $2, $3, $4, $5::node_status, $6, $7, $8, $9, $10)
+            INSERT INTO nodes (id, uuid, env, hostname, address, status, inbounds, created_at, modified_at, label, interface)
+            VALUES ($1, $2, $3, $4, $5, $6::node_status, $7, $8, $9, $10 ,$11)
         ";
 
         let address: IpAddr = IpAddr::V4(node.address);
@@ -36,6 +37,7 @@ impl PgNode {
             .execute(
                 query,
                 &[
+                    &node_id,
                     &node.uuid,
                     &node.env,
                     &node.hostname,
@@ -57,7 +59,7 @@ impl PgNode {
         Ok(())
     }
 
-    pub async fn all(&self) -> Result<Vec<Node>, Box<dyn Error>> {
+    pub async fn all(&self) -> Result<Vec<Node>> {
         let client = self.client.lock().await;
 
         let rows = client
@@ -109,7 +111,7 @@ impl PgNode {
         uuid: &uuid::Uuid,
         env: &str,
         new_status: NodeStatus,
-    ) -> Result<(), Box<dyn Error>> {
+    ) -> Result<()> {
         let client = self.client.lock().await;
 
         let query = "

@@ -4,18 +4,22 @@ use crate::join_all;
 use crate::Api;
 use async_trait::async_trait;
 use chrono::Duration;
-use chrono::LocalResult;
 use chrono::TimeZone;
 use chrono::Utc;
+use pony::PonyError;
 use std::error::Error;
 
 use pony::clickhouse::query::Queries;
-use pony::postgres::connection::ConnRow;
-use pony::state::connection::ConnStatus;
-use pony::state::connection::{ConnApiOp, ConnBaseOp};
-use pony::state::node::Node;
-use pony::state::node::NodeStatus;
-use pony::state::state::ConnStorageApi;
+use pony::state::ConnRow;
+use pony::state::ConnStatus;
+use pony::state::ConnStorageApi;
+use pony::state::Node;
+use pony::state::NodeStatus;
+use pony::state::SyncOp;
+use pony::state::User;
+use pony::state::UserRow;
+use pony::state::UserStorage;
+use pony::state::{ConnApiOp, ConnBaseOp};
 use pony::zmq::message::Action;
 use pony::zmq::message::Message;
 use pony::Result;
@@ -27,6 +31,7 @@ pub trait Tasks {
     async fn reactivate_trial_conns(&self) -> Result<()>;
     async fn add_node(&self, db_node: Node) -> Result<()>;
     async fn add_conn(&self, db_conn: ConnRow) -> Result<()>;
+    async fn add_user(&self, db_user: UserRow) -> Result<()>;
 }
 
 #[async_trait]
@@ -35,6 +40,29 @@ where
     T: NodeStorage + Send + Sync + Clone + 'static,
     C: ConnApiOp + ConnBaseOp + Send + Sync + Clone + 'static + From<Conn>,
 {
+    async fn add_user(&self, db_user: UserRow) -> Result<()> {
+        let user = User {
+            username: db_user.username,
+            created_at: db_user.created_at,
+            modified_at: db_user.modified_at,
+        };
+
+        let user_id = db_user.user_id;
+
+        log::debug!("--> {:?} Add user", user);
+
+        let mut state = self.state.memory.lock().await;
+
+        match state.users.try_add(user_id, user) {
+            Ok(_) => Ok(()),
+            Err(e) => Err(format!(
+                "Create: Failed to add user {} to state: {}",
+                db_user.user_id, e
+            )
+            .into()),
+        }
+    }
+
     async fn add_conn(&self, db_conn: ConnRow) -> Result<()> {
         let conn = Conn::new(
             db_conn.trial,
@@ -46,7 +74,7 @@ where
 
         log::debug!("--> {:?} Add connection", conn);
 
-        let mut state = self.state.lock().await;
+        let mut state = self.state.memory.lock().await;
         match state
             .connections
             .add_or_update(&db_conn.conn_id.clone(), conn.clone().into())
@@ -60,7 +88,7 @@ where
         }
     }
     async fn add_node(&self, db_node: Node) -> Result<()> {
-        let mut state = self.state.lock().await;
+        let mut state = self.state.memory.lock().await;
         match state.nodes.add(db_node.clone()) {
             Ok(_) => {
                 log::debug!("Node added to State: {}", db_node.uuid);
@@ -74,70 +102,42 @@ where
         }
     }
     async fn node_healthcheck(&self) -> Result<()> {
-        let state_lock = self.state.lock().await;
-        let nodes = match state_lock.nodes.all() {
+        let mem = self.state.memory.lock().await;
+        let nodes = match mem.nodes.all() {
             Some(n) => n.clone(),
             None => return Ok(()),
         };
-        drop(state_lock);
+        drop(mem);
 
-        let timeout_duration =
-            Duration::seconds(self.settings.api.node_health_check_timeout as i64);
+        let timeout = Duration::seconds(self.settings.api.node_health_check_timeout as i64);
+        let now = Utc::now();
 
         let tasks = nodes.into_iter().map(|node| {
             let ch = self.ch.clone();
-            let db = self.db.clone();
             let state = self.state.clone();
             let uuid = node.uuid;
             let env = node.env.clone();
 
             async move {
-                let result = ch.fetch_node_heartbeat::<f64>(&env, uuid).await;
-                match result {
-                    Some(value) => {
-                        let now = Utc::now();
-                        let latest_datetime = Utc.timestamp_opt(value.latest, 0);
-                        if let LocalResult::Single(latest_datetime) = latest_datetime {
-                            let time_diff = now - latest_datetime;
-                            let mut state = state.lock().await;
-                            if let Some(node_mut) = state.nodes.get_mut(&env, &uuid) {
-                                match node_mut.status {
-                                    NodeStatus::Online if time_diff > timeout_duration => {
-                                        node_mut.update_status(NodeStatus::Offline)?;
-                                        let _ = db
-                                            .node()
-                                            .update_status(&uuid, &env, NodeStatus::Offline)
-                                            .await;
-                                    }
-                                    NodeStatus::Offline if time_diff <= timeout_duration => {
-                                        node_mut.update_status(NodeStatus::Online)?;
-                                        let _ = db
-                                            .node()
-                                            .update_status(&uuid, &env, NodeStatus::Online)
-                                            .await;
-                                    }
-                                    _ => {}
-                                }
+                let status = match ch.fetch_node_heartbeat::<f64>(&env, uuid).await {
+                    Some(hb) => {
+                        let ts = Utc.timestamp_opt(hb.latest, 0);
+                        match ts {
+                            chrono::LocalResult::Single(dt) if now - dt <= timeout => {
+                                NodeStatus::Online
                             }
+                            _ => NodeStatus::Offline,
                         }
                     }
-                    None => {
-                        let mut state = state.lock().await;
-                        if let Some(node_mut) = state.nodes.get_mut(&env, &uuid) {
-                            node_mut.update_status(NodeStatus::Offline)?;
-                        }
-                        let _ = db
-                            .node()
-                            .update_status(&uuid, &env, NodeStatus::Offline)
-                            .await;
-                    }
-                }
-                Ok::<(), Box<dyn Error + Send + Sync>>(())
+                    None => NodeStatus::Offline,
+                };
+
+                SyncOp::update_node_status(&state, &uuid, &env, status).await?;
+                Ok::<_, PonyError>(())
             }
         });
 
-        let results = join_all(tasks).await;
-        for result in results {
+        for result in join_all(tasks).await {
             if let Err(e) = result {
                 log::error!("Healthcheck task error: {:?}", e);
             }
@@ -148,7 +148,7 @@ where
 
     async fn check_conn_uplink_limits(&self) -> Result<()> {
         let conns_map = {
-            let state = self.state.lock().await;
+            let state = self.state.memory.lock().await;
             state
                 .connections
                 .iter()
@@ -190,7 +190,7 @@ where
                             }
 
                             {
-                                let mut state = state.lock().await;
+                                let mut state = state.memory.lock().await;
                                 if let Some(conn) = state.connections.get_mut(&conn_id) {
                                     conn.set_status(ConnStatus::Expired);
                                     conn.update_modified_at();
@@ -226,7 +226,7 @@ where
 
     async fn reactivate_trial_conns(&self) -> Result<()> {
         let conns_map = {
-            let state = self.state.lock().await;
+            let state = self.state.memory.lock().await;
             state
                 .connections
                 .iter()
@@ -245,7 +245,7 @@ where
             async move {
                 if now.signed_duration_since(modified_at) >= chrono::Duration::hours(24) {
                     {
-                        let mut state = state.lock().await;
+                        let mut state = state.memory.lock().await;
                         if let Some(conn_mut) = state.connections.get_mut(&conn_id) {
                             conn_mut.set_status(ConnStatus::Active);
                             conn_mut.update_modified_at();

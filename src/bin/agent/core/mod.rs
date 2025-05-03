@@ -1,9 +1,9 @@
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
-use pony::state::connection::ConnBaseOp;
-use pony::state::state::NodeStorage;
-use pony::state::state::State;
+use pony::state::ConnBaseOp;
+use pony::state::NodeStorage;
+use pony::state::State;
 use pony::xray_op::client::HandlerClient;
 use pony::xray_op::client::StatsClient;
 use pony::zmq::subscriber::Subscriber as ZmqSubscriber;
@@ -13,24 +13,24 @@ pub mod service;
 mod stats;
 mod tasks;
 
-pub struct Agent<T, C>
+pub struct Agent<N, C>
 where
-    T: NodeStorage + Send + Sync + Clone + 'static,
+    N: NodeStorage + Send + Sync + Clone + 'static,
     C: ConnBaseOp + Send + Sync + Clone + 'static,
 {
-    pub state: Arc<Mutex<State<T, C>>>,
+    pub state: Arc<Mutex<State<N, C>>>,
     pub subscriber: ZmqSubscriber,
     pub xray_stats_client: Arc<Mutex<StatsClient>>,
     pub xray_handler_client: Arc<Mutex<HandlerClient>>,
 }
 
-impl<T, C> Agent<T, C>
+impl<N, C> Agent<N, C>
 where
-    T: NodeStorage + Send + Sync + Clone + 'static,
+    N: NodeStorage + Send + Sync + Clone + 'static,
     C: ConnBaseOp + Send + Sync + Clone + 'static,
 {
     pub fn new(
-        state: Arc<Mutex<State<T, C>>>,
+        state: Arc<Mutex<State<N, C>>>,
         subscriber: ZmqSubscriber,
         xray_stats_client: Arc<Mutex<StatsClient>>,
         xray_handler_client: Arc<Mutex<HandlerClient>>,

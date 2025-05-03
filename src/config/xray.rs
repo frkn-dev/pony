@@ -2,8 +2,8 @@ use crate::http::requests::InboundResponse;
 use serde::{Deserialize, Serialize};
 use std::{error::Error, fs::File, io::Read};
 
-use crate::state::stats::InboundStat;
-use crate::state::tag::Tag;
+use crate::state::InboundStat;
+use crate::state::Tag;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct StreamSettings {

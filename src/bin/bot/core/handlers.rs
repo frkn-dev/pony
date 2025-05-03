@@ -64,7 +64,6 @@ impl Handlers for BotState {
                     if let Some(user) = msg.from {
                         if let Some(username) = user.username {
                             let res = self.get_user_vpn_connection(&username).await;
-                            log::debug!("{:?}", res);
                             match res {
                                 Ok(Some(connection_info)) => {
                                     let response = "Выбери VPN кофигурацию".to_string();

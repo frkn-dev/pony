@@ -4,8 +4,8 @@ use reqwest::StatusCode;
 use reqwest::Url;
 
 use pony::http::ResponseMessage;
-use pony::state::connection::ConnBaseOp;
-use pony::state::state::NodeStorage;
+use pony::state::ConnBaseOp;
+use pony::state::NodeStorage;
 use pony::{PonyError, Result};
 
 use super::Agent;
@@ -26,7 +26,7 @@ where
             let state = self.state.lock().await;
             state
                 .nodes
-                .get()
+                .get_self()
                 .expect("No node available to register")
                 .clone()
         };

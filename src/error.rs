@@ -1,3 +1,4 @@
+use crate::state::SyncTask;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -37,6 +38,9 @@ pub enum PonyError {
 
     #[error(transparent)]
     SerdeUrlEnc(#[from] serde_urlencoded::ser::Error),
+
+    #[error(transparent)]
+    SyncTask(#[from] tokio::sync::mpsc::error::SendError<SyncTask>),
 
     #[error("Custom error: {0}")]
     Custom(String),

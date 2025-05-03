@@ -10,11 +10,11 @@ use pony::metrics::loadavg::loadavg_metrics;
 use pony::metrics::memory::mem_metrics;
 use pony::metrics::metrics::MetricType;
 use pony::metrics::xray::*;
-use pony::state::connection::ConnBase;
-use pony::state::connection::ConnBaseOp;
-use pony::state::state::ConnStorageBase;
-use pony::state::state::NodeStorage;
-use pony::state::tag::Tag;
+use pony::state::ConnBase;
+use pony::state::ConnBaseOp;
+use pony::state::ConnStorageBase;
+use pony::state::NodeStorage;
+use pony::state::Tag;
 use pony::xray_op::client::HandlerActions;
 use pony::xray_op::stats::Prefix;
 use pony::xray_op::stats::StatOp;
@@ -62,7 +62,7 @@ where
         let state = self.state.lock().await;
         let connections = state.connections.clone();
 
-        let node = state.nodes.get();
+        let node = state.nodes.get_self();
 
         if let Some(node) = node {
             let bandwidth: Vec<MetricType> =
@@ -149,11 +149,11 @@ where
                     .await
                 {
                     Ok(_) => {
-                        let mut state = self.state.lock().await;
+                        let mut mem = self.state.lock().await;
 
-                        state
-                            .connections
-                            .add(&conn_id.clone(), conn.into())
+                        mem.connections
+                            .add(&conn_id, conn.into())
+                            .map(|_| ())
                             .map_err(|err| {
                                 log::error!("Failed to add conn {}: {:?}", msg.conn_id, err);
                                 format!("Failed to add conn {}", msg.conn_id).into()
@@ -245,7 +245,7 @@ where
 
         if let Some(node) = {
             let state = self.state.lock().await;
-            state.nodes.get()
+            state.nodes.get_self()
         } {
             let node_tags = node.inbounds.keys().cloned().collect::<Vec<_>>();
             for tag in node_tags {

@@ -1,0 +1,235 @@
+use std::collections::hash_map::Entry;
+use std::collections::HashMap;
+
+use crate::state::connection::ConnApiOp;
+use crate::state::connection::ConnBaseOp;
+use crate::state::connection::ConnStatus;
+use crate::state::state::Connections;
+use crate::state::stats::StatType;
+
+use crate::{PonyError, Result};
+
+pub trait ConnStorageApi<C>
+where
+    C: Clone + Send + Sync + 'static,
+{
+    fn add_or_update(&mut self, conn_id: &uuid::Uuid, new_conn: C) -> Result<ConnStorageOpStatus>;
+    fn restore(&mut self, conn_id: &uuid::Uuid) -> Result<()>;
+    fn expire(&mut self, conn_id: &uuid::Uuid) -> Result<()>;
+    fn update_limit(&mut self, conn_id: &uuid::Uuid, new_limit: i32) -> Result<()>;
+    fn update_trial(&mut self, conn_id: &uuid::Uuid, new_trial: bool) -> Result<()>;
+    fn reset_stat(&mut self, conn_id: &uuid::Uuid, stat: StatType);
+    fn all_trial(&self, status: ConnStatus) -> HashMap<uuid::Uuid, C>;
+}
+
+pub trait ConnStorageBase<C>
+where
+    C: Clone + Send + Sync + 'static,
+{
+    fn add(&mut self, conn_id: &uuid::Uuid, new_conn: C) -> Result<ConnStorageOpStatus>;
+    fn remove(&mut self, conn_id: &uuid::Uuid) -> Result<()>;
+    fn get(&self, conn_id: &uuid::Uuid) -> Option<C>;
+    fn get_by_user_id(&self, user_id: &uuid::Uuid) -> Option<Vec<(uuid::Uuid, C)>>;
+    fn update_stat(
+        &mut self,
+        conn_id: &uuid::Uuid,
+        stat: StatType,
+        value: Option<i64>,
+    ) -> Result<()>;
+    fn reset_stat(&mut self, conn_id: &uuid::Uuid, stat: StatType);
+    fn update_uplink(&mut self, conn_id: &uuid::Uuid, new_uplink: i64) -> Result<()>;
+    fn update_downlink(&mut self, conn_id: &uuid::Uuid, new_downlink: i64) -> Result<()>;
+    fn update_online(&mut self, conn_id: &uuid::Uuid, new_online: i64) -> Result<()>;
+}
+
+#[derive(Debug)]
+pub enum ConnStorageOpStatus {
+    AlreadyExist,
+    Ok,
+}
+
+impl<C> ConnStorageBase<C> for Connections<C>
+where
+    C: ConnBaseOp + Clone + Send + Sync + 'static,
+{
+    fn add(&mut self, conn_id: &uuid::Uuid, new_conn: C) -> Result<ConnStorageOpStatus> {
+        match self.entry(*conn_id) {
+            Entry::Occupied(_) => return Ok(ConnStorageOpStatus::AlreadyExist),
+            Entry::Vacant(entry) => {
+                entry.insert(new_conn);
+            }
+        }
+        Ok(ConnStorageOpStatus::Ok)
+    }
+
+    fn remove(&mut self, conn_id: &uuid::Uuid) -> Result<()> {
+        self.0
+            .remove(conn_id)
+            .map(|_| ())
+            .ok_or(PonyError::Custom("Conn not found".into()))
+    }
+
+    fn get(&self, conn_id: &uuid::Uuid) -> Option<C> {
+        self.0.get(conn_id).cloned()
+    }
+
+    fn get_by_user_id(&self, user_id: &uuid::Uuid) -> Option<Vec<(uuid::Uuid, C)>> {
+        let conns: Vec<(uuid::Uuid, C)> = self
+            .iter()
+            .filter(|(_, conn)| conn.get_user_id() == Some(*user_id))
+            .map(|(conn_id, conn)| (*conn_id, conn.clone()))
+            .collect();
+
+        if conns.is_empty() {
+            None
+        } else {
+            Some(conns)
+        }
+    }
+
+    fn update_stat(
+        &mut self,
+        conn_id: &uuid::Uuid,
+        stat: StatType,
+        new_value: Option<i64>,
+    ) -> Result<()> {
+        let conn = self
+            .get_mut(&conn_id)
+            .ok_or(PonyError::Custom("Conn not found".into()))?;
+        match stat {
+            StatType::Uplink => {
+                conn.set_uplink(new_value.unwrap_or(0));
+            }
+            StatType::Downlink => {
+                conn.set_downlink(new_value.unwrap_or(0));
+            }
+            StatType::Online => {
+                conn.set_online(new_value.unwrap_or(0));
+            }
+        }
+        conn.update_modified_at();
+        Ok(())
+    }
+
+    fn reset_stat(&mut self, conn_id: &uuid::Uuid, stat: StatType) {
+        if let Some(conn) = self.get_mut(conn_id) {
+            match stat {
+                StatType::Uplink => conn.reset_uplink(),
+                StatType::Downlink => conn.reset_downlink(),
+                StatType::Online => {}
+            }
+        }
+    }
+
+    fn update_uplink(&mut self, conn_id: &uuid::Uuid, new_uplink: i64) -> Result<()> {
+        if let Some(conn) = self.get_mut(conn_id) {
+            conn.set_uplink(new_uplink);
+            conn.update_modified_at();
+            Ok(())
+        } else {
+            Err(PonyError::Custom(
+                format!("Conn not found: {}", conn_id).into(),
+            ))
+        }
+    }
+
+    fn update_downlink(&mut self, conn_id: &uuid::Uuid, new_downlink: i64) -> Result<()> {
+        if let Some(conn) = self.get_mut(conn_id) {
+            conn.set_downlink(new_downlink);
+            conn.update_modified_at();
+            Ok(())
+        } else {
+            Err(PonyError::Custom(
+                format!("Conn not found: {}", conn_id).into(),
+            ))
+        }
+    }
+
+    fn update_online(&mut self, conn_id: &uuid::Uuid, new_online: i64) -> Result<()> {
+        if let Some(conn) = self.get_mut(conn_id) {
+            conn.set_online(new_online);
+            conn.update_modified_at();
+            Ok(())
+        } else {
+            Err(PonyError::Custom(
+                format!("Conn not found: {}", conn_id).into(),
+            ))
+        }
+    }
+}
+
+impl<C> ConnStorageApi<C> for Connections<C>
+where
+    C: ConnBaseOp + ConnApiOp + Clone + Send + Sync + 'static,
+{
+    fn add_or_update(&mut self, conn_id: &uuid::Uuid, new_conn: C) -> Result<ConnStorageOpStatus> {
+        match self.entry(*conn_id) {
+            Entry::Occupied(mut entry) => {
+                let existing_conn = entry.get_mut();
+                existing_conn.set_trial(new_conn.get_trial());
+                existing_conn.set_limit(new_conn.get_limit());
+                existing_conn.set_password(new_conn.get_password());
+                existing_conn.set_status(new_conn.get_status());
+
+                Ok(ConnStorageOpStatus::AlreadyExist)
+            }
+            Entry::Vacant(entry) => {
+                entry.insert(new_conn);
+                Ok(ConnStorageOpStatus::Ok)
+            }
+        }
+    }
+
+    fn restore(&mut self, conn_id: &uuid::Uuid) -> Result<()> {
+        if let Some(conn) = self.get_mut(conn_id) {
+            conn.set_status(ConnStatus::Active);
+            conn.update_modified_at();
+            Ok(())
+        } else {
+            Err(PonyError::Custom("Conn not found".into()))
+        }
+    }
+
+    fn expire(&mut self, conn_id: &uuid::Uuid) -> Result<()> {
+        if let Some(conn) = self.get_mut(&conn_id) {
+            conn.set_status(ConnStatus::Expired);
+            conn.update_modified_at();
+            Ok(())
+        } else {
+            Err(PonyError::Custom("Conn not found".into()))
+        }
+    }
+
+    fn update_limit(&mut self, conn_id: &uuid::Uuid, new_limit: i32) -> Result<()> {
+        if let Some(conn) = self.get_mut(conn_id) {
+            conn.set_limit(new_limit);
+            conn.update_modified_at();
+        }
+        Ok(())
+    }
+
+    fn update_trial(&mut self, conn_id: &uuid::Uuid, new_trial: bool) -> Result<()> {
+        if let Some(conn) = self.get_mut(conn_id) {
+            conn.set_trial(new_trial);
+            conn.update_modified_at();
+        }
+        Ok(())
+    }
+
+    fn reset_stat(&mut self, conn_id: &uuid::Uuid, stat: StatType) {
+        if let Some(conn) = self.get_mut(conn_id) {
+            match stat {
+                StatType::Uplink => conn.reset_uplink(),
+                StatType::Downlink => conn.reset_downlink(),
+                StatType::Online => {}
+            }
+        }
+    }
+
+    fn all_trial(&self, status: ConnStatus) -> HashMap<uuid::Uuid, C> {
+        self.iter()
+            .filter(|(_, conn)| conn.get_status() == status && conn.get_trial())
+            .map(|(conn_id, conn)| (*conn_id, conn.clone()))
+            .collect()
+    }
+}

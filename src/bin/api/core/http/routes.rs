@@ -2,14 +2,11 @@ use async_trait::async_trait;
 use std::sync::Arc;
 use warp::Filter;
 
-use pony::http::requests::ConnQueryParam;
-use pony::http::requests::NodeRequest;
-use pony::http::requests::NodesQueryParams;
-use pony::http::requests::UserQueryParam;
-use pony::state::connection::Conn;
-use pony::state::connection::ConnApiOp;
-use pony::state::connection::ConnBaseOp;
-use pony::state::state::NodeStorage;
+use pony::http::requests::*;
+use pony::state::Conn;
+use pony::state::ConnApiOp;
+use pony::state::ConnBaseOp;
+use pony::state::NodeStorage;
 use pony::Result;
 
 use super::super::Api;
@@ -35,12 +32,11 @@ where
             .and(warp::path("user"))
             .and(warp::path("connection"))
             .and(auth.clone())
-            .and(warp::query::<UserQueryParam>())
+            .and(warp::query::<UserConnQueryParam>())
             .and(with_state(self.state.clone()))
             .and(publisher(self.publisher.clone()))
-            .and(db(self.db.clone()))
-            .and_then(|conn_req, state, publisher, db| {
-                user_connections_lines_handler(conn_req, state, publisher, db)
+            .and_then(|conn_req, sync_state, publisher| {
+                user_connections_lines_handler(conn_req, sync_state, publisher)
             });
 
         let connection_get_route = warp::get()
@@ -73,20 +69,16 @@ where
             .and(auth.clone())
             .and(warp::body::json::<NodeRequest>())
             .and(with_state(self.state.clone()))
-            .and(db(self.db.clone()))
             .and(publisher(self.publisher.clone()))
-            .and_then(|node_req, state, db, publisher| {
-                node_register(node_req, state, db, publisher)
-            });
+            .and_then(|node_req, state, publisher| node_register(node_req, state, publisher));
 
         let user_register_route = warp::post()
             .and(warp::path("user"))
             .and(warp::path("register"))
             .and(auth)
-            .and(warp::body::json::<UserQueryParam>())
+            .and(warp::body::json::<UserRegQueryParam>())
             .and(with_state(self.state.clone()))
-            .and(db(self.db.clone()))
-            .and_then(|user_req, state, db| user_register(user_req, state, db));
+            .and_then(|user_req, sync_state| user_register(user_req, sync_state));
 
         let routes = connection_post_route
             .or(user_connection_get_route)

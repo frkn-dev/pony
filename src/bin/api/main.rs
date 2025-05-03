@@ -1,9 +1,9 @@
-use std::net::Ipv4Addr;
-use std::sync::Arc;
-
 use clap::Parser;
 use fern::Dispatch;
 use futures::future::join_all;
+use std::net::Ipv4Addr;
+use std::sync::Arc;
+use tokio::sync::mpsc;
 use tokio::sync::Mutex;
 use tokio::time::Duration;
 
@@ -11,14 +11,14 @@ use pony::clickhouse::ChContext;
 use pony::config::settings::ApiSettings;
 use pony::config::settings::Settings;
 use pony::http::debug;
-use pony::postgres::postgres_client;
-use pony::postgres::PgContext;
-use pony::state::state::State;
+use pony::state::pg_run_shadow_sync;
+use pony::state::PgContext;
+use pony::state::State;
+use pony::state::SyncState;
 use pony::utils::*;
 use pony::zmq::publisher::Publisher as ZmqPublisher;
 use pony::ApiState;
-use pony::PonyError;
-use pony::Result;
+use pony::{PonyError, Result};
 
 use crate::core::http::routes::Http;
 use crate::core::tasks::Tasks;
@@ -67,26 +67,45 @@ async fn main() -> Result<()> {
 
     let debug = settings.debug.enabled;
 
-    let pg_client = match postgres_client(settings.pg.clone()).await {
-        Ok(client) => client,
-        Err(e) => panic!("PG not available, {}", e),
+    let db = match PgContext::init(&settings.pg).await {
+        Ok(ctx) => ctx,
+        Err(e) => panic!("DB error: {}", e),
     };
 
-    let db = PgContext::new(pg_client);
     let ch = ChContext::new(&settings.clickhouse.address);
     let publisher = ZmqPublisher::new(&settings.zmq.endpoint).await;
+
     let state: ApiState = State::new();
-    let state = Arc::new(Mutex::new(state));
+    let mem = Arc::new(Mutex::new(state));
+    let (tx, rx) = mpsc::channel(100);
+    let sync_state = SyncState::new(mem.clone(), tx);
 
     let api = Arc::new(Api::new(
-        db.clone(),
         ch.clone(),
         publisher.clone(),
-        state.clone(),
+        sync_state.clone(),
         settings.clone(),
     ));
 
     let _ = {
+        match measure_time(db.user().all(), "get all users()".to_string()).await {
+            Ok(users) => {
+                let futures: Vec<_> = users.into_iter().map(|user| api.add_user(user)).collect();
+
+                if let Some(Err(e)) = measure_time(join_all(futures), "Add users".to_string())
+                    .await
+                    .into_iter()
+                    .find(|r| r.is_err())
+                {
+                    log::error!("Error during node state initialization: {}", e);
+                }
+            }
+            Err(e) => {
+                log::error!("Failed to fetch users from DB: {}", e);
+                return Err(PonyError::Custom(e.to_string()));
+            }
+        }
+
         match measure_time(db.node().all(), "get all nodes()".to_string()).await {
             Ok(nodes) => {
                 let futures: Vec<_> = nodes.into_iter().map(|node| api.add_node(node)).collect();
@@ -129,7 +148,7 @@ async fn main() -> Result<()> {
 
     if debug {
         tokio::spawn(debug::start_ws_server(
-            state.clone(),
+            mem.clone(),
             settings
                 .debug
                 .web_server
@@ -178,6 +197,10 @@ async fn main() -> Result<()> {
                 tokio::time::sleep(job_interval).await;
             }
         }
+    });
+
+    let _ = tokio::spawn(async move {
+        pg_run_shadow_sync(rx, db).await;
     });
 
     let api = api.clone();

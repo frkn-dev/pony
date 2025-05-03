@@ -9,13 +9,13 @@ use pony::config::settings::AgentSettings;
 use pony::http::debug;
 
 use pony::config::xray::Config as XrayConfig;
-use pony::state::connection::Conn;
-use pony::state::connection::ConnBase;
-use pony::state::node::Node;
-use pony::state::state::NodeStorage;
-use pony::state::state::State;
-use pony::state::tag::Tag;
 use pony::state::AgentState;
+use pony::state::Conn;
+use pony::state::ConnBase;
+use pony::state::Node;
+use pony::state::NodeStorage;
+use pony::state::State;
+use pony::state::Tag;
 use pony::utils::*;
 use pony::xray_op::client::HandlerActions;
 use pony::xray_op::client::HandlerClient;
@@ -140,7 +140,7 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
             };
 
             let state = agent.state.lock().await;
-            if let Some(node) = state.nodes.get() {
+            if let Some(node) = state.nodes.get_self() {
                 let vless_grpc_conn = vless_grpc_conn(
                     &conn_id,
                     node.address,

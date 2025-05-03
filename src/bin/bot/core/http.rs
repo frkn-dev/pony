@@ -3,8 +3,8 @@ use reqwest::Client as HttpClient;
 use reqwest::StatusCode;
 use reqwest::Url;
 
-use pony::http::requests::UserQueryParam;
-use pony::postgres::connection::ConnRow;
+use pony::http::requests::UserConnQueryParam;
+use pony::http::requests::UserRegQueryParam;
 use pony::{PonyError, Result};
 
 use super::BotState;
@@ -17,9 +17,6 @@ pub enum RegisterStatus {
 #[async_trait]
 pub trait ApiRequests {
     async fn register_user(&self, _username: &str) -> Result<RegisterStatus>;
-
-    async fn create_vpn_connection(&self, _conn_id: &uuid::Uuid) -> Result<()>;
-
     async fn get_user_vpn_connection(&self, username: &str) -> Result<Option<Vec<String>>>;
 }
 
@@ -35,12 +32,8 @@ impl ApiRequests for BotState {
 
         let endpoint = endpoint.to_string();
 
-        let user = UserQueryParam {
+        let user = UserRegQueryParam {
             username: username.to_string(),
-            env: "all".to_string(),
-            password: None,
-            limit: 1024,
-            trial: true,
         };
 
         let res = HttpClient::new()
@@ -68,43 +61,6 @@ impl ApiRequests for BotState {
         }
     }
 
-    async fn create_vpn_connection(&self, conn_id: &uuid::Uuid) -> Result<()> {
-        let mut endpoint = Url::parse(&self.settings.api.endpoint)?;
-        endpoint
-            .path_segments_mut()
-            .map_err(|_| PonyError::Custom("Invalid API endpoint".to_string()))?
-            .push("connection");
-        let endpoint = endpoint.to_string();
-
-        let conn = ConnRow::new(*conn_id);
-        let conn_req = conn.as_create_conn_request();
-        let json = serde_json::to_string_pretty(&conn_req).unwrap();
-
-        log::debug!("create_vpn_connection JSON {}", json);
-
-        let res = HttpClient::new()
-            .post(&endpoint)
-            .header("Content-Type", "application/json")
-            .header(
-                "Authorization",
-                format!("Bearer {}", &self.settings.api.token),
-            )
-            .json(&conn_req)
-            .send()
-            .await?;
-
-        if res.status().is_success() || res.status() == StatusCode::NOT_MODIFIED {
-            return Ok(());
-        } else {
-            return Err(PonyError::Custom(format!(
-                "/connection req error: {} {:?}",
-                res.status(),
-                res
-            ))
-            .into());
-        }
-    }
-
     async fn get_user_vpn_connection(&self, username: &str) -> Result<Option<Vec<String>>> {
         let mut endpoint = Url::parse(&self.settings.api.endpoint)
             .map_err(|_| PonyError::Custom("Invalid API endpoint".to_string()))?;
@@ -115,7 +71,7 @@ impl ApiRequests for BotState {
             .push("user")
             .push("connection");
 
-        let query = UserQueryParam {
+        let query = UserConnQueryParam {
             username: username.to_string(),
             env: "all".to_string(),
             password: None,
@@ -148,7 +104,7 @@ impl ApiRequests for BotState {
             }
             StatusCode::ACCEPTED => Ok(None),
             _ => Err(PonyError::Custom(format!(
-                "get_vpn_connection request error: {}",
+                "get_user_vpn_connection request error: {}",
                 res.status()
             ))
             .into()),

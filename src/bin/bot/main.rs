@@ -1,6 +1,5 @@
 use clap::Parser;
 use fern::Dispatch;
-use std::error::Error;
 use std::sync::Arc;
 use teloxide::prelude::*;
 use teloxide::types::Me;

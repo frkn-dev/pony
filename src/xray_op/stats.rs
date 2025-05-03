@@ -1,9 +1,9 @@
 use async_trait::async_trait;
 use tonic::Status;
 
-use crate::state::stats::ConnStat;
-use crate::state::stats::InboundStat;
-use crate::state::stats::Stat;
+use crate::state::ConnStat;
+use crate::state::InboundStat;
+use crate::state::Stat;
 use crate::xray_api::xray::app::stats::command::GetStatsResponse;
 use crate::xray_op::Tag;
 

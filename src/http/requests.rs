@@ -1,8 +1,8 @@
 use crate::config::xray::Inbound;
 use crate::config::xray::StreamSettings;
-use crate::state::node::Node;
-use crate::state::node::NodeStatus;
-use crate::state::tag::Tag;
+use crate::state::Node;
+use crate::state::NodeStatus;
+use crate::state::Tag;
 use crate::zmq::message::Action;
 use crate::zmq::message::Message;
 use chrono::Utc;
@@ -11,16 +11,21 @@ use std::collections::HashMap;
 use std::net::Ipv4Addr;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct UserQueryParam {
+pub struct UserRegQueryParam {
     pub username: String,
-    pub limit: i32,
-    pub trial: bool,
-    pub password: Option<String>,
-    pub env: String,
 }
 
 #[derive(Serialize, Deserialize)]
 pub struct NodesQueryParams {
+    pub env: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct UserConnQueryParam {
+    pub username: String,
+    pub limit: i32,
+    pub trial: bool,
+    pub password: Option<String>,
     pub env: String,
 }
 

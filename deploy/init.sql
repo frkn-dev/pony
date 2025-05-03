@@ -3,8 +3,9 @@ CREATE TYPE node_status AS ENUM ('online', 'offline');
 
 CREATE TABLE users (
     id UUID PRIMARY KEY,  
-    username TEXT,
-    is_trial bool DEFAULT true
+    username TEXT UNIQUE,
+    created_at TIMESTAMP DEFAULT NOW(),
+    modified_at TIMESTAMP DEFAULT NOW()
 );
 
 CREATE TABLE connections (

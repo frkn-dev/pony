@@ -1,41 +1,158 @@
-use pony::http::requests::ConnQueryParam;
-use pony::postgres::connection::ConnRow;
-use std::sync::Arc;
-use tokio::sync::Mutex;
 use warp::{http::StatusCode, Rejection, Reply};
 
+use pony::http::requests::ConnQueryParam;
 use pony::http::requests::ConnRequest;
 use pony::http::requests::NodeRequest;
 use pony::http::requests::NodeResponse;
 use pony::http::requests::NodesQueryParams;
-use pony::http::requests::UserQueryParam;
+use pony::http::requests::UserConnQueryParam;
+use pony::http::requests::UserRegQueryParam;
 use pony::http::AuthError;
 use pony::http::MethodError;
 use pony::http::ResponseMessage;
-use pony::postgres::PgContext;
-use pony::state::connection::Conn;
-use pony::state::connection::ConnApiOp;
-use pony::state::connection::ConnBaseOp;
-use pony::state::node::NodeStatus;
-use pony::state::state::ConnStorageApi;
-use pony::state::state::ConnStorageBase;
-use pony::state::state::NodeStorage;
-use pony::state::state::State;
-use pony::state::tag::Tag;
+use pony::state::Conn;
+use pony::state::ConnApiOp;
+use pony::state::ConnBaseOp;
+use pony::state::ConnStorageBase;
+use pony::state::NodeStatus;
+use pony::state::NodeStorage;
+use pony::state::NodeStorageOpStatus;
+use pony::state::SyncOp;
+use pony::state::SyncState;
+use pony::state::Tag;
+use pony::state::User;
+use pony::state::UserStorage;
+use pony::state::UserStorageOpStatus;
+
 use pony::utils;
 use pony::zmq::message::Action;
-use pony::PonyError;
 
 use pony::zmq::message::Message;
 use pony::zmq::publisher::Publisher as ZmqPublisher;
 
 use super::JsonError;
 
+pub async fn user_register<T, C>(
+    user_req: UserRegQueryParam,
+    state: SyncState<T, C>,
+) -> Result<impl Reply, Rejection>
+where
+    T: NodeStorage + Sync + Send + Clone + 'static,
+    C: ConnApiOp + ConnBaseOp + Sync + Send + Clone + 'static + From<Conn>,
+{
+    log::debug!("Received: {:?}", user_req);
+
+    let user_id = uuid::Uuid::new_v4();
+    let user = User::new(user_req.username);
+
+    match SyncOp::add_user(&state, &user_id, user).await {
+        Ok(UserStorageOpStatus::Ok) => {
+            let response = ResponseMessage::<String> {
+                status: 200,
+                message: format!("User {} is registered", user_id),
+            };
+
+            Ok(warp::reply::with_status(
+                warp::reply::json(&response),
+                StatusCode::OK,
+            ))
+        }
+        Ok(UserStorageOpStatus::AlreadyExist) => {
+            let response = ResponseMessage::<String> {
+                status: 304,
+                message: format!("User {} is already exist", user_id),
+            };
+
+            Ok(warp::reply::with_status(
+                warp::reply::json(&response),
+                StatusCode::NOT_MODIFIED,
+            ))
+        }
+        Err(e) => {
+            log::error!("{}", e);
+            let response = ResponseMessage::<String> {
+                status: 500,
+                message: format!("Error: {}", e),
+            };
+
+            Ok(warp::reply::with_status(
+                warp::reply::json(&response),
+                StatusCode::INTERNAL_SERVER_ERROR,
+            ))
+        }
+    }
+}
+
+// Register node handler
+pub async fn node_register<T, C>(
+    node_req: NodeRequest,
+    state: SyncState<T, C>,
+    publisher: ZmqPublisher,
+) -> Result<impl Reply, Rejection>
+where
+    T: NodeStorage + Sync + Send + Clone + 'static,
+    C: ConnApiOp + ConnBaseOp + Sync + Send + Clone + 'static + From<Conn>,
+{
+    log::debug!("Received: {:?}", node_req);
+
+    let node = node_req.clone().as_node();
+    let node_id = node_req.uuid;
+
+    match SyncOp::add_node(&state, &node_id, node.clone()).await {
+        Ok(status @ (NodeStorageOpStatus::Ok | NodeStorageOpStatus::AlreadyExist)) => {
+            if status == NodeStorageOpStatus::AlreadyExist {
+                let _ = SyncOp::update_node_status(&state, &node_id, &node.env, NodeStatus::Online)
+                    .await;
+            }
+
+            let mem = state.memory.lock().await;
+            for (conn_id, conn) in mem.connections.iter() {
+                let msg = Message {
+                    conn_id: *conn_id,
+                    action: Action::Create,
+                    password: conn.get_password(),
+                };
+                let _ = publisher.send(&node_req.uuid.to_string(), msg).await;
+            }
+
+            let (status_code, message) = match status {
+                NodeStorageOpStatus::Ok => (StatusCode::OK, format!("node {} is added", node_id)),
+                NodeStorageOpStatus::AlreadyExist => (
+                    StatusCode::NOT_MODIFIED,
+                    format!("node {} already exists", node_id),
+                ),
+            };
+
+            let response = ResponseMessage::<String> {
+                status: status_code.as_u16(),
+                message,
+            };
+
+            Ok(warp::reply::with_status(
+                warp::reply::json(&response),
+                status_code,
+            ))
+        }
+
+        Err(e) => {
+            let response = ResponseMessage::<String> {
+                status: 500,
+                message: format!("INTERNAL_SERVER_ERROR {} for {}", e, node_id),
+            };
+
+            Ok(warp::reply::with_status(
+                warp::reply::json(&response),
+                StatusCode::INTERNAL_SERVER_ERROR,
+            ))
+        }
+    }
+}
+
 /// Handler creates connection
 pub async fn create_connection_handler<T, C>(
     conn_req: ConnRequest,
     publisher: ZmqPublisher,
-    state: Arc<Mutex<State<T, C>>>,
+    state: SyncState<T, C>,
     limit: i32,
 ) -> Result<impl warp::Reply, warp::Rejection>
 where
@@ -49,11 +166,18 @@ where
             let trial = conn_req.trial.unwrap_or(true);
             let limit = conn_req.limit.unwrap_or(limit);
 
-            let mut state = state.lock().await;
-            let conn: C = Conn::new(trial, limit, &conn_req.env, conn_req.password, None).into();
+            let conn =
+                Conn::new(trial, limit, &conn_req.env, conn_req.password.clone(), None).into();
+            let conn_id = uuid::Uuid::new_v4();
 
-            let _ = state.connections.add_or_update(&conn_req.conn_id, conn);
+            let msg = Message {
+                conn_id: conn_id,
+                password: conn_req.password,
+                action: Action::Create,
+            };
 
+            let _ = SyncOp::add_conn(&state, &conn_id, conn).await;
+            let _ = publisher.send(&conn_req.env.to_string(), msg).await;
             let response = ResponseMessage {
                 status: 200,
                 message: "Connection Created".to_string(),
@@ -78,13 +202,13 @@ where
 /// List of nodes handler
 pub async fn get_nodes_handler<T, C>(
     node_req: NodesQueryParams,
-    state: Arc<Mutex<State<T, C>>>,
+    state: SyncState<T, C>,
 ) -> Result<impl warp::Reply, warp::Rejection>
 where
     T: NodeStorage + Sync + Send + Clone + 'static,
     C: ConnBaseOp + ConnApiOp + Sync + Send + Clone + 'static,
 {
-    let state = state.lock().await;
+    let state = state.memory.lock().await;
 
     let nodes = if node_req.env == "all" {
         state.nodes.all()
@@ -121,155 +245,91 @@ where
     }
 }
 
-// Register node handler
-pub async fn node_register<T, C>(
-    node_req: NodeRequest,
-    state: Arc<Mutex<State<T, C>>>,
-    db: PgContext,
-    publisher: ZmqPublisher,
-) -> Result<impl Reply, Rejection>
-where
-    T: NodeStorage + Sync + Send + Clone + 'static,
-    C: ConnApiOp + ConnBaseOp + Sync + Send + Clone + 'static,
-{
-    log::debug!("Received: {:?}", node_req);
-
-    let node = node_req.clone().as_node();
-    let mut state = state.lock().await;
-
-    let was_added = state.nodes.add(node.clone()).is_ok();
-    let _ = db.node().insert(node.clone()).await;
-    let _ = db
-        .node()
-        .update_status(&node.uuid, &node.env, NodeStatus::Online)
-        .await;
-    if let Some(node_mut) = state.nodes.get_mut(&node.env, &node.uuid) {
-        let _ = node_mut.update_status(NodeStatus::Online);
-    }
-
-    if let Ok(conns_map) = db.conn().by_env(&node.env).await {
-        let send_task = async {
-            for conn in conns_map {
-                let message = Message {
-                    conn_id: conn.conn_id,
-                    action: Action::Create,
-                    password: Some(conn.password.clone()),
-                };
-
-                if let Err(e) = publisher.send(&node.uuid.to_string(), message).await {
-                    log::error!("Failed to send init conn {}: {}", conn.conn_id, e);
-                }
-            }
-        };
-        utils::measure_time(send_task, format!("Connections init for {}", node.hostname)).await;
-    }
-
-    let response = if was_added {
-        ResponseMessage::<String> {
-            status: 200,
-            message: format!("node {} is added", node_req.uuid),
-        }
-    } else {
-        ResponseMessage::<String> {
-            status: 304,
-            message: format!("node {} is already known", node_req.uuid),
-        }
-    };
-
-    log::debug!("Sending JSON response: {:?}", response);
-
-    Ok(warp::reply::with_status(
-        warp::reply::json(&response),
-        StatusCode::OK,
-    ))
-}
-
 /// Get list of user connection credentials
 pub async fn user_connections_lines_handler<T, C>(
-    user_req: UserQueryParam,
-    state: Arc<Mutex<State<T, C>>>,
+    user_req: UserConnQueryParam,
+    state: SyncState<T, C>,
     publisher: ZmqPublisher,
-    db: PgContext,
 ) -> Result<impl warp::Reply, warp::Rejection>
 where
     T: NodeStorage + Sync + Send + Clone + 'static,
     C: ConnBaseOp + ConnApiOp + Sync + Send + Clone + 'static + From<Conn> + std::fmt::Debug,
 {
+    log::debug!("Received: {:?}", user_req);
+
     let username = user_req.username;
 
-    let user = match db.user().get(&username).await {
-        Some(user) => user,
-        None => {
-            return Ok(warp::reply::with_status(
-                warp::reply::json(&serde_json::json!({ "error": "USER NOT FOUND" })),
-                warp::http::StatusCode::NOT_FOUND,
-            ))
+    let user_id = {
+        let mem = state.memory.lock().await;
+        match mem.users.by_username(&username) {
+            Some(id) => id,
+            None => {
+                return Ok(warp::reply::with_status(
+                    warp::reply::json(&serde_json::json!({ "error": "USER NOT FOUND" })),
+                    warp::http::StatusCode::NOT_FOUND,
+                ));
+            }
         }
     };
 
-    let mut state = state.lock().await;
+    let connections = {
+        let mem = state.memory.lock().await;
+        mem.connections.get_by_user_id(&user_id)
+    };
 
-    let connections = match state.connections.get_by_user_id(&user.user_id) {
-        Some(conns) => conns,
-        None => {
-            let conn_id = uuid::Uuid::new_v4();
+    if connections.is_none() {
+        log::debug!("Connections not found, creating");
 
-            let conn = (
-                conn_id,
-                Conn::new(
-                    user_req.trial,
-                    user_req.limit,
-                    &user_req.env,
-                    user_req.password,
-                    Some(user.user_id),
-                ),
-            );
+        let conn_id = uuid::Uuid::new_v4();
+        let conn = Conn::new(
+            user_req.trial,
+            user_req.limit,
+            &user_req.env,
+            user_req.password.clone(),
+            Some(user_id),
+        );
 
-            let conn_row: ConnRow = conn.clone().into();
+        let message = Message {
+            conn_id,
+            action: Action::Create,
+            password: None,
+        };
 
-            let message = Message {
-                conn_id,
-                action: Action::Create,
-                password: None,
-            };
-
-            if let Err(e) = db.conn().insert(conn_row).await {
-                log::error!("db insert error {}", e);
-            } else {
-                let _ = state.connections.add_or_update(&conn.0, conn.1.into());
-                let _ = publisher.send("all", message).await;
-
-                return Ok(warp::reply::with_status(
-                    warp::reply::json(&serde_json::json!({
-                        "message": "User connections not found, creation requested"
-                    })),
-                    warp::http::StatusCode::ACCEPTED,
-                ));
-            }
-
+        if SyncOp::add_conn(&state, &conn_id, conn.clone())
+            .await
+            .is_ok()
+            && publisher.send("all", message).await.is_ok()
+        {
             return Ok(warp::reply::with_status(
                 warp::reply::json(&serde_json::json!({
-                    "error": "Failed to insert new connection"
+                    "message": "User connections not found, creation requested"
                 })),
+                warp::http::StatusCode::ACCEPTED,
+            ));
+        } else {
+            return Ok(warp::reply::with_status(
+                warp::reply::json(&serde_json::json!({ "error": "Failed to create connection" })),
                 warp::http::StatusCode::INTERNAL_SERVER_ERROR,
             ));
         }
-    };
+    }
 
     let mut connection_links = Vec::new();
 
-    let nodes = if user_req.env == "all" {
-        state.nodes.all()
-    } else {
-        state.nodes.by_env(&user_req.env)
+    let (connections, nodes) = {
+        let mem = state.memory.lock().await;
+        let conns = mem.connections.get_by_user_id(&user_id).unwrap_or_default();
+        let nodes = if user_req.env == "all" {
+            mem.nodes.all()
+        } else {
+            mem.nodes.by_env(&user_req.env)
+        };
+        (conns, nodes)
     };
 
     for (conn_id, _) in connections {
         if let Some(ref nodes) = nodes {
-            for node in nodes
-                .iter()
-                .filter(|node| node.status == NodeStatus::Online)
-            {
+            for node in nodes.iter().filter(|n| n.status == NodeStatus::Online) {
                 for (tag, inbound) in &node.inbounds {
                     let link = match tag {
                         Tag::VlessXtls => utils::vless_xtls_conn(
@@ -317,13 +377,13 @@ where
 /// Get list of user connection credentials
 pub async fn connections_lines_handler<T, C>(
     conn_req: ConnQueryParam,
-    state: Arc<Mutex<State<T, C>>>,
+    state: SyncState<T, C>,
 ) -> Result<impl warp::Reply, warp::Rejection>
 where
     T: NodeStorage + Sync + Send + Clone + 'static,
     C: ConnBaseOp + ConnApiOp + Sync + Send + Clone + 'static + From<Conn> + std::fmt::Debug,
 {
-    let state = state.lock().await;
+    let state = state.memory.lock().await;
 
     let conn_id = conn_req.conn_id;
     let env = conn_req.env;
@@ -377,65 +437,6 @@ where
         warp::reply::json(&connection_links),
         warp::http::StatusCode::OK,
     ))
-}
-
-pub async fn user_register<T, C>(
-    user_req: UserQueryParam,
-    state: Arc<Mutex<State<T, C>>>,
-    db: PgContext,
-) -> Result<impl Reply, Rejection>
-where
-    T: NodeStorage + Sync + Send + Clone + 'static,
-    C: ConnApiOp + ConnBaseOp + Sync + Send + Clone + 'static,
-{
-    log::debug!("Received: {:?}", user_req);
-
-    let user_id = uuid::Uuid::new_v4();
-
-    match db.user().insert(&user_id, &user_req.username).await {
-        Ok(_) => {
-            {
-                let mut state = state.lock().await;
-                state.users.insert(user_id);
-            }
-
-            let response = ResponseMessage::<String> {
-                status: 200,
-                message: format!("User {} is registered", user_id),
-            };
-
-            Ok(warp::reply::with_status(
-                warp::reply::json(&response),
-                StatusCode::OK,
-            ))
-        }
-
-        Err(PonyError::Conflict) => {
-            let response = ResponseMessage::<String> {
-                status: 304,
-                message: format!("User {} already exists", user_id),
-            };
-
-            Ok(warp::reply::with_status(
-                warp::reply::json(&response),
-                StatusCode::NOT_MODIFIED,
-            ))
-        }
-
-        Err(err) => {
-            log::error!("Failed to insert user into DB: {}", err);
-
-            let response = ResponseMessage::<String> {
-                status: 500,
-                message: format!("User {} is not registered", user_id),
-            };
-
-            Ok(warp::reply::with_status(
-                warp::reply::json(&response),
-                StatusCode::INTERNAL_SERVER_ERROR,
-            ))
-        }
-    }
 }
 
 pub async fn rejection(reject: Rejection) -> Result<impl Reply, Rejection> {

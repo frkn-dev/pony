@@ -150,7 +150,7 @@ where
             if conn.get_status() == ConnStatus::Active {
                 let used = conn.get_uplink();
 
-                if used >= (conn.get_limit() * 1024 * 1024).into() {
+                if (used as f64 / 1_048_576.0) >= conn.get_limit() as f64 {
                     conn.set_status(ConnStatus::Expired);
                     conn.set_modified_at();
 

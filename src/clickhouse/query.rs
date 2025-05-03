@@ -17,7 +17,7 @@ pub trait Queries {
     async fn fetch_conn_stats<T>(
         &self,
         conn_id: uuid::Uuid,
-        modified_at: DateTime<Utc>,
+        start: DateTime<Utc>,
     ) -> Option<Vec<MetricValue<T>>>
     where
         T: DeserializeOwned + Debug + Send + Clone + Sync + 'static;
@@ -51,28 +51,23 @@ impl Queries for ChContext {
     async fn fetch_conn_stats<T>(
         &self,
         conn_id: uuid::Uuid,
-        modified_at: DateTime<Utc>,
+        start: DateTime<Utc>,
     ) -> Option<Vec<MetricValue<T>>>
     where
         T: DeserializeOwned + Debug + Send + Clone + Sync + 'static,
     {
-        let modified_at_str = modified_at.format("%Y-%m-%d %H:%M:%S").to_string();
+        let start_str = start.format("%Y-%m-%d %H:%M:%S").to_string();
         let query = format!(
             "SELECT 
-        toInt64(toUnixTimestamp(toDateTime(anyLast(Timestamp)))) AS latest,
-        Path AS metric,
-        toFloat64(sum(Value)) AS value
-    FROM default.graphite_data
-    WHERE (
-        Path LIKE '%.%.{conn_id}.uplink' OR
-        Path LIKE '%.%.{conn_id}.downlink' OR
-        Path LIKE '%.%.{conn_id}.online'
-    )
-      AND Timestamp >= toDateTime('{start}')
-      AND Timestamp < toDateTime('{start}') + INTERVAL 1 DAY
-    GROUP BY Path",
+                    extract(Path, '[^.]+$') AS metric,
+                    toFloat64(sum(Value)) AS value
+            FROM default.graphite_data
+            WHERE Path LIKE '%.%.{conn_id}.conn_stat.%'
+                  AND Timestamp >= toDateTime({start})
+                  AND Timestamp < toDateTime({start}) + INTERVAL 1 DAY
+            GROUP BY metric",
             conn_id = conn_id,
-            start = modified_at_str,
+            start = start_str,
         );
 
         let client = self.client();

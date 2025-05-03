@@ -12,6 +12,7 @@ use pony::Result;
 use super::super::Api;
 use super::filters::*;
 use super::handlers::*;
+use super::rejection;
 
 #[async_trait]
 pub trait Http {

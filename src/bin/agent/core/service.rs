@@ -6,9 +6,8 @@ use tokio::time::sleep;
 use tokio::time::Duration;
 
 use pony::config::settings::AgentSettings;
-use pony::http::debug;
-
 use pony::config::xray::Config as XrayConfig;
+use pony::http::debug;
 use pony::state::AgentState;
 use pony::state::Conn;
 use pony::state::ConnBase;
@@ -122,7 +121,10 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
                 .register_node(settings.api.endpoint.clone(), settings.api.token.clone())
                 .await
             {
-                panic!("Cannot register node {:?}", e);
+                panic!(
+                    "-->>Cannot register node, use setting local mode for running no deps\n {:?}",
+                    e
+                );
             }
         };
     }

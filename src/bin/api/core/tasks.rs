@@ -1,20 +1,19 @@
-use crate::core::Conn;
-use crate::core::NodeStorage;
-use crate::join_all;
-use crate::Api;
 use async_trait::async_trait;
 use chrono::Duration;
+use chrono::NaiveTime;
 use chrono::TimeZone;
 use chrono::Utc;
-use pony::PonyError;
-use std::error::Error;
+use futures::future::join_all;
 
 use pony::clickhouse::query::Queries;
+use pony::state::Conn;
 use pony::state::ConnRow;
+use pony::state::ConnStat;
 use pony::state::ConnStatus;
 use pony::state::ConnStorageApi;
 use pony::state::Node;
 use pony::state::NodeStatus;
+use pony::state::NodeStorage;
 use pony::state::SyncOp;
 use pony::state::User;
 use pony::state::UserRow;
@@ -22,16 +21,20 @@ use pony::state::UserStorage;
 use pony::state::{ConnApiOp, ConnBaseOp};
 use pony::zmq::message::Action;
 use pony::zmq::message::Message;
+use pony::PonyError;
 use pony::Result;
+
+use crate::Api;
 
 #[async_trait]
 pub trait Tasks {
     async fn node_healthcheck(&self) -> Result<()>;
-    async fn check_conn_uplink_limits(&self) -> Result<()>;
-    async fn reactivate_trial_conns(&self) -> Result<()>;
+    async fn collect_conn_stat(&self) -> Result<()>;
+    async fn restore_trial_conns(&self) -> Result<()>;
     async fn add_node(&self, db_node: Node) -> Result<()>;
     async fn add_conn(&self, db_conn: ConnRow) -> Result<()>;
     async fn add_user(&self, db_user: UserRow) -> Result<()>;
+    async fn check_limit_and_expire_conns(&self) -> Result<()>;
 }
 
 #[async_trait]
@@ -146,7 +149,48 @@ where
         Ok(())
     }
 
-    async fn check_conn_uplink_limits(&self) -> Result<()> {
+    async fn collect_conn_stat(&self) -> Result<()> {
+        let conns_map = {
+            let state = self.state.memory.lock().await;
+            state
+                .connections
+                .iter()
+                .filter(|(_, conn)| conn.get_status() == ConnStatus::Active)
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect::<Vec<_>>()
+        };
+
+        let today = Utc::now().date_naive();
+        let start_of_day =
+            Utc.from_utc_datetime(&today.and_time(NaiveTime::from_hms_opt(0, 0, 0).unwrap()));
+
+        let tasks = conns_map.into_iter().map(|(conn_id, _)| {
+            let ch = self.ch.clone();
+            let state = self.state.clone();
+
+            async move {
+                if let Some(metrics) = ch.fetch_conn_stats::<i64>(conn_id, start_of_day).await {
+                    let stat = ConnStat::from_metrics(metrics);
+                    SyncOp::update_conn_stat(&state, &conn_id, stat).await
+                } else {
+                    log::warn!("No metrics found for conn_id {}", conn_id);
+                    Ok(())
+                }
+            }
+        });
+
+        let results = join_all(tasks).await;
+
+        for result in results {
+            if let Err(e) = result {
+                log::error!("Error during stat update: {:?}", e);
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn check_limit_and_expire_conns(&self) -> Result<()> {
         let conns_map = {
             let state = self.state.memory.lock().await;
             state
@@ -157,74 +201,41 @@ where
                 .collect::<Vec<_>>()
         };
 
-        let tasks =
-            conns_map.into_iter().map(|(conn_id, conn)| {
-                let ch = self.ch.clone();
-                let publisher = self.publisher.clone();
-                let state = self.state.clone();
-                let env = conn.get_env();
-                let modified_at = conn.get_modified_at();
+        let tasks = conns_map.into_iter().map(|(conn_id, conn)| {
+            let state = self.state.clone();
+            let publisher = self.publisher.clone();
 
-                async move {
-                    let result = ch
-                        .fetch_conn_uplink_traffic::<f64>(&env, conn_id, modified_at)
-                        .await;
+            let msg = Message {
+                action: Action::Delete,
+                conn_id: conn_id,
+                password: None,
+            };
 
-                    if let Some(metric) = result {
-                        let uplink_mb = metric.value / 1_048_576.0;
-
-                        if uplink_mb > conn.get_limit() as f64 {
-                            log::warn!(
-                            "🚨 Connection {} in env {} exceeds limit: uplink = {:.2} MB / {} MB",
-                            conn_id, env, uplink_mb, conn.get_limit()
-                        );
-
-                            let msg = Message {
-                                conn_id: conn_id.clone(),
-                                action: Action::Delete,
-                                password: None,
-                            };
-
-                            if let Err(e) = publisher.send(&env, msg).await {
-                                log::error!("Failed to send DELETE for {}: {}", conn_id, e);
-                            }
-
-                            {
-                                let mut state = state.memory.lock().await;
-                                if let Some(conn) = state.connections.get_mut(&conn_id) {
-                                    conn.set_status(ConnStatus::Expired);
-                                    conn.update_modified_at();
-                                    log::debug!("✅ Marked connection {} as Expired", conn_id);
-                                }
-                            }
-                        } else {
-                            log::debug!(
-                                "✅ Connection {} uplink OK: {:.2} MB / {} MB",
-                                conn_id,
-                                uplink_mb,
-                                conn.get_limit()
-                            );
-                        }
-                    } else {
-                        log::debug!("No uplink data for connection {}", conn_id);
-                    }
-
-                    Ok::<(), Box<dyn Error + Send + Sync>>(())
+            async move {
+                let msg = msg.clone();
+                if let Ok(_) = SyncOp::check_limit_and_expire_conn(&state, &conn_id).await {
+                    let _ = publisher.send(&conn.get_env(), msg).await;
+                    Ok(())
+                } else {
+                    Err(PonyError::Custom(
+                        "SyncOp::check_limit_and_expire_conn failed".to_string(),
+                    ))
                 }
-            });
+            }
+        });
 
         let results = join_all(tasks).await;
 
-        for res in results {
-            if let Err(e) = res {
-                log::error!("Error during connection uplink check: {:?}", e);
+        for result in results {
+            if let Err(e) = result {
+                log::error!("Error during check_limit_and_expire_conns: {:?}", e);
             }
         }
 
         Ok(())
     }
 
-    async fn reactivate_trial_conns(&self) -> Result<()> {
+    async fn restore_trial_conns(&self) -> Result<()> {
         let conns_map = {
             let state = self.state.memory.lock().await;
             state
@@ -236,43 +247,32 @@ where
         };
 
         let tasks = conns_map.into_iter().map(|(conn_id, conn)| {
-            let publisher = self.publisher.clone();
             let state = self.state.clone();
-            let now = chrono::Utc::now();
-            let modified_at = conn.get_modified_at();
-            let env = conn.get_env();
+            let publisher = self.publisher.clone();
+
+            let msg = Message {
+                action: Action::Delete,
+                conn_id: conn_id,
+                password: None,
+            };
 
             async move {
-                if now.signed_duration_since(modified_at) >= chrono::Duration::hours(24) {
-                    {
-                        let mut state = state.memory.lock().await;
-                        if let Some(conn_mut) = state.connections.get_mut(&conn_id) {
-                            conn_mut.set_status(ConnStatus::Active);
-                            conn_mut.update_modified_at();
-                            log::debug!("✅ Re-activated connection {}", conn_id);
-                        }
-                    }
-
-                    let msg = Message {
-                        conn_id: conn_id.clone(),
-                        action: Action::Create,
-                        password: Some(conn.get_password().unwrap_or_default()),
-                    };
-
-                    if let Err(e) = publisher.send(&env, msg).await {
-                        log::error!("Failed to send CREATE for {}: {}", conn_id, e);
-                    }
+                if let Ok(_) = SyncOp::activate_trial_conn(&state, &conn_id).await {
+                    let _ = publisher.send(&conn.get_env(), msg).await;
+                    Ok(())
+                } else {
+                    Err(PonyError::Custom(
+                        "SyncOp::activate_trial_conn failed".to_string(),
+                    ))
                 }
-
-                Ok::<(), Box<dyn Error + Send + Sync>>(())
             }
         });
 
         let results = join_all(tasks).await;
 
-        for res in results {
-            if let Err(e) = res {
-                log::error!("Error during connection reactivation: {:?}", e);
+        for result in results {
+            if let Err(e) = result {
+                log::error!("Error during check_limit_and_expire_conns: {:?}", e);
             }
         }
 

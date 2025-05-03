@@ -1,3 +1,4 @@
+use chrono::NaiveTime;
 use clap::Parser;
 use fern::Dispatch;
 use futures::future::join_all;
@@ -158,13 +159,14 @@ async fn main() -> Result<()> {
     }
 
     let _ = tokio::spawn({
+        log::info!("node_healthcheck task started");
         let job_interval = Duration::from_secs(settings.api.healthcheck_interval);
         let api = api.clone();
 
         async move {
             loop {
                 if let Err(e) = api.node_healthcheck().await {
-                    log::error!("Healthcheck failed: {:?}", e);
+                    log::error!("node_healthcheck task  failed: {:?}", e);
                 }
                 tokio::time::sleep(job_interval).await;
             }
@@ -172,32 +174,48 @@ async fn main() -> Result<()> {
     });
 
     let _ = tokio::spawn({
+        log::info!("collect_conn_stat task started");
         let api = api.clone();
         let job_interval = Duration::from_secs(settings.api.conn_limit_check_interval);
 
         async move {
             loop {
-                if let Err(e) = api.check_conn_uplink_limits().await {
-                    log::error!("Check limits  failed: {:?}", e);
+                if let Err(e) = api.collect_conn_stat().await {
+                    log::error!("collect_conn_stat task  failed: {:?}", e);
                 }
                 tokio::time::sleep(job_interval).await;
             }
         }
     });
 
+    let api_for_expire = api.clone();
     let _ = tokio::spawn({
-        let api = api.clone();
-        let job_interval = Duration::from_secs(settings.api.conn_reactivate_interval);
+        log::info!("check_limit_and_expire_conns task started");
+        let api = api_for_expire.clone();
+        let job_interval = Duration::from_secs(settings.api.conn_limit_check_interval);
 
         async move {
             loop {
-                if let Err(e) = api.reactivate_trial_conns().await {
-                    log::error!("Reactivate trial conns task failed: {:?}", e);
+                if let Err(e) = api.check_limit_and_expire_conns().await {
+                    log::error!("check_limit_and_expire_conns task failed: {:?}", e);
                 }
                 tokio::time::sleep(job_interval).await;
             }
         }
     });
+
+    let api_for_restore = api.clone();
+    let _ = tokio::spawn(run_daily(
+        move || {
+            let api = api_for_restore.clone();
+            async move {
+                if let Err(e) = api.restore_trial_conns().await {
+                    log::error!("Scheduled daily task failed: {:?}", e);
+                }
+            }
+        },
+        NaiveTime::from_hms_opt(3, 0, 0).unwrap(),
+    ));
 
     let _ = tokio::spawn(async move {
         pg_run_shadow_sync(rx, db).await;

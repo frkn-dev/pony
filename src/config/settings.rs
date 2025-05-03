@@ -67,14 +67,6 @@ fn default_pg_password() -> String {
     "password".to_string()
 }
 
-fn default_stat_job_interval() -> u64 {
-    60
-}
-
-fn default_metrics_interval() -> u64 {
-    60
-}
-
 fn default_api_endpoint_address() -> String {
     "http://localhost:3005".to_string()
 }
@@ -115,11 +107,19 @@ fn default_conn_limit_check_interval() -> u64 {
     60
 }
 
-fn default_conn_reactivate_interval() -> u64 {
+fn default_stat_job_interval() -> u64 {
+    60
+}
+
+fn default_metrics_interval() -> u64 {
     60
 }
 
 fn default_healthcheck_interval() -> u64 {
+    60
+}
+
+fn default_collect_conn_stat_interval() -> u64 {
     60
 }
 
@@ -147,8 +147,8 @@ pub struct ApiServiceConfig {
     pub node_health_check_timeout: i16,
     #[serde(default = "default_conn_limit_check_interval")]
     pub conn_limit_check_interval: u64,
-    #[serde(default = "default_conn_reactivate_interval")]
-    pub conn_reactivate_interval: u64,
+    #[serde(default = "default_collect_conn_stat_interval")]
+    pub collect_conn_stat_interval: u64,
     #[serde(default = "default_conn_daily_limit_mb")]
     pub conn_limit_mb: i32,
     #[serde(default = "default_healthcheck_interval")]

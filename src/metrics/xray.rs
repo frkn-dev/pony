@@ -87,9 +87,9 @@ where
     let conn_stat_metrics: Vec<_> = connections
         .clone()
         .iter()
-        .map(|(user_id, user)| {
-            user.as_conn_stat()
-                .as_metric(&user_id.to_string(), env, hostname)
+        .map(|(conn_id, conn)| {
+            conn.as_conn_stat()
+                .as_metric(&conn_id.to_string(), env, hostname)
         })
         .flatten()
         .collect();

@@ -75,9 +75,27 @@ pub async fn run_shadow_sync(mut rx: mpsc::Receiver<SyncTask>, db: PgContext) {
                     log::error!("Failed to sync InsertConn: {err}");
                 }
             }
-            SyncTask::UpdateNodeStatus { uuid, env, status } => {
-                if let Err(err) = db.node().update_status(&uuid, &env, status).await {
+            SyncTask::UpdateNodeStatus {
+                node_id,
+                env,
+                status,
+            } => {
+                if let Err(err) = db.node().update_status(&node_id, &env, status).await {
                     log::error!("Failed to sync UpdateNodeStatus: {err}");
+                }
+            }
+            SyncTask::UpdateConnStat {
+                conn_id,
+                stat,
+                new_value,
+            } => {
+                if let Err(err) = db.conn().update_stat(&conn_id, stat, new_value).await {
+                    log::error!("Failed to sync UpdateConnStat: {err}");
+                }
+            }
+            SyncTask::UpdateConnStatus { conn_id, status } => {
+                if let Err(err) = db.conn().update_status(&conn_id, status).await {
+                    log::error!("Failed to sync UpdateConnStatus: {err}");
                 }
             }
         }

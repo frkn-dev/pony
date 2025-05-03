@@ -6,6 +6,7 @@ use crate::state::connection::ConnBaseOp;
 use crate::state::connection::ConnStatus;
 use crate::state::state::Connections;
 use crate::state::stats::StatType;
+use crate::state::ConnStat;
 
 use crate::{PonyError, Result};
 
@@ -40,6 +41,7 @@ where
     fn update_uplink(&mut self, conn_id: &uuid::Uuid, new_uplink: i64) -> Result<()>;
     fn update_downlink(&mut self, conn_id: &uuid::Uuid, new_downlink: i64) -> Result<()>;
     fn update_online(&mut self, conn_id: &uuid::Uuid, new_online: i64) -> Result<()>;
+    fn update_stats(&mut self, conn_id: &uuid::Uuid, stats: ConnStat) -> Result<()>;
 }
 
 #[derive(Debug)]
@@ -87,6 +89,18 @@ where
         }
     }
 
+    fn update_stats(&mut self, conn_id: &uuid::Uuid, stats: ConnStat) -> Result<()> {
+        let conn = self
+            .get_mut(conn_id)
+            .ok_or(PonyError::Custom("Conn not found".into()))?;
+
+        conn.set_online(stats.online);
+        conn.set_uplink(stats.uplink);
+        conn.set_downlink(stats.downlink);
+
+        Ok(())
+    }
+
     fn update_stat(
         &mut self,
         conn_id: &uuid::Uuid,
@@ -106,8 +120,9 @@ where
             StatType::Online => {
                 conn.set_online(new_value.unwrap_or(0));
             }
+            StatType::Unknown => {}
         }
-        conn.update_modified_at();
+        conn.set_modified_at();
         Ok(())
     }
 
@@ -117,6 +132,7 @@ where
                 StatType::Uplink => conn.reset_uplink(),
                 StatType::Downlink => conn.reset_downlink(),
                 StatType::Online => {}
+                StatType::Unknown => {}
             }
         }
     }
@@ -124,7 +140,7 @@ where
     fn update_uplink(&mut self, conn_id: &uuid::Uuid, new_uplink: i64) -> Result<()> {
         if let Some(conn) = self.get_mut(conn_id) {
             conn.set_uplink(new_uplink);
-            conn.update_modified_at();
+            conn.set_modified_at();
             Ok(())
         } else {
             Err(PonyError::Custom(
@@ -136,7 +152,7 @@ where
     fn update_downlink(&mut self, conn_id: &uuid::Uuid, new_downlink: i64) -> Result<()> {
         if let Some(conn) = self.get_mut(conn_id) {
             conn.set_downlink(new_downlink);
-            conn.update_modified_at();
+            conn.set_modified_at();
             Ok(())
         } else {
             Err(PonyError::Custom(
@@ -148,7 +164,7 @@ where
     fn update_online(&mut self, conn_id: &uuid::Uuid, new_online: i64) -> Result<()> {
         if let Some(conn) = self.get_mut(conn_id) {
             conn.set_online(new_online);
-            conn.update_modified_at();
+            conn.set_modified_at();
             Ok(())
         } else {
             Err(PonyError::Custom(
@@ -183,7 +199,7 @@ where
     fn restore(&mut self, conn_id: &uuid::Uuid) -> Result<()> {
         if let Some(conn) = self.get_mut(conn_id) {
             conn.set_status(ConnStatus::Active);
-            conn.update_modified_at();
+            conn.set_modified_at();
             Ok(())
         } else {
             Err(PonyError::Custom("Conn not found".into()))
@@ -193,7 +209,7 @@ where
     fn expire(&mut self, conn_id: &uuid::Uuid) -> Result<()> {
         if let Some(conn) = self.get_mut(&conn_id) {
             conn.set_status(ConnStatus::Expired);
-            conn.update_modified_at();
+            conn.set_modified_at();
             Ok(())
         } else {
             Err(PonyError::Custom("Conn not found".into()))
@@ -203,7 +219,7 @@ where
     fn update_limit(&mut self, conn_id: &uuid::Uuid, new_limit: i32) -> Result<()> {
         if let Some(conn) = self.get_mut(conn_id) {
             conn.set_limit(new_limit);
-            conn.update_modified_at();
+            conn.set_modified_at();
         }
         Ok(())
     }
@@ -211,7 +227,7 @@ where
     fn update_trial(&mut self, conn_id: &uuid::Uuid, new_trial: bool) -> Result<()> {
         if let Some(conn) = self.get_mut(conn_id) {
             conn.set_trial(new_trial);
-            conn.update_modified_at();
+            conn.set_modified_at();
         }
         Ok(())
     }
@@ -222,6 +238,7 @@ where
                 StatType::Uplink => conn.reset_uplink(),
                 StatType::Downlink => conn.reset_downlink(),
                 StatType::Online => {}
+                StatType::Unknown => {}
             }
         }
     }

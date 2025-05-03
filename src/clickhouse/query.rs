@@ -14,12 +14,11 @@ pub trait Queries {
     where
         T: DeserializeOwned + Debug + Send + Clone + Sync + 'static;
 
-    async fn fetch_conn_uplink_traffic<T>(
+    async fn fetch_conn_stats<T>(
         &self,
-        env: &str,
         conn_id: uuid::Uuid,
         modified_at: DateTime<Utc>,
-    ) -> Option<MetricValue<T>>
+    ) -> Option<Vec<MetricValue<T>>>
     where
         T: DeserializeOwned + Debug + Send + Clone + Sync + 'static;
 }
@@ -49,12 +48,11 @@ impl Queries for ChContext {
         result.ok().and_then(|mut rows| rows.pop())
     }
 
-    async fn fetch_conn_uplink_traffic<T>(
+    async fn fetch_conn_stats<T>(
         &self,
-        env: &str,
         conn_id: uuid::Uuid,
         modified_at: DateTime<Utc>,
-    ) -> Option<MetricValue<T>>
+    ) -> Option<Vec<MetricValue<T>>>
     where
         T: DeserializeOwned + Debug + Send + Clone + Sync + 'static,
     {
@@ -65,11 +63,14 @@ impl Queries for ChContext {
         Path AS metric,
         toFloat64(sum(Value)) AS value
     FROM default.graphite_data
-    WHERE Path LIKE '{env}.%.{conn_id}.uplink'
+    WHERE (
+        Path LIKE '%.%.{conn_id}.uplink' OR
+        Path LIKE '%.%.{conn_id}.downlink' OR
+        Path LIKE '%.%.{conn_id}.online'
+    )
       AND Timestamp >= toDateTime('{start}')
       AND Timestamp < toDateTime('{start}') + INTERVAL 1 DAY
     GROUP BY Path",
-            env = env,
             conn_id = conn_id,
             start = modified_at_str,
         );
@@ -79,6 +80,6 @@ impl Queries for ChContext {
 
         let result = client.query(&query).fetch_all::<MetricValue<T>>().await;
 
-        result.ok().and_then(|mut rows| rows.pop())
+        result.ok()
     }
 }

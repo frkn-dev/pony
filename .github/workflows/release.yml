@@ -122,6 +122,7 @@ jobs:
             target/release/api-${{ env.ARCH }}
             target/release/agent-${{ env.ARCH }}
             target/release/bot-${{ env.ARCH }}
+            deploy/init.sql
             deploy/install
             docs/*
             README.md

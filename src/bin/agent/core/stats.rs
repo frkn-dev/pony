@@ -50,6 +50,9 @@ where
             Stat::Outbound(_) => {
                 return Err(Status::internal("Outbound stat type is not implemented"));
             }
+            Stat::Conn(StatType::Unknown) | Stat::Inbound(StatType::Unknown) => {
+                return Err(Status::internal("Unknown stat type is not implemented"));
+            }
         };
 
         let request = Request::new(GetStatsRequest {

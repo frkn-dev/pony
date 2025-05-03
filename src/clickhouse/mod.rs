@@ -1,3 +1,4 @@
+use crate::state::StatType;
 use clickhouse::Client as ChClient;
 use clickhouse::Row;
 use serde::{Deserialize, Serialize};
@@ -30,4 +31,10 @@ pub struct MetricValue<T> {
     pub latest: i64,
     pub metric: String,
     pub value: T,
+}
+
+impl<T> MetricValue<T> {
+    pub fn stat_type(&self) -> StatType {
+        StatType::from_path(&self.metric)
+    }
 }

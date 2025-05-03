@@ -7,11 +7,44 @@ use std::{
 };
 
 use base64::Engine;
+use chrono::{Duration, Local, NaiveTime};
 use chrono::{TimeZone, Utc};
 use log::LevelFilter;
 use rand::{distributions::Alphanumeric, Rng};
+use tokio::time::{sleep, Duration as TokioDuration};
 
 use crate::config::xray::Inbound;
+
+pub async fn run_daily<F, Fut>(task: F, target_time: NaiveTime)
+where
+    F: Fn() -> Fut + Send + Sync + 'static + Clone,
+    Fut: std::future::Future<Output = ()> + Send,
+{
+    loop {
+        log::debug!("Running daily scheduled task {}", target_time,);
+        let now = Local::now();
+        let today_target = now.date_naive().and_time(target_time);
+
+        let next_run = {
+            if now.time() < target_time {
+                today_target
+            } else {
+                today_target + Duration::days(1)
+            }
+        };
+
+        log::debug!(
+            "Running daily shcduked task {}, next run - {}",
+            today_target,
+            next_run
+        );
+
+        let wait_duration = (next_run - now.naive_local()).to_std().unwrap_or_default();
+        sleep(TokioDuration::from_secs(wait_duration.as_secs())).await;
+
+        task().await;
+    }
+}
 
 pub fn generate_random_password(length: usize) -> String {
     rand::thread_rng()

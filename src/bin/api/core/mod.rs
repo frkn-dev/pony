@@ -1,6 +1,5 @@
 use pony::clickhouse::ChContext;
 use pony::config::settings::ApiSettings;
-use pony::state::Conn;
 use pony::state::ConnApiOp;
 use pony::state::ConnBaseOp;
 use pony::state::NodeStorage;

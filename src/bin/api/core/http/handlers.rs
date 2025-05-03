@@ -7,8 +7,6 @@ use pony::http::requests::NodeResponse;
 use pony::http::requests::NodesQueryParams;
 use pony::http::requests::UserConnQueryParam;
 use pony::http::requests::UserRegQueryParam;
-use pony::http::AuthError;
-use pony::http::MethodError;
 use pony::http::ResponseMessage;
 use pony::state::Conn;
 use pony::state::ConnApiOp;
@@ -29,8 +27,6 @@ use pony::zmq::message::Action;
 
 use pony::zmq::message::Message;
 use pony::zmq::publisher::Publisher as ZmqPublisher;
-
-use super::JsonError;
 
 pub async fn user_register<T, C>(
     user_req: UserRegQueryParam,
@@ -437,42 +433,4 @@ where
         warp::reply::json(&connection_links),
         warp::http::StatusCode::OK,
     ))
-}
-
-pub async fn rejection(reject: Rejection) -> Result<impl Reply, Rejection> {
-    if reject.find::<MethodError>().is_some() {
-        let error_response = warp::reply::json(&serde_json::json!({
-            "error": "Method Not Allowed"
-        }));
-        Ok(warp::reply::with_status(
-            error_response,
-            StatusCode::METHOD_NOT_ALLOWED,
-        ))
-    } else if let Some(_) = reject.find::<AuthError>() {
-        let error_response = warp::reply::json(&serde_json::json!({
-            "error": "UNAUTHORIZED"
-        }));
-        Ok(warp::reply::with_status(
-            error_response,
-            StatusCode::UNAUTHORIZED,
-        ))
-    } else if let Some(err) = reject.find::<JsonError>() {
-        let error_response = warp::reply::json(&serde_json::json!({
-            "error": err.0
-        }));
-        Ok(warp::reply::with_status(
-            error_response,
-            StatusCode::BAD_REQUEST,
-        ))
-    } else if reject.is_not_found() {
-        let error_response = warp::reply::json(&serde_json::json!({
-            "error": "Not Found"
-        }));
-        Ok(warp::reply::with_status(
-            error_response,
-            StatusCode::NOT_FOUND,
-        ))
-    } else {
-        Err(reject)
-    }
 }

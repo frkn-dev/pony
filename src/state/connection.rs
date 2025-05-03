@@ -1,14 +1,14 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::fmt;
+use tokio_postgres::types::FromSql;
+use tokio_postgres::types::ToSql;
 
 use super::{stats::ConnStat, tag::Tag};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ConnBase {
-    pub uplink: Option<i64>,
-    pub downlink: Option<i64>,
-    pub online: Option<i64>,
+    pub stat: ConnStat,
     pub created_at: DateTime<Utc>,
     pub modified_at: DateTime<Utc>,
     pub proto: Option<Vec<Tag>>,
@@ -19,10 +19,13 @@ pub struct ConnBase {
 impl ConnBase {
     pub fn new(password: Option<String>) -> Self {
         let now = Utc::now();
+        let conn_stat = ConnStat {
+            online: 0,
+            uplink: 0,
+            downlink: 0,
+        };
         Self {
-            uplink: Some(0),
-            downlink: Some(0),
-            online: Some(0),
+            stat: conn_stat,
             created_at: now,
             modified_at: now,
             proto: None,
@@ -34,10 +37,13 @@ impl ConnBase {
 
 impl From<Conn> for ConnBase {
     fn from(conn: Conn) -> Self {
+        let conn_stat = ConnStat {
+            online: conn.stat.online,
+            uplink: conn.stat.uplink,
+            downlink: conn.stat.downlink,
+        };
         ConnBase {
-            uplink: conn.uplink,
-            downlink: conn.downlink,
-            online: conn.online,
+            stat: conn_stat,
             created_at: conn.created_at,
             modified_at: conn.modified_at,
             proto: conn.proto,
@@ -49,10 +55,13 @@ impl From<Conn> for ConnBase {
 
 impl From<&Conn> for ConnBase {
     fn from(conn: &Conn) -> Self {
+        let conn_stat = ConnStat {
+            online: conn.stat.online,
+            uplink: conn.stat.uplink,
+            downlink: conn.stat.downlink,
+        };
         ConnBase {
-            uplink: conn.uplink,
-            downlink: conn.downlink,
-            online: conn.online,
+            stat: conn_stat,
             created_at: conn.created_at,
             modified_at: conn.modified_at,
             proto: conn.proto.clone(),
@@ -65,21 +74,8 @@ impl From<&Conn> for ConnBase {
 impl fmt::Display for ConnBase {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(f, "ConnBase {{")?;
-        writeln!(
-            f,
-            "  uplink: {},",
-            self.uplink.map_or("None".to_string(), |v| v.to_string())
-        )?;
-        writeln!(
-            f,
-            "  downlink: {},",
-            self.downlink.map_or("None".to_string(), |v| v.to_string())
-        )?;
-        writeln!(
-            f,
-            "  online: {},",
-            self.online.map_or("None".to_string(), |v| v.to_string())
-        )?;
+
+        writeln!(f, " conn stat: {}", self.stat)?;
         writeln!(f, "  created_at: {},", self.created_at)?;
         writeln!(f, "  modified_at: {},", self.modified_at)?;
         writeln!(f, "  proto: {:?},", self.proto.as_ref().unwrap_or(&vec![]))?;
@@ -105,9 +101,7 @@ pub struct Conn {
     pub limit: i32,
     pub env: String,
     pub status: ConnStatus,
-    pub uplink: Option<i64>,
-    pub downlink: Option<i64>,
-    pub online: Option<i64>,
+    pub stat: ConnStat,
     pub created_at: DateTime<Utc>,
     pub modified_at: DateTime<Utc>,
     pub proto: Option<Vec<Tag>>,
@@ -124,26 +118,11 @@ impl fmt::Display for Conn {
         } else {
             write!(f, "  user_id: None,\n")?;
         }
-
         write!(f, "  trial: {},\n", self.trial)?;
         write!(f, "  env: {},\n", self.env)?;
         write!(f, "  limit: {},\n", self.limit)?;
         write!(f, "  status: {},\n", self.status)?;
-        if let Some(uplink) = self.uplink {
-            write!(f, "  uplink: {},\n", uplink)?;
-        } else {
-            write!(f, "  uplink: None,\n")?;
-        }
-        if let Some(downlink) = self.downlink {
-            write!(f, "  downlink: {},\n", downlink)?;
-        } else {
-            write!(f, "  downlink: None,\n")?;
-        }
-        if let Some(online) = self.online {
-            write!(f, "  online: {},\n", online)?;
-        } else {
-            write!(f, "  online: None,\n")?;
-        }
+        write!(f, " conn stat: {}\n", self.stat)?;
         write!(f, "  created_at: {},\n", self.created_at)?;
         write!(f, "  modified_at: {},\n", self.modified_at)?;
 
@@ -172,14 +151,17 @@ impl Conn {
         user_id: Option<uuid::Uuid>,
     ) -> Self {
         let now = Utc::now();
+        let conn_stat = ConnStat {
+            online: 0,
+            uplink: 0,
+            downlink: 0,
+        };
         Self {
             trial,
             limit,
             env: env.to_string(),
             status: ConnStatus::Active,
-            uplink: Some(0),
-            downlink: Some(0),
-            online: Some(0),
+            stat: conn_stat,
             created_at: now,
             modified_at: now,
             proto: None,
@@ -189,7 +171,8 @@ impl Conn {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Copy, ToSql, FromSql)]
+#[postgres(name = "conn_status", rename_all = "snake_case")]
 pub enum ConnStatus {
     Active,
     Expired,
@@ -206,22 +189,22 @@ impl fmt::Display for ConnStatus {
 }
 
 pub trait ConnBaseOp {
-    fn get_uplink(&self) -> Option<i64>;
+    fn get_uplink(&self) -> i64;
     fn set_uplink(&mut self, v: i64);
     fn reset_uplink(&mut self);
 
-    fn get_downlink(&self) -> Option<i64>;
+    fn get_downlink(&self) -> i64;
     fn set_downlink(&mut self, v: i64);
     fn reset_downlink(&mut self);
 
-    fn get_online(&self) -> Option<i64>;
+    fn get_online(&self) -> i64;
     fn set_online(&mut self, v: i64);
 
     fn get_password(&self) -> Option<String>;
     fn set_password(&mut self, new_password: Option<String>);
 
     fn get_modified_at(&self) -> DateTime<Utc>;
-    fn update_modified_at(&mut self);
+    fn set_modified_at(&mut self);
 
     fn get_user_id(&self) -> Option<uuid::Uuid>;
 
@@ -245,37 +228,37 @@ pub trait ConnApiOp {
 }
 
 impl ConnBaseOp for Conn {
-    fn get_uplink(&self) -> Option<i64> {
-        self.uplink
+    fn get_uplink(&self) -> i64 {
+        self.stat.uplink
     }
     fn set_uplink(&mut self, v: i64) {
-        self.uplink = Some(v);
+        self.stat.uplink = v;
     }
     fn reset_uplink(&mut self) {
-        self.uplink = Some(0);
+        self.stat.uplink = 0;
     }
 
-    fn get_downlink(&self) -> Option<i64> {
-        self.downlink
+    fn get_downlink(&self) -> i64 {
+        self.stat.downlink
     }
     fn set_downlink(&mut self, v: i64) {
-        self.downlink = Some(v);
+        self.stat.downlink = v;
     }
     fn reset_downlink(&mut self) {
-        self.downlink = Some(0);
+        self.stat.downlink = 0;
     }
 
-    fn get_online(&self) -> Option<i64> {
-        self.online
+    fn get_online(&self) -> i64 {
+        self.stat.online
     }
     fn set_online(&mut self, v: i64) {
-        self.online = Some(v);
+        self.stat.online = v;
     }
 
     fn get_modified_at(&self) -> DateTime<Utc> {
         self.modified_at
     }
-    fn update_modified_at(&mut self) {
+    fn set_modified_at(&mut self) {
         self.modified_at = Utc::now();
     }
 
@@ -309,9 +292,9 @@ impl ConnBaseOp for Conn {
 
     fn as_conn_stat(&self) -> ConnStat {
         ConnStat {
-            uplink: self.uplink.unwrap_or(0),
-            downlink: self.downlink.unwrap_or(0),
-            online: self.online.unwrap_or(0),
+            uplink: self.stat.uplink,
+            downlink: self.stat.downlink,
+            online: self.stat.online,
         }
     }
 }
@@ -344,37 +327,37 @@ impl ConnApiOp for Conn {
 }
 
 impl ConnBaseOp for ConnBase {
-    fn get_uplink(&self) -> Option<i64> {
-        self.uplink
+    fn get_uplink(&self) -> i64 {
+        self.stat.uplink
     }
     fn set_uplink(&mut self, v: i64) {
-        self.uplink = Some(v);
+        self.stat.uplink = v;
     }
     fn reset_uplink(&mut self) {
-        self.uplink = Some(0);
+        self.stat.uplink = 0;
     }
 
-    fn get_downlink(&self) -> Option<i64> {
-        self.downlink
+    fn get_downlink(&self) -> i64 {
+        self.stat.downlink
     }
     fn set_downlink(&mut self, v: i64) {
-        self.downlink = Some(v);
+        self.stat.downlink = v;
     }
     fn reset_downlink(&mut self) {
-        self.downlink = Some(0);
+        self.stat.downlink = 0;
     }
 
-    fn get_online(&self) -> Option<i64> {
-        self.online
+    fn get_online(&self) -> i64 {
+        self.stat.online
     }
     fn set_online(&mut self, v: i64) {
-        self.online = Some(v);
+        self.stat.online = v;
     }
 
     fn get_modified_at(&self) -> DateTime<Utc> {
         self.modified_at
     }
-    fn update_modified_at(&mut self) {
+    fn set_modified_at(&mut self) {
         self.modified_at = Utc::now();
     }
 
@@ -409,9 +392,9 @@ impl ConnBaseOp for ConnBase {
 
     fn as_conn_stat(&self) -> ConnStat {
         ConnStat {
-            uplink: self.uplink.unwrap_or(0),
-            downlink: self.downlink.unwrap_or(0),
-            online: self.online.unwrap_or(0),
+            uplink: self.stat.uplink,
+            downlink: self.stat.downlink,
+            online: self.stat.online,
         }
     }
 }

@@ -1,5 +1,6 @@
 
 CREATE TYPE node_status AS ENUM ('online', 'offline');
+CREATE TYPE conn_status AS ENUM ('active', 'expired');
 
 CREATE TABLE users (
     id UUID PRIMARY KEY,  
@@ -16,7 +17,11 @@ CREATE TABLE connections (
     modified_at TIMESTAMP DEFAULT NOW(),
     daily_limit_mb INTEGER DEFAULT 1000,   
     password TEXT NOT NULL,
-    is_trial bool NOT NULL     
+    is_trial bool NOT NULL,
+    online BIGINT NOT NULL DEFAULT 0,
+    uplink BIGINT NOT NULL DEFAULT 0,
+    downlink BIGINT NOT NULL DEFAULT 0,   
+    status conn_status NOT NULL;   
 );
 
 
@@ -34,7 +39,3 @@ CREATE TABLE nodes (
     interface TEXT NOT NULL,
     UNIQUE(uuid, env)
 );
-
-
-
-

@@ -10,7 +10,12 @@ use super::MetricValue;
 
 #[async_trait]
 pub trait Queries {
-    async fn fetch_node_heartbeat<T>(&self, env: &str, uuid: Uuid) -> Option<MetricValue<T>>
+    async fn fetch_node_heartbeat<T>(
+        &self,
+        env: &str,
+        uuid: &Uuid,
+        hostname: &str,
+    ) -> Option<MetricValue<T>>
     where
         T: DeserializeOwned + Debug + Send + Clone + Sync + 'static;
 
@@ -25,7 +30,12 @@ pub trait Queries {
 
 #[async_trait]
 impl Queries for ChContext {
-    async fn fetch_node_heartbeat<T>(&self, env: &str, uuid: Uuid) -> Option<MetricValue<T>>
+    async fn fetch_node_heartbeat<T>(
+        &self,
+        env: &str,
+        uuid: &Uuid,
+        hostname: &str,
+    ) -> Option<MetricValue<T>>
     where
         T: DeserializeOwned + Debug + Send + Clone + Sync + 'static,
     {
@@ -35,9 +45,9 @@ impl Queries for ChContext {
                 Path AS metric,
                 toFloat64(anyLast(Value)) AS value
             FROM default.graphite_data
-            WHERE Path LIKE '{}.{}.heartbeat'
+            WHERE Path LIKE '{}.{}.{}.heartbeat'
             GROUP BY Path",
-            env, uuid
+            env, hostname, uuid
         );
 
         let client = self.client();

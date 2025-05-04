@@ -120,9 +120,10 @@ where
             let state = self.state.clone();
             let uuid = node.uuid;
             let env = node.env.clone();
+            let hostname = node.hostname;
 
             async move {
-                let status = match ch.fetch_node_heartbeat::<f64>(&env, uuid).await {
+                let status = match ch.fetch_node_heartbeat::<f64>(&env, &uuid, &hostname).await {
                     Some(hb) => {
                         let ts = Utc.timestamp_opt(hb.latest, 0);
                         match ts {

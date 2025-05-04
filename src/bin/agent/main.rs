@@ -8,7 +8,10 @@ use pony::utils::*;
 mod core;
 
 #[derive(Parser)]
-#[command(about = "Pony Agent - control tool for Xray/Wireguard")]
+#[command(
+    about = "Pony Agent - control tool for Xray/Wireguard",
+    version = "v0.1.5"
+)]
 struct Cli {
     #[arg(short, long, default_value = "config.toml")]
     config: String,

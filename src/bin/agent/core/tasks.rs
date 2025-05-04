@@ -70,7 +70,8 @@ where
             let cpuusage: Vec<MetricType> = cpu_metrics(&node.env, &node.hostname);
             let loadavg: Vec<MetricType> = loadavg_metrics(&node.env, &node.hostname);
             let memory: Vec<MetricType> = mem_metrics(&node.env, &node.hostname);
-            let heartbeat: Vec<MetricType> = heartbeat_metrics(&node.env, node.uuid);
+            let heartbeat: Vec<MetricType> =
+                heartbeat_metrics(&node.env, &node.uuid, &node.hostname);
             let xray_stat: Vec<MetricType> = xray_stat_metrics(node.clone());
             let connections_stat: Vec<MetricType> =
                 xray_conn_metrics(connections, &node.env, &node.hostname);

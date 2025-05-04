@@ -148,7 +148,7 @@ where
 
         if let Some(conn) = mem.connections.get_mut(&conn_id) {
             if conn.get_status() == ConnStatus::Active {
-                let used = conn.get_uplink();
+                let used = conn.get_downlink();
 
                 if (used as f64 / 1_048_576.0) >= conn.get_limit() as f64 {
                     conn.set_status(ConnStatus::Expired);

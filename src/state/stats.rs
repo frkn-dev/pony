@@ -102,7 +102,7 @@ impl fmt::Display for ConnStat {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "Uplink: {} B, Downlink: {} B, Online: {} sec",
+            "Uplink: {} B, Downlink: {} B, Online: {} ",
             self.uplink, self.downlink, self.online
         )
     }

@@ -172,6 +172,7 @@ where
             async move {
                 if let Some(metrics) = ch.fetch_conn_stats::<i64>(conn_id, start_of_day).await {
                     let stat = ConnStat::from_metrics(metrics);
+                    log::debug!("Stat to update - {}", stat);
                     SyncOp::update_conn_stat(&state, &conn_id, stat).await
                 } else {
                     log::warn!("No metrics found for conn_id {}", conn_id);

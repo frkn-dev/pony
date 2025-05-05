@@ -52,6 +52,7 @@ async fn main() -> Result<()> {
     let mut bot_state = BotState::new(settings);
 
     if let Ok(users) = bot_state.get_users().await {
+        log::debug!("Users {:?}", users);
         bot_state.add_users(Arc::new(users)).await;
     }
 

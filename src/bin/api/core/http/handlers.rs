@@ -31,6 +31,35 @@ use pony::zmq::message::Action;
 use pony::zmq::message::Message;
 use pony::zmq::publisher::Publisher as ZmqPublisher;
 
+pub async fn healthcheck<T, C>(state: SyncState<T, C>) -> Result<impl Reply, Rejection>
+where
+    T: NodeStorage + Sync + Send + Clone + 'static,
+    C: ConnApiOp + ConnBaseOp + Sync + Send + Clone + 'static + From<Conn>,
+{
+    let mem = state.memory.lock().await;
+    let users = mem.users.all();
+
+    if let Ok(_users) = users {
+        let response = ResponseMessage::<String> {
+            status: 200,
+            message: "OK".to_string(),
+        };
+        Ok(warp::reply::with_status(
+            warp::reply::json(&response),
+            StatusCode::OK,
+        ))
+    } else {
+        let response = ResponseMessage::<String> {
+            status: 404,
+            message: "Users not found".to_string(),
+        };
+        Ok(warp::reply::with_status(
+            warp::reply::json(&response),
+            StatusCode::NOT_FOUND,
+        ))
+    }
+}
+
 pub async fn get_users_handler<T, C>(state: SyncState<T, C>) -> Result<impl Reply, Rejection>
 where
     T: NodeStorage + Sync + Send + Clone + 'static,

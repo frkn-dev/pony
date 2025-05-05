@@ -95,6 +95,11 @@ where
             .and(with_state(self.state.clone()))
             .and_then(|sync_state| get_users_handler(sync_state));
 
+        let healthcheck_route = warp::get()
+            .and(warp::path("healthcheck"))
+            .and(with_state(self.state.clone()))
+            .and_then(|sync_state| healthcheck(sync_state));
+
         let routes = connection_post_route
             .or(user_connection_get_route)
             .or(connection_get_route)
@@ -103,6 +108,7 @@ where
             .or(user_register_route)
             .or(user_conn_stat_route)
             .or(users_route)
+            .or(healthcheck_route)
             .recover(rejection);
 
         if let Some(ipv4) = self.settings.api.address {

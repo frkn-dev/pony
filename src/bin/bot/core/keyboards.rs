@@ -13,7 +13,7 @@ use super::BotState;
 pub trait Keyboards {
     async fn conn_keyboard(&self, conns: Vec<String>) -> InlineKeyboardMarkup;
     fn extract_info(conn: &str) -> (String, String);
-    fn format_traffic_stats(&self, stats: Vec<(uuid::Uuid, ConnStat)>) -> String;
+    fn format_traffic_stats(&self, stats: Vec<(uuid::Uuid, ConnStat)>, limit: i32) -> String;
 }
 
 #[async_trait]
@@ -54,7 +54,7 @@ impl Keyboards for BotState {
         }
     }
 
-    fn format_traffic_stats(&self, stats: Vec<(uuid::Uuid, ConnStat)>) -> String {
+    fn format_traffic_stats(&self, stats: Vec<(uuid::Uuid, ConnStat)>, limit: i32) -> String {
         if stats.is_empty() {
             return "Нет активных подключений.".to_string();
         }
@@ -63,10 +63,11 @@ impl Keyboards for BotState {
 
         for (conn_id, stat) in stats {
             let block = format!(
-                "🔹 `{}`\n  • Uplink: {} MB\n  • Downlink: {} MB\n\n\n",
+                "🔹 `{}`\n  • Uplink: {:.0} MB\n  • Downlink: {:.0} / {limit} MB\n Devices Online: {}\n\n",
                 conn_id,
                 stat.uplink as f64 / 1_048_576.0,
                 stat.downlink as f64 / 1_048_576.0,
+                stat.online
             );
             out.push_str(&block);
         }

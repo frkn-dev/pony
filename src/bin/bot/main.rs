@@ -4,13 +4,14 @@ use std::sync::Arc;
 use teloxide::prelude::*;
 use teloxide::types::Me;
 
-use crate::core::handlers::Handlers;
-use crate::core::BotState;
-
 use pony::config::settings::BotSettings;
 use pony::config::settings::Settings;
 use pony::utils::*;
 use pony::Result;
+
+use crate::core::handlers::Handlers;
+use crate::core::http::ApiRequests;
+use crate::core::BotState;
 
 mod core;
 
@@ -48,7 +49,15 @@ async fn main() -> Result<()> {
         .unwrap();
 
     let bot = Bot::new(settings.bot.token.clone());
-    let bot_state = Arc::new(BotState::new(settings));
+    let mut bot_state = BotState::new(settings);
+
+    if let Ok(users) = bot_state.get_users().await {
+        bot_state.add_users(Arc::new(users)).await;
+    }
+
+    let bot_state = Arc::new(bot_state);
+
+    log::debug!("!!BotState {:?}", bot_state);
 
     let handler = dptree::entry()
         .branch(Update::filter_message().endpoint({

@@ -77,17 +77,23 @@ where
             .and(warp::path("user"))
             .and(warp::path("stat"))
             .and(auth.clone())
-            .and(warp::query::<UserRegQueryParam>())
+            .and(warp::query::<UserIdQueryParam>())
             .and(with_state(self.state.clone()))
             .and_then(|user_req, sync_state| user_conn_stat_handler(user_req, sync_state));
 
-        let user_register_route = warp::get()
+        let user_register_route = warp::post()
             .and(warp::path("user"))
             .and(warp::path("register"))
-            .and(auth)
-            .and(warp::query::<UserRegQueryParam>())
+            .and(auth.clone())
+            .and(warp::body::json::<UserRegQueryParam>())
             .and(with_state(self.state.clone()))
-            .and_then(|user_req, sync_state| user_register(user_req, sync_state));
+            .and_then(|user_req, sync_state| user_register_handler(user_req, sync_state));
+
+        let users_route = warp::get()
+            .and(warp::path("users"))
+            .and(auth)
+            .and(with_state(self.state.clone()))
+            .and_then(|sync_state| get_users_handler(sync_state));
 
         let routes = connection_post_route
             .or(user_connection_get_route)
@@ -96,6 +102,7 @@ where
             .or(node_register_route)
             .or(user_register_route)
             .or(user_conn_stat_route)
+            .or(users_route)
             .recover(rejection);
 
         if let Some(ipv4) = self.settings.api.address {

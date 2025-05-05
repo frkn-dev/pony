@@ -1,3 +1,4 @@
+use pony::http::requests::UserIdQueryParam;
 use warp::{http::StatusCode, Rejection, Reply};
 
 use pony::http::requests::ConnQueryParam;
@@ -30,7 +31,36 @@ use pony::zmq::message::Action;
 use pony::zmq::message::Message;
 use pony::zmq::publisher::Publisher as ZmqPublisher;
 
-pub async fn user_register<T, C>(
+pub async fn get_users_handler<T, C>(state: SyncState<T, C>) -> Result<impl Reply, Rejection>
+where
+    T: NodeStorage + Sync + Send + Clone + 'static,
+    C: ConnApiOp + ConnBaseOp + Sync + Send + Clone + 'static + From<Conn>,
+{
+    let mem = state.memory.lock().await;
+    let users = mem.users.all();
+
+    if let Ok(users) = users {
+        let response = ResponseMessage::<Vec<(uuid::Uuid, User)>> {
+            status: 200,
+            message: users,
+        };
+        Ok(warp::reply::with_status(
+            warp::reply::json(&response),
+            StatusCode::OK,
+        ))
+    } else {
+        let response = ResponseMessage::<String> {
+            status: 404,
+            message: "Users not found".to_string(),
+        };
+        Ok(warp::reply::with_status(
+            warp::reply::json(&response),
+            StatusCode::NOT_FOUND,
+        ))
+    }
+}
+
+pub async fn user_register_handler<T, C>(
     user_req: UserRegQueryParam,
     state: SyncState<T, C>,
 ) -> Result<impl Reply, Rejection>
@@ -45,9 +75,9 @@ where
 
     match SyncOp::add_user(&state, &user_id, user).await {
         Ok(UserStorageOpStatus::Ok) => {
-            let response = ResponseMessage::<String> {
+            let response = ResponseMessage::<uuid::Uuid> {
                 status: 200,
-                message: format!("User {} is registered", user_id),
+                message: user_id,
             };
 
             Ok(warp::reply::with_status(
@@ -82,7 +112,7 @@ where
 }
 
 pub async fn user_conn_stat_handler<T, C>(
-    user_req: UserRegQueryParam,
+    user_req: UserIdQueryParam,
     state: SyncState<T, C>,
 ) -> Result<impl Reply, Rejection>
 where
@@ -95,42 +125,30 @@ where
 
     let mut result: Vec<(uuid::Uuid, ConnStat)> = vec![];
 
-    if let Some(user_id) = mem.users.by_username(&user_req.username) {
-        if let Some(connections) = mem.connections.get_by_user_id(&user_id) {
-            for (conn_id, conn) in connections {
-                let stat = ConnStat {
-                    online: conn.get_online(),
-                    downlink: conn.get_downlink(),
-                    uplink: conn.get_uplink(),
-                };
-
-                result.push((conn_id, stat));
-            }
-
-            let response = ResponseMessage::<Vec<(uuid::Uuid, ConnStat)>> {
-                status: 200,
-                message: result,
+    if let Some(connections) = mem.connections.get_by_user_id(&user_req.user_id) {
+        for (conn_id, conn) in connections {
+            let stat = ConnStat {
+                online: conn.get_online(),
+                downlink: conn.get_downlink(),
+                uplink: conn.get_uplink(),
             };
 
-            Ok(warp::reply::with_status(
-                warp::reply::json(&response),
-                StatusCode::OK,
-            ))
-        } else {
-            let response = ResponseMessage::<String> {
-                status: 404,
-                message: "Connections not found".to_string(),
-            };
-
-            Ok(warp::reply::with_status(
-                warp::reply::json(&response),
-                StatusCode::OK,
-            ))
+            result.push((conn_id, stat));
         }
+
+        let response = ResponseMessage::<Vec<(uuid::Uuid, ConnStat)>> {
+            status: 200,
+            message: result,
+        };
+
+        Ok(warp::reply::with_status(
+            warp::reply::json(&response),
+            StatusCode::OK,
+        ))
     } else {
         let response = ResponseMessage::<String> {
             status: 404,
-            message: "User not found".to_string(),
+            message: "Connections not found".to_string(),
         };
 
         Ok(warp::reply::with_status(
@@ -328,20 +346,7 @@ where
 {
     log::debug!("Received: {:?}", user_req);
 
-    let username = user_req.username;
-
-    let user_id = {
-        let mem = state.memory.lock().await;
-        match mem.users.by_username(&username) {
-            Some(id) => id,
-            None => {
-                return Ok(warp::reply::with_status(
-                    warp::reply::json(&serde_json::json!({ "error": "USER NOT FOUND" })),
-                    warp::http::StatusCode::NOT_FOUND,
-                ));
-            }
-        }
-    };
+    let user_id = user_req.user_id;
 
     let connections = {
         let mem = state.memory.lock().await;
@@ -376,7 +381,7 @@ where
         if SyncOp::add_conn(&state, &conn_id, conn.clone())
             .await
             .is_ok()
-            && publisher.send("all", message).await.is_ok()
+            && publisher.send(&user_req.env, message).await.is_ok()
         {
             return Ok(warp::reply::with_status(
                 warp::reply::json(&serde_json::json!({

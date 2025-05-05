@@ -15,6 +15,11 @@ pub struct UserRegQueryParam {
     pub username: String,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct UserIdQueryParam {
+    pub user_id: uuid::Uuid,
+}
+
 #[derive(Serialize, Deserialize)]
 pub struct NodesQueryParams {
     pub env: String,
@@ -22,7 +27,7 @@ pub struct NodesQueryParams {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct UserConnQueryParam {
-    pub username: String,
+    pub user_id: uuid::Uuid,
     pub limit: i32,
     pub trial: bool,
     pub password: Option<String>,

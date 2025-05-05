@@ -20,7 +20,7 @@ fn default_env() -> String {
 }
 
 fn default_conn_daily_limit_mb() -> i32 {
-    1000
+    1024
 }
 
 fn default_carbon_server() -> String {
@@ -435,6 +435,8 @@ impl Settings for AgentSettings {
 pub struct BotConfig {
     #[serde(default = "default_tg_token")]
     pub token: String,
+    #[serde(default = "default_conn_daily_limit_mb")]
+    pub daily_limit_mb: i32,
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]

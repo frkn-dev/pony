@@ -93,6 +93,30 @@ impl Handlers for BotState {
                         }
                     }
                 }
+                Ok(Command::Limit) => {
+                    if let Some(user) = msg.from {
+                        if let Some(username) = user.username {
+                            let stats = self.get_user_traffic_stat(&username).await;
+                            match stats {
+                                Ok(Some(stats)) => {
+                                    let stat_str = self.format_traffic_stats(stats);
+                                    bot.send_message(msg.chat.id, stat_str).await?;
+                                }
+
+                                Ok(None) => {
+                                    bot.send_message(msg.chat.id, "Не удалось найти статистику")
+                                        .await?;
+                                }
+
+                                Err(e) => {
+                                    log::error!("Stat conn error: {:?}", e);
+                                    bot.send_message(msg.chat.id, "Не удалось найти статистику")
+                                        .await?;
+                                }
+                            }
+                        }
+                    }
+                }
                 Err(_) => {
                     bot.send_message(msg.chat.id, "Command not found!").await?;
                 }
@@ -108,7 +132,7 @@ impl Handlers for BotState {
         if let Some(ref key) = q.data {
             let map_lock = self.callback_map.lock().await;
             if let Some(conn) = map_lock.get(key) {
-                let text = format!("🔗 Ваша VPN ссылка:\n{}", conn);
+                let text = format!("🔗 Ваша VPN ссылка:\n`{}`", conn);
 
                 bot.answer_callback_query(&q.id).await?;
 

@@ -9,7 +9,6 @@ use pony::config::settings::AgentSettings;
 use pony::config::xray::Config as XrayConfig;
 use pony::http::debug;
 use pony::state::AgentState;
-use pony::state::Conn;
 use pony::state::ConnBase;
 use pony::state::Node;
 use pony::state::NodeStorage;
@@ -140,7 +139,7 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
 
             let _ = {
                 let mut state = agent.state.lock().await;
-                let conn = Conn::new(false, 1024, &settings.node.env.clone(), None, None);
+                let conn = ConnBase::new(None);
                 let _ = state.connections.insert(conn_id, conn.into());
             };
 

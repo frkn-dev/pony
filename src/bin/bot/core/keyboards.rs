@@ -5,12 +5,15 @@ use std::collections::HashMap;
 use teloxide::types::InlineKeyboardButton;
 use teloxide::types::InlineKeyboardMarkup;
 
+use pony::state::ConnStat;
+
 use super::BotState;
 
 #[async_trait]
 pub trait Keyboards {
     async fn conn_keyboard(&self, conns: Vec<String>) -> InlineKeyboardMarkup;
     fn extract_info(conn: &str) -> (String, String);
+    fn format_traffic_stats(&self, stats: Vec<(uuid::Uuid, ConnStat)>) -> String;
 }
 
 #[async_trait]
@@ -49,5 +52,25 @@ impl Keyboards for BotState {
         } else {
             ("UNKNOWN".to_string(), "INVALID".to_string())
         }
+    }
+
+    fn format_traffic_stats(&self, stats: Vec<(uuid::Uuid, ConnStat)>) -> String {
+        if stats.is_empty() {
+            return "Нет активных подключений.".to_string();
+        }
+
+        let mut out = String::from("📊 *Статистика трафика:*\n\n");
+
+        for (conn_id, stat) in stats {
+            let block = format!(
+                "🔹 `{}`\n  • Uplink: {} MB\n  • Downlink: {} MB\n\n\n",
+                conn_id,
+                stat.uplink as f64 / 1_048_576.0,
+                stat.downlink as f64 / 1_048_576.0,
+            );
+            out.push_str(&block);
+        }
+
+        out
     }
 }

@@ -84,12 +84,8 @@ pub async fn run_shadow_sync(mut rx: mpsc::Receiver<SyncTask>, db: PgContext) {
                     log::error!("Failed to sync UpdateNodeStatus: {err}");
                 }
             }
-            SyncTask::UpdateConnStat {
-                conn_id,
-                stat,
-                new_value,
-            } => {
-                if let Err(err) = db.conn().update_stat(&conn_id, stat, new_value).await {
+            SyncTask::UpdateConnStat { conn_id, stat } => {
+                if let Err(err) = db.conn().update_stat(&conn_id, stat).await {
                     log::error!("Failed to sync UpdateConnStat: {err}");
                 }
             }

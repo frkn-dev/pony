@@ -11,6 +11,8 @@ use pony::http::ResponseMessage;
 use pony::state::Conn;
 use pony::state::ConnApiOp;
 use pony::state::ConnBaseOp;
+use pony::state::ConnStat;
+use pony::state::ConnStatus;
 use pony::state::ConnStorageBase;
 use pony::state::NodeStatus;
 use pony::state::NodeStorage;
@@ -76,6 +78,65 @@ where
                 StatusCode::INTERNAL_SERVER_ERROR,
             ))
         }
+    }
+}
+
+pub async fn user_conn_stat_handler<T, C>(
+    user_req: UserRegQueryParam,
+    state: SyncState<T, C>,
+) -> Result<impl Reply, Rejection>
+where
+    T: NodeStorage + Sync + Send + Clone + 'static,
+    C: ConnApiOp + ConnBaseOp + Sync + Send + Clone + 'static + From<Conn>,
+{
+    log::debug!("Received: {:?}", user_req);
+
+    let mem = state.memory.lock().await;
+
+    let mut result: Vec<(uuid::Uuid, ConnStat)> = vec![];
+
+    if let Some(user_id) = mem.users.by_username(&user_req.username) {
+        if let Some(connections) = mem.connections.get_by_user_id(&user_id) {
+            for (conn_id, conn) in connections {
+                let stat = ConnStat {
+                    online: conn.get_online(),
+                    downlink: conn.get_downlink(),
+                    uplink: conn.get_uplink(),
+                };
+
+                result.push((conn_id, stat));
+            }
+
+            let response = ResponseMessage::<Vec<(uuid::Uuid, ConnStat)>> {
+                status: 200,
+                message: result,
+            };
+
+            Ok(warp::reply::with_status(
+                warp::reply::json(&response),
+                StatusCode::OK,
+            ))
+        } else {
+            let response = ResponseMessage::<String> {
+                status: 404,
+                message: "Connections not found".to_string(),
+            };
+
+            Ok(warp::reply::with_status(
+                warp::reply::json(&response),
+                StatusCode::OK,
+            ))
+        }
+    } else {
+        let response = ResponseMessage::<String> {
+            status: 404,
+            message: "User not found".to_string(),
+        };
+
+        Ok(warp::reply::with_status(
+            warp::reply::json(&response),
+            StatusCode::OK,
+        ))
     }
 }
 
@@ -162,9 +223,23 @@ where
             let trial = conn_req.trial.unwrap_or(true);
             let limit = conn_req.limit.unwrap_or(limit);
 
-            let conn =
-                Conn::new(trial, limit, &conn_req.env, conn_req.password.clone(), None).into();
-            let conn_id = uuid::Uuid::new_v4();
+            let conn_stat = ConnStat {
+                online: 0,
+                downlink: 0,
+                uplink: 0,
+            };
+
+            let conn = Conn::new(
+                trial,
+                limit,
+                &conn_req.env,
+                ConnStatus::Active,
+                conn_req.password.clone(),
+                None,
+                conn_stat,
+            )
+            .into();
+            let conn_id = conn_req.conn_id;
 
             let msg = Message {
                 conn_id: conn_id,
@@ -277,12 +352,19 @@ where
         log::debug!("Connections not found, creating");
 
         let conn_id = uuid::Uuid::new_v4();
+        let conn_stat = ConnStat {
+            online: 0,
+            downlink: 0,
+            uplink: 0,
+        };
         let conn = Conn::new(
             user_req.trial,
             user_req.limit,
             &user_req.env,
+            ConnStatus::Active,
             user_req.password.clone(),
             Some(user_id),
+            conn_stat,
         );
 
         let message = Message {

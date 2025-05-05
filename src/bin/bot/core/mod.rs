@@ -18,8 +18,10 @@ enum Command {
     Start,
     /// Reg
     Register,
-    //Get connection line
+    ///Get connection line
     Connect,
+    ///Get stat conn
+    Limit,
 }
 
 pub struct BotState {

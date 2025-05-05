@@ -14,7 +14,6 @@ use crate::state::ConnStat;
 use crate::state::ConnStatus;
 use crate::state::ConnStorageApi;
 use crate::state::Node;
-use crate::state::StatType;
 use crate::state::UserStorage;
 
 use crate::{PonyError, Result};
@@ -124,21 +123,12 @@ where
 
         let _ = mem.connections.update_stats(uuid, conn_stat.clone());
 
-        let stats = vec![
-            (StatType::Online, conn_stat.online),
-            (StatType::Uplink, conn_stat.uplink),
-            (StatType::Downlink, conn_stat.downlink),
-        ];
-
-        for stat in stats {
-            self.sync_tx
-                .send(SyncTask::UpdateConnStat {
-                    conn_id: *uuid,
-                    stat: stat.0,
-                    new_value: stat.1,
-                })
-                .await?;
-        }
+        self.sync_tx
+            .send(SyncTask::UpdateConnStat {
+                conn_id: *uuid,
+                stat: conn_stat,
+            })
+            .await?;
 
         Ok(())
     }

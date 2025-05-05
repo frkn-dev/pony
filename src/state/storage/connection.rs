@@ -31,12 +31,7 @@ where
     fn remove(&mut self, conn_id: &uuid::Uuid) -> Result<()>;
     fn get(&self, conn_id: &uuid::Uuid) -> Option<C>;
     fn get_by_user_id(&self, user_id: &uuid::Uuid) -> Option<Vec<(uuid::Uuid, C)>>;
-    fn update_stat(
-        &mut self,
-        conn_id: &uuid::Uuid,
-        stat: StatType,
-        value: Option<i64>,
-    ) -> Result<()>;
+    fn update_stat(&mut self, conn_id: &uuid::Uuid, stat: ConnStat) -> Result<()>;
     fn reset_stat(&mut self, conn_id: &uuid::Uuid, stat: StatType);
     fn update_uplink(&mut self, conn_id: &uuid::Uuid, new_uplink: i64) -> Result<()>;
     fn update_downlink(&mut self, conn_id: &uuid::Uuid, new_downlink: i64) -> Result<()>;
@@ -101,27 +96,13 @@ where
         Ok(())
     }
 
-    fn update_stat(
-        &mut self,
-        conn_id: &uuid::Uuid,
-        stat: StatType,
-        new_value: Option<i64>,
-    ) -> Result<()> {
+    fn update_stat(&mut self, conn_id: &uuid::Uuid, stat: ConnStat) -> Result<()> {
         let conn = self
             .get_mut(&conn_id)
             .ok_or(PonyError::Custom("Conn not found".into()))?;
-        match stat {
-            StatType::Uplink => {
-                conn.set_uplink(new_value.unwrap_or(0));
-            }
-            StatType::Downlink => {
-                conn.set_downlink(new_value.unwrap_or(0));
-            }
-            StatType::Online => {
-                conn.set_online(new_value.unwrap_or(0));
-            }
-            StatType::Unknown => {}
-        }
+        conn.set_uplink(stat.uplink);
+        conn.set_downlink(stat.downlink);
+        conn.set_online(stat.online);
         conn.set_modified_at();
         Ok(())
     }

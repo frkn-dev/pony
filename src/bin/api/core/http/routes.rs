@@ -73,11 +73,19 @@ where
             .and(publisher(self.publisher.clone()))
             .and_then(|node_req, state, publisher| node_register(node_req, state, publisher));
 
-        let user_register_route = warp::post()
+        let user_conn_stat_route = warp::get()
+            .and(warp::path("user"))
+            .and(warp::path("stat"))
+            .and(auth.clone())
+            .and(warp::query::<UserRegQueryParam>())
+            .and(with_state(self.state.clone()))
+            .and_then(|user_req, sync_state| user_conn_stat_handler(user_req, sync_state));
+
+        let user_register_route = warp::get()
             .and(warp::path("user"))
             .and(warp::path("register"))
             .and(auth)
-            .and(warp::body::json::<UserRegQueryParam>())
+            .and(warp::query::<UserRegQueryParam>())
             .and(with_state(self.state.clone()))
             .and_then(|user_req, sync_state| user_register(user_req, sync_state));
 
@@ -87,6 +95,7 @@ where
             .or(nodes_get_route)
             .or(node_register_route)
             .or(user_register_route)
+            .or(user_conn_stat_route)
             .recover(rejection);
 
         if let Some(ipv4) = self.settings.api.address {

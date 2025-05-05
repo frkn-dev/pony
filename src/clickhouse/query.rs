@@ -50,6 +50,8 @@ impl Queries for ChContext {
             env, hostname, uuid
         );
 
+        log::debug!("CH Query {}", query);
+
         let client = self.client();
         let client = client.lock().await;
 
@@ -69,21 +71,33 @@ impl Queries for ChContext {
         let start_str = start.format("%Y-%m-%d %H:%M:%S").to_string();
         let query = format!(
             "SELECT 
-                    extract(Path, '[^.]+$') AS metric,
-                    toFloat64(sum(Value)) AS value
-            FROM default.graphite_data
-            WHERE Path LIKE '%.%.{conn_id}.conn_stat.%'
-                  AND Timestamp >= toDateTime({start})
-                  AND Timestamp < toDateTime({start}) + INTERVAL 1 DAY
+                   anyLast(latest) as latest,
+                   metric, 
+                   toInt64(sum(metric_value)) AS value
+               FROM (
+                 SELECT
+                   toInt64(toUnixTimestamp(toDateTime(anyLast(Timestamp)))) AS latest,
+                   extract(Path, '[^.]+$') AS metric,
+                   anyLast(Value) AS metric_value
+                 FROM default.graphite_data
+                 WHERE Path LIKE '%.%.{conn_id}.conn_stat.%'
+                    AND Timestamp >= toDateTime('{start}')
+                    AND Timestamp < toDateTime('{start}') + INTERVAL 1 DAY
+                 GROUP BY Path
+                )
             GROUP BY metric",
             conn_id = conn_id,
             start = start_str,
         );
 
+        log::debug!("CH Query {}", query);
+
         let client = self.client();
         let client = client.lock().await;
 
         let result = client.query(&query).fetch_all::<MetricValue<T>>().await;
+
+        log::debug!("ch result {:?}", result);
 
         result.ok()
     }

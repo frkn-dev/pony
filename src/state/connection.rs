@@ -147,20 +147,18 @@ impl Conn {
         trial: bool,
         limit: i32,
         env: &str,
+        status: ConnStatus,
         password: Option<String>,
         user_id: Option<uuid::Uuid>,
+        conn_stat: ConnStat,
     ) -> Self {
         let now = Utc::now();
-        let conn_stat = ConnStat {
-            online: 0,
-            uplink: 0,
-            downlink: 0,
-        };
+
         Self {
             trial,
             limit,
             env: env.to_string(),
-            status: ConnStatus::Active,
+            status: status,
             stat: conn_stat,
             created_at: now,
             modified_at: now,

@@ -9,7 +9,6 @@ use tokio_postgres::Client as PgClient;
 use crate::state::connection::Conn;
 use crate::state::ConnStat;
 use crate::state::ConnStatus;
-use crate::state::StatType;
 use crate::{PonyError, Result};
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
@@ -126,10 +125,9 @@ impl PgConn {
         let client = self.client.lock().await;
 
         let query = "
-        SELECT id 
-        FROM connections 
-        WHERE conn_id = $1
-    ";
+                        SELECT id 
+                        FROM connections 
+                        WHERE conn_id = $1";
 
         match client.query(query, &[&conn_id]).await {
             Ok(rows) => rows.first().map(|row| row.get(0)),
@@ -140,32 +138,25 @@ impl PgConn {
         }
     }
 
-    pub async fn update_stat(
-        &self,
-        conn_id: &uuid::Uuid,
-        stat: StatType,
-        new_value: i64,
-    ) -> Result<()> {
-        let column = match stat {
-            StatType::Uplink => "uplink",
-            StatType::Downlink => "downlink",
-            StatType::Online => "online",
-            StatType::Unknown => "unknown",
-        };
-
-        let query = format!("UPDATE connections SET {} = $1 WHERE id = $2", column);
+    pub async fn update_stat(&self, conn_id: &uuid::Uuid, stat: ConnStat) -> Result<()> {
+        let query = "
+                       UPDATE connections 
+                       SET downlink = $1, uplink = $2, online = $3
+                       WHERE id = $4";
 
         let client = self.client.lock().await;
-        client.execute(&query, &[&new_value, conn_id]).await?;
+        client
+            .execute(
+                query,
+                &[&stat.downlink, &stat.uplink, &stat.online, &conn_id],
+            )
+            .await?;
 
         Ok(())
     }
 
     pub async fn update_status(&self, conn_id: &uuid::Uuid, status: ConnStatus) -> Result<()> {
-        let query = format!(
-            "UPDATE connections SET {}::conn_status = $1 WHERE id = $2",
-            status
-        );
+        let query = format!("UPDATE connections SET status = $1::conn_status WHERE id = $2");
 
         let client = self.client.lock().await;
         client.execute(&query, &[&status, conn_id]).await?;

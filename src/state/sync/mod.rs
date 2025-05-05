@@ -8,14 +8,13 @@ use crate::state::node::Node;
 use crate::state::node::NodeStatus;
 use crate::state::storage::node::NodeStorage;
 use crate::state::user::User;
+use crate::state::ConnStat;
 use crate::state::ConnStatus;
 use crate::state::State;
 
 mod tasks;
 
 pub use tasks::SyncOp;
-
-use super::StatType;
 
 #[derive(Debug)]
 pub enum SyncTask {
@@ -39,8 +38,7 @@ pub enum SyncTask {
     },
     UpdateConnStat {
         conn_id: uuid::Uuid,
-        stat: StatType,
-        new_value: i64,
+        stat: ConnStat,
     },
     UpdateConnStatus {
         conn_id: uuid::Uuid,

@@ -71,8 +71,10 @@ where
             db_conn.trial,
             db_conn.limit,
             &db_conn.env,
+            db_conn.status,
             Some(db_conn.password.clone()),
             db_conn.user_id,
+            db_conn.stat,
         );
 
         log::debug!("--> {:?} Add connection", conn);
@@ -171,6 +173,7 @@ where
 
             async move {
                 if let Some(metrics) = ch.fetch_conn_stats::<i64>(conn_id, start_of_day).await {
+                    log::debug!("metrics {:?}", metrics);
                     let stat = ConnStat::from_metrics(metrics);
                     log::debug!("Stat to update - {}", stat);
                     SyncOp::update_conn_stat(&state, &conn_id, stat).await

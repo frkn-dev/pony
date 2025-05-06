@@ -54,6 +54,8 @@ async fn main() -> Result<()> {
     if let Ok(users) = bot_state.get_users().await {
         log::debug!("Users {:?}", users);
         bot_state.add_users(Arc::new(users)).await;
+    } else {
+        panic!("Cannot get users");
     }
 
     let bot_state = Arc::new(bot_state);

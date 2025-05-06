@@ -42,6 +42,9 @@ pub enum PonyError {
     #[error(transparent)]
     SyncTask(#[from] tokio::sync::mpsc::error::SendError<SyncTask>),
 
+    #[error(transparent)]
+    Zmq(#[from] zmq::Error),
+
     #[error("Custom error: {0}")]
     Custom(String),
 }

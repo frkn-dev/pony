@@ -184,6 +184,18 @@ where
 
                 Ok(())
             }
+            Action::ResetStat => {
+                if let Err(e) = self.reset_stat(&msg.conn_id).await {
+                    return Err(PonyError::Custom(format!(
+                        "Couldn't reset stat for connection: {}",
+                        e
+                    ))
+                    .into());
+                } else {
+                    log::debug!("Reset stat for {}", &msg.conn_id);
+                    Ok(())
+                }
+            }
         }
     }
 }

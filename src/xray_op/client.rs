@@ -69,7 +69,6 @@ impl XrayClient for StatsClient {
 #[async_trait::async_trait]
 pub trait HandlerActions {
     async fn create_all(&self, conn_id: &uuid::Uuid, password: Option<String>) -> Result<()>;
-
     async fn remove_all(&self, conn_id: &uuid::Uuid) -> Result<()>;
 }
 

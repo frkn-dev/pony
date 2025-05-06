@@ -8,6 +8,8 @@ pub enum Action {
     Create,
     #[serde(rename = "delete")]
     Delete,
+    #[serde(rename = "reset_stat")]
+    ResetStat,
 }
 
 #[derive(Deserialize, Serialize, Clone, Debug)]

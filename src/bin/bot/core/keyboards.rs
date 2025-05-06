@@ -62,8 +62,13 @@ impl Keyboards for BotState {
         let mut out = String::from("📊 *Статистика трафика:*\n\n");
 
         for (conn_id, stat) in stats {
+            let status = if stat.downlink as f64 / 1_048_576.0 >= limit.into() {
+                "Expired".to_string()
+            } else {
+                "Active".to_string()
+            };
             let block = format!(
-                "🔹 `{}`\n  • Uplink: {:.0} MB\n  • Downlink: {:.0} / {limit} MB\n Devices Online: {}\n\n",
+                "🔹  Status: {status} \n `{}`\n  • Uplink: {:.0} MB\n  • Downlink: {:.0} / {limit} MB\n Devices Online: {}\n\n",
                 conn_id,
                 stat.uplink as f64 / 1_048_576.0,
                 stat.downlink as f64 / 1_048_576.0,

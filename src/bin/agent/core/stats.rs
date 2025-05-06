@@ -74,6 +74,50 @@ where
         }
     }
 
+    async fn reset_stat(&self, conn_id: &uuid::Uuid) -> Result<(), Status> {
+        let id = Prefix::ConnPrefix(*conn_id);
+        let (downlink_result, uplink_result, online_result) = tokio::join!(
+            self.stat(id, Stat::Conn(StatType::Downlink), true),
+            self.stat(id, Stat::Conn(StatType::Uplink), true),
+            self.stat(id, Stat::Conn(StatType::Online), true)
+        );
+
+        match (downlink_result, uplink_result, online_result) {
+            (Ok(downlink), Ok(uplink), Ok(online)) => {
+                if let (Some(downlink), Some(uplink), Some(online)) = (
+                    downlink.stat.clone(),
+                    uplink.stat.clone(),
+                    online.stat.clone(),
+                ) {
+                    log::debug!(
+                        "Connection Stats reset successfully: downlink={:?}, uplink={:?}, online={:?}",
+                        downlink.clone(),
+                        uplink.clone(),
+                        online.clone()
+                    );
+
+                    Ok(())
+                } else {
+                    let error_msg = format!(
+                        "Incomplete connection stats for {:?}: downlink={:?}, uplink={:?}, online={:?}",
+                        conn_id,
+                        downlink.stat.clone(),
+                        uplink.stat.clone(),
+                        online.stat.clone()
+                    );
+                    Err(Status::internal(error_msg))
+                }
+            }
+            (Err(e), _, _) | (_, Err(e), _) | (_, _, Err(e)) => {
+                let error_msg = format!(
+                    "Failed to fetch connection stats for {:?}: error={:?}",
+                    conn_id, e
+                );
+                Err(Status::internal(error_msg))
+            }
+        }
+    }
+
     async fn conn_stats(&self, conn_id: Prefix) -> Result<ConnStat, Status> {
         log::debug!("conn_stats {:?}", conn_id);
 

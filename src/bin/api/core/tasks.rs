@@ -257,15 +257,24 @@ where
             let state = self.state.clone();
             let publisher = self.publisher.clone();
 
-            let msg = Message {
-                action: Action::Delete,
+            let reset_msg = Message {
+                action: Action::ResetStat,
+                conn_id: conn_id,
+                password: None,
+            };
+
+            let restore_msg = Message {
+                action: Action::Create,
                 conn_id: conn_id,
                 password: None,
             };
 
             async move {
                 if let Ok(_) = SyncOp::activate_trial_conn(&state, &conn_id).await {
-                    let _ = publisher.send(&conn.get_env(), msg).await;
+                    let _ = publisher.send(&conn.get_env(), reset_msg).await?;
+                    let _ = publisher.send(&conn.get_env(), restore_msg).await?;
+                    log::info!("Trial connection {} was restored", conn_id);
+
                     Ok(())
                 } else {
                     Err(PonyError::Custom(
@@ -279,7 +288,7 @@ where
 
         for result in results {
             if let Err(e) = result {
-                log::error!("Error during check_limit_and_expire_conns: {:?}", e);
+                log::error!("Error during restore_trial_conns: {:?}", e);
             }
         }
 

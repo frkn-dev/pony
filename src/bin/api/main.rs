@@ -205,6 +205,7 @@ async fn main() -> Result<()> {
     });
 
     let api_for_restore = api.clone();
+    log::info!("restore_trial_conns task started");
     let _ = tokio::spawn(run_daily(
         move || {
             let api = api_for_restore.clone();

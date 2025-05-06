@@ -7,7 +7,7 @@ use crate::state::Stat;
 use crate::xray_api::xray::app::stats::command::GetStatsResponse;
 use crate::xray_op::Tag;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum Prefix {
     ConnPrefix(uuid::Uuid),
     InboundPrefix(Tag),
@@ -34,4 +34,5 @@ pub trait StatOp {
     async fn conn_stats(&self, conn_id: Prefix) -> Result<ConnStat, Status>;
     async fn inbound_stats(&self, inbound: Prefix) -> Result<InboundStat, Status>;
     async fn conn_count(&self, inbound: Tag) -> Result<Option<i64>, Status>;
+    async fn reset_stat(&self, conn_id: &uuid::Uuid) -> Result<(), Status>;
 }

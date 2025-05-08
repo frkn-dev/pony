@@ -30,8 +30,6 @@ impl Keyboards for BotState {
         let mut keyboard = Vec::new();
         let mut new_entries = HashMap::new();
 
-        log::debug!("conn_keyboard {:?}", conns);
-
         for (i, (conn_id, conn, node, tag)) in conns.iter().enumerate() {
             if conn.proto != *tag {
                 continue;

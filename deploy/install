@@ -141,16 +141,6 @@ else
   },
   "inbounds": [
     {
-      "tag": "Shadowsocks",
-      "listen": "0.0.0.0",
-      "port": $SHADOWSOCKS_PORT,
-      "protocol": "shadowsocks",
-      "settings": {
-        "clients": [],
-        "network": "tcp,udp"
-      }
-    },
-    {
       "tag": "Vmess",
       "listen": "0.0.0.0",
       "port": ${VMESS_PORT},

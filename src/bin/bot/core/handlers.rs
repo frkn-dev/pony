@@ -95,48 +95,63 @@ impl Handlers for BotState {
                                     };
 
                                 if let Ok(Some(ref nodes)) = nodes {
+                                    let mut available_protos = HashSet::new();
                                     for node in
                                         nodes.iter().filter(|n| n.status == NodeStatus::Online)
                                     {
-                                        for (tag, _) in &node.inbounds {
-                                            if existing_protos.contains(tag) {
-                                                continue;
-                                            }
-
-                                            let conn_id = uuid::Uuid::new_v4();
-                                            let conn = Conn::new(
-                                                true,
-                                                self.settings.bot.daily_limit_mb,
-                                                env,
-                                                ConnStatus::Active,
-                                                None,
-                                                Some(*user_id),
-                                                ConnStat::default(),
-                                                *tag,
-                                            );
-
-                                            conns.push((conn_id, conn));
+                                        for tag in node.inbounds.keys() {
+                                            available_protos.insert(*tag);
                                         }
+                                    }
+
+                                    for tag in available_protos.difference(&existing_protos) {
+                                        let conn_id = uuid::Uuid::new_v4();
+                                        let conn = Conn::new(
+                                            true,
+                                            self.settings.bot.daily_limit_mb,
+                                            env,
+                                            ConnStatus::Active,
+                                            None,
+                                            Some(*user_id),
+                                            ConnStat::default(),
+                                            *tag,
+                                        );
+
+                                        log::debug!("conns.push {} {}", conn_id, conn.proto);
+                                        conns.push((conn_id, conn));
                                     }
                                 }
 
                                 let mut connections = vec![];
-                                for (conn_id, conn) in conns.clone() {
+
+                                for (conn_id, conn) in conns.iter() {
                                     if let Ok(Some(ref nodes)) = nodes {
-                                        if let Some(node) = nodes.iter().find(|n| {
-                                            n.status == NodeStatus::Online
-                                                && n.inbounds.contains_key(&conn.proto)
-                                        }) {
-                                            connections.push((
-                                                conn_id,
-                                                conn.clone(),
-                                                node.clone(),
-                                                conn.proto,
-                                            ));
+                                        for node in
+                                            nodes.iter().filter(|n| n.status == NodeStatus::Online)
+                                        {
+                                            if let Some(_inbound) = node.inbounds.get(&conn.proto) {
+                                                log::debug!(
+                                                    "connections.push {} {} {}",
+                                                    conn_id,
+                                                    conn.proto,
+                                                    node.uuid
+                                                );
+                                                connections.push((
+                                                    *conn_id,
+                                                    conn.clone(),
+                                                    node.clone(),
+                                                    conn.proto,
+                                                ));
+                                            } else {
+                                                log::debug!(
+                                                    "SKIP node {} does not support proto {}",
+                                                    node.uuid,
+                                                    conn.proto
+                                                );
+                                            }
                                         }
                                     }
                                 }
-
                                 let response = if connections.is_empty() {
                                     "Что-то пошло не так".to_string()
                                 } else {

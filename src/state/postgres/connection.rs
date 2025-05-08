@@ -174,7 +174,7 @@ impl PgConn {
 
         let query = "
         INSERT INTO connections (id, is_trial, daily_limit_mb, password, env, created_at, modified_at, user_id, online, uplink, downlink, proto, status )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
     ";
 
         let result = client

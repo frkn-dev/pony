@@ -41,31 +41,25 @@ impl Handlers for BotState {
                     // Handle user registration.
                     if let Some(user) = msg.from {
                         if let Some(username) = user.username {
-                            let user_map = self.users.lock().await;
-                            if let Some(_user_id) = user_map.get(&username) {
-                                match self.register_user(&username).await {
-                                    Ok(Some(user_id)) => {
-                                        let reply = format!("Спасибо за регистрацию {}", username);
-                                        let _ = self.add_user(&username, user_id).await;
+                            match self.register_user(&username).await {
+                                Ok(Some(user_id)) => {
+                                    let reply = format!("Спасибо за регистрацию {}", username);
+                                    let _ = self.add_user(&username, user_id).await;
 
-                                        bot.send_message(msg.chat.id, reply).await?;
-                                    }
-                                    Ok(None) => {
-                                        let reply = format!(
-                                            "Уже зарегистрирован, используй комманду /connect  {}",
-                                            username
-                                        );
-                                        bot.send_message(msg.chat.id, reply).await?;
-                                    }
-                                    Err(e) => {
-                                        log::error!("Command::Register error {}", e);
-                                        let reply = format!("Упс, ошибка {}", username);
-                                        bot.send_message(msg.chat.id, reply).await?;
-                                    }
+                                    bot.send_message(msg.chat.id, reply).await?;
                                 }
-                            } else {
-                                bot.send_message(msg.chat.id, "Нужно зарегистрироваться /register")
-                                    .await?;
+                                Ok(None) => {
+                                    let reply = format!(
+                                        "Уже зарегистрирован, используй комманду /connect  {}",
+                                        username
+                                    );
+                                    bot.send_message(msg.chat.id, reply).await?;
+                                }
+                                Err(e) => {
+                                    log::error!("Command::Register error {}", e);
+                                    let reply = format!("Упс, ошибка {}", username);
+                                    bot.send_message(msg.chat.id, reply).await?;
+                                }
                             }
                         }
                     }
@@ -189,7 +183,7 @@ impl Handlers for BotState {
                                     Ok(None) => {
                                         bot.send_message(
                                             msg.chat.id,
-                                            "Не удалось найти статистику",
+                                            "Не удалось найти статистику, используй /connect ",
                                         )
                                         .await?;
                                     }
@@ -198,7 +192,7 @@ impl Handlers for BotState {
                                         log::error!("Stat conn error: {:?}", e);
                                         bot.send_message(
                                             msg.chat.id,
-                                            "Не удалось найти статистику",
+                                            "Не удалось найти статистику, используй /connect ",
                                         )
                                         .await?;
                                     }

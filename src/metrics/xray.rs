@@ -12,19 +12,19 @@ impl AsMetric for InboundStat {
 
         vec![
             Metric {
-                //dev.localhost.vmess.uplink
+                //dev.localhost.vmess.inbound_stat.uplink
                 path: format!("{env}.{hostname}.{name}.inbound_stat.uplink"),
                 value: self.uplink,
                 timestamp: timestamp,
             },
             Metric {
-                //dev.localhost.vmess.downlink
+                //dev.localhost.vmess.inbound_stat.downlink
                 path: format!("{env}.{hostname}.{name}.inbound_stat.downlink"),
                 value: self.downlink,
                 timestamp: timestamp,
             },
             Metric {
-                // dev.localhost.vmess.user_count
+                // dev.localhost.vmess.inbound_stat.user_count
                 path: format!("{env}.{hostname}.{name}.inbound_stat.user_count"),
                 value: self.conn_count,
                 timestamp: timestamp,

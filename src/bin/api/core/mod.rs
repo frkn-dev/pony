@@ -7,6 +7,7 @@ use pony::state::SyncState;
 use pony::zmq::publisher::Publisher as ZmqPublisher;
 
 pub mod http;
+pub(crate) mod metrics;
 pub mod tasks;
 
 pub struct Api<N, C>

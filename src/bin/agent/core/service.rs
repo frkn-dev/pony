@@ -8,6 +8,7 @@ use tokio::time::Duration;
 use pony::config::settings::AgentSettings;
 use pony::config::xray::Config as XrayConfig;
 use pony::http::debug;
+use pony::metrics::Metrics;
 use pony::state::AgentState;
 use pony::state::ConnBase;
 use pony::state::Node;

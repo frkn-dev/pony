@@ -9,6 +9,7 @@ use pony::xray_op::client::StatsClient;
 use pony::zmq::subscriber::Subscriber as ZmqSubscriber;
 
 mod http;
+pub(crate) mod metrics;
 pub mod service;
 mod stats;
 mod tasks;

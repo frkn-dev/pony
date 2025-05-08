@@ -153,6 +153,10 @@ pub struct ApiServiceConfig {
     pub healthcheck_interval: u64,
     #[serde(default = "default_api_token")]
     pub token: String,
+    #[serde(default = "default_enabled")]
+    pub metrics_enabled: bool,
+    #[serde(default = "default_metrics_interval")]
+    pub metrics_interval: u64,
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]
@@ -377,6 +381,8 @@ pub struct ApiSettings {
     pub clickhouse: ClickhouseConfig,
     #[serde(default)]
     pub pg: PostgresConfig,
+    #[serde(default)]
+    pub carbon: CarbonConfig,
 }
 
 impl Settings for ApiSettings {

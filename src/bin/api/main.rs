@@ -6,12 +6,14 @@ use std::net::Ipv4Addr;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio::sync::Mutex;
+use tokio::time::sleep;
 use tokio::time::Duration;
 
 use pony::clickhouse::ChContext;
 use pony::config::settings::ApiSettings;
 use pony::config::settings::Settings;
 use pony::http::debug;
+use pony::metrics::Metrics;
 use pony::state::pg_run_shadow_sync;
 use pony::state::PgContext;
 use pony::state::State;
@@ -146,6 +148,21 @@ async fn main() -> Result<()> {
             }
         }
     };
+
+    if settings.api.metrics_enabled {
+        log::info!("Running metrics send task");
+        tokio::spawn({
+            let settings = settings.clone();
+            let api = api.clone();
+
+            async move {
+                loop {
+                    sleep(Duration::from_secs(settings.api.metrics_interval)).await;
+                    let _ = api.send_metrics(settings.carbon.address.clone()).await;
+                }
+            }
+        });
+    }
 
     if debug {
         let token = Arc::new(settings.api.token);

@@ -22,7 +22,8 @@ CREATE TABLE connections (
     online BIGINT NOT NULL DEFAULT 0,
     uplink BIGINT NOT NULL DEFAULT 0,
     downlink BIGINT NOT NULL DEFAULT 0,   
-    status conn_status NOT NULL;   
+    status conn_status NOT NULL, 
+    proto proto NOT NULL  
 );
 
 

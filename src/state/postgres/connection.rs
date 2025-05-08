@@ -173,7 +173,7 @@ impl PgConn {
         let client = self.client.lock().await;
 
         let query = "
-        INSERT INTO connections (id, is_trial, daily_limit_mb, password, env, created_at, modified_at, user_id, online, uplink, downlink, proto )
+        INSERT INTO connections (id, is_trial, daily_limit_mb, password, env, created_at, modified_at, user_id, online, uplink, downlink, proto, status )
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
     ";
 
@@ -193,6 +193,7 @@ impl PgConn {
                     &conn.stat.uplink,
                     &conn.stat.downlink,
                     &conn.proto,
+                    &conn.status,
                 ],
             )
             .await;
@@ -226,7 +227,8 @@ impl PgConn {
                         user_id = $7,
                         online = $8,
                         uplink = $9,
-                        downlink = $10
+                        downlink = $10, 
+                        status = $11
                     WHERE id = $1
                    ";
 
@@ -244,6 +246,7 @@ impl PgConn {
                     &conn.stat.online,
                     &conn.stat.uplink,
                     &conn.stat.downlink,
+                    &conn.status,
                 ],
             )
             .await?;

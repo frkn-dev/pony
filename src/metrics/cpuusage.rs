@@ -1,4 +1,6 @@
 use std::fmt;
+use std::thread::sleep;
+use std::time::Duration;
 use sysinfo::{CpuRefreshKind, RefreshKind, System};
 
 use super::metrics::{AsMetric, Metric, MetricType};
@@ -47,7 +49,9 @@ pub fn cpu_metrics(env: &str, hostname: &str) -> Vec<MetricType> {
     let mut s =
         System::new_with_specifics(RefreshKind::nothing().with_cpu(CpuRefreshKind::everything()));
 
-    let _ = s.refresh_cpu_all();
+    s.refresh_cpu_all();
+    sleep(Duration::from_millis(100));
+    s.refresh_cpu_all();
 
     let cpu_metrics: Vec<_> = s
         .cpus()

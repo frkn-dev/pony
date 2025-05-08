@@ -148,6 +148,7 @@ async fn main() -> Result<()> {
     };
 
     if debug {
+        let token = Arc::new(settings.api.token);
         tokio::spawn(debug::start_ws_server(
             mem.clone(),
             settings
@@ -155,6 +156,7 @@ async fn main() -> Result<()> {
                 .web_server
                 .unwrap_or(Ipv4Addr::new(127, 0, 0, 1)),
             settings.debug.web_port,
+            token,
         ));
     }
 

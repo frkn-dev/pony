@@ -1,32 +1,11 @@
-use std::sync::Arc;
-use warp::{Filter, Rejection};
+use warp::Filter;
 
-use pony::http::AuthError;
 use pony::state::Conn;
 use pony::state::ConnApiOp;
 use pony::state::ConnBaseOp;
 use pony::state::NodeStorage;
 use pony::state::SyncState;
 use pony::zmq::publisher::Publisher as ZmqPublisher;
-
-/// Provides authentication filter based on API token
-pub fn auth(token: Arc<String>) -> impl Filter<Extract = (), Error = Rejection> + Clone {
-    warp::header::<String>("authorization")
-        .and_then(move |auth_header: String| {
-            let token = token.clone();
-            async move {
-                if auth_header
-                    .strip_prefix("Bearer ")
-                    .map_or(false, |t| t == token.as_str())
-                {
-                    Ok(())
-                } else {
-                    Err(warp::reject::custom(AuthError("Unauthorized".to_string())))
-                }
-            }
-        })
-        .untuple_one()
-}
 
 /// Provides application state filter
 pub fn with_state<T, C>(

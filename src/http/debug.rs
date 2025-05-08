@@ -4,8 +4,13 @@ use serde::{Deserialize, Serialize};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use tokio::sync::Mutex;
+use warp::http::header::SEC_WEBSOCKET_PROTOCOL;
 use warp::ws::Message;
+use warp::ws::Ws;
 use warp::Filter;
+use warp::Rejection;
+
+use crate::http::Unauthorized;
 
 use crate::state::ConnBaseOp;
 use crate::state::ConnStorageBase;
@@ -44,24 +49,50 @@ pub struct Response {
     pub len: usize,
 }
 
-pub async fn start_ws_server<N, C>(state: Arc<Mutex<State<N, C>>>, ipaddr: Ipv4Addr, port: u16)
-where
+pub async fn start_ws_server<N, C>(
+    state: Arc<Mutex<State<N, C>>>,
+    ipaddr: Ipv4Addr,
+    port: u16,
+    expected_token: Arc<String>,
+) where
     N: NodeStorage + Sync + Send + Clone + 'static,
     C: ConnBaseOp + Sync + Send + Clone + 'static + std::fmt::Display,
 {
-    let health_check = warp::path("health-check").map(|| format!("Server OK"));
+    let health_check = warp::path("health-check").map(|| "Server OK");
 
-    let ws = warp::path("ws")
-        .and(warp::ws())
-        .map(move |ws: warp::ws::Ws| {
-            let state = state.clone();
-            log::info!("Upgrading connection to websocket");
-            ws.on_upgrade(move |socket| handle_debug_connection::<N, C>(socket, state))
-        });
+    let ws_route = {
+        let expected_token = expected_token.clone();
+        warp::path("ws")
+            .and(warp::ws())
+            .and(warp::header::optional::<String>(
+                SEC_WEBSOCKET_PROTOCOL.as_str(),
+            ))
+            .and_then(move |ws: Ws, token: Option<String>| {
+                let state = state.clone();
+                let expected_token = expected_token.clone();
+                async move {
+                    match token {
+                        Some(t) if t == *expected_token => {
+                            Ok::<_, Rejection>(ws.on_upgrade(move |socket| {
+                                handle_debug_connection::<N, C>(socket, state)
+                            }))
+                        }
+                        _ => {
+                            log::warn!(
+                                "Unauthorized WebSocket connection attempt with token: {:?}",
+                                token
+                            );
+                            Err(warp::reject::custom(Unauthorized))
+                        }
+                    }
+                }
+            })
+    };
 
-    log::info!("Debug Server is running on ws://{}:{}", ipaddr, port);
+    let routes = health_check
+        .or(ws_route)
+        .with(warp::cors().allow_any_origin());
 
-    let routes = health_check.or(ws).with(warp::cors().allow_any_origin());
     warp::serve(routes)
         .run(SocketAddr::new(IpAddr::V4(ipaddr), port))
         .await;

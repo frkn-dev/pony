@@ -2,6 +2,7 @@ use async_trait::async_trait;
 use std::sync::Arc;
 use warp::Filter;
 
+use pony::http::filters::auth;
 use pony::http::requests::*;
 use pony::state::Conn;
 use pony::state::ConnApiOp;

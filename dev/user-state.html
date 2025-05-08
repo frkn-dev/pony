@@ -44,6 +44,9 @@
         <label for="path">Path:</label>
         <input type="text" id="path" placeholder="debug/ws" value="debug/ws" />
 
+        <label for="token">Bearer Token:</label>
+        <input type="text" id="token" placeholder="Token..." />
+
         <label for="ssl">Use SSL:</label>
         <input type="checkbox" id="ssl" checked />
 
@@ -103,8 +106,9 @@
         function connectWebSocket() {
             const host = document.getElementById('host').value.trim();
             const port = document.getElementById('port').value.trim();
-            const ssl = document.getElementById('ssl') ? document.getElementById('ssl').checked : true;
-            const path = document.getElementById('path') ? document.getElementById('path').value.trim() : '';
+            const ssl = document.getElementById('ssl').checked;
+            const path = document.getElementById('path').value.trim();
+            const token = document.getElementById('token').value.trim();
 
             if (!host) {
                 alert("Please enter a valid host");
@@ -112,52 +116,56 @@
             }
 
             const url = buildWebSocketUrl({ host, port, ssl, path });
-            socket = new WebSocket(url);
 
-            socket.onopen = () => {
-                console.log(`Connected to WebSocket server at ${url}`);
-                clearInterval(reconnectInterval);
-                requestConns();
-                requestNodes();
-                requestUsers();
+            try {
+                socket = new WebSocket(url, token); // token as subprotocol
 
-                setInterval(() => {
-                    if (socket && socket.readyState === WebSocket.OPEN) {
-                        requestConns();
-                        requestNodes();
-                        requestUsers();
+                socket.onopen = () => {
+                    console.log(`Connected to WebSocket server at ${url}`);
+                    clearInterval(reconnectInterval);
+                    requestConns();
+                    requestNodes();
+                    requestUsers();
+
+                    setInterval(() => {
+                        if (socket && socket.readyState === WebSocket.OPEN) {
+                            requestConns();
+                            requestNodes();
+                            requestUsers();
+                        }
+                    }, 5000);
+                };
+
+                socket.onmessage = (event) => {
+                    const data = event.data;
+                    try {
+                        const response = JSON.parse(data);
+                        if (!response.kind) return;
+
+                        switch (response.kind) {
+                            case "conns": displayConns(response); break;
+                            case "nodes": displayNodes(response); break;
+                            case "conn": displayConnInfo(response); break;
+                            case "users": displayUsers(response); break;
+                            default: console.log("Unknown response kind:", response.kind);
+                        }
+                    } catch (error) {
+                        console.error("Error parsing response:", error);
                     }
-                }, 5000);
-            };
+                };
 
-            socket.onmessage = (event) => {
-                const data = event.data;
-                console.log('Received from server:', data);
+                socket.onerror = (error) => {
+                    console.error("WebSocket error:", error);
+                };
 
-                try {
-                    const response = JSON.parse(data);
-                    if (!response.kind) return;
+                socket.onclose = () => {
+                    console.log("WebSocket connection closed.");
+                    attemptReconnect();
+                };
 
-                    switch (response.kind) {
-                        case "conns": displayConns(response); break;
-                        case "nodes": displayNodes(response); break;
-                        case "conn": displayConnInfo(response); break;
-                        case "users": displayUsers(response); break;
-                        default: console.log("Unknown response kind:", response.kind);
-                    }
-                } catch (error) {
-                    console.error("Error parsing response:", error);
-                }
-            };
-
-            socket.onerror = (error) => {
-                console.error("WebSocket error:", error);
-            };
-
-            socket.onclose = () => {
-                console.log("WebSocket connection closed.");
-                attemptReconnect();
-            };
+            } catch (e) {
+                console.error("Failed to create WebSocket:", e);
+            }
         }
 
         function attemptReconnect() {
@@ -183,33 +191,29 @@
 
         function requestConns() {
             if (socket && socket.readyState === WebSocket.OPEN) {
-                const request = { kind: "get_connections", message: "Requesting connections" };
-                socket.send(JSON.stringify(request));
+                socket.send(JSON.stringify({ kind: "get_connections", message: "Requesting connections" }));
             }
         }
 
         function requestNodes() {
             if (socket && socket.readyState === WebSocket.OPEN) {
-                const request = { kind: "get_nodes", message: "Requesting nodes" };
-                socket.send(JSON.stringify(request));
+                socket.send(JSON.stringify({ kind: "get_nodes", message: "Requesting nodes" }));
             }
         }
 
         function requestUsers() {
             if (socket && socket.readyState === WebSocket.OPEN) {
-                const request = { kind: "get_users", message: "Requesting users" };
-                socket.send(JSON.stringify(request));
+                socket.send(JSON.stringify({ kind: "get_users", message: "Requesting users" }));
             }
         }
 
         function requestConnInfo(connId) {
             if (socket && socket.readyState === WebSocket.OPEN) {
-                const request = {
+                socket.send(JSON.stringify({
                     kind: "get_conn_info",
                     message: `Requesting info for conn ${connId}`,
                     conn_id: connId
-                };
-                socket.send(JSON.stringify(request));
+                }));
             }
         }
 

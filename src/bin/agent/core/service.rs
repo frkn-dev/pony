@@ -169,6 +169,7 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
         }
     });
 
+    let token = Arc::new(settings.api.token);
     if settings.debug.enabled {
         log::debug!(
             "Running debug server: localhost:{}",
@@ -181,6 +182,7 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
                 .web_server
                 .unwrap_or(Ipv4Addr::new(127, 0, 0, 1)),
             settings.debug.web_port,
+            token,
         ));
     }
 

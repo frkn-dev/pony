@@ -102,6 +102,7 @@ impl Node {
             uuid: self.uuid.clone(),
             inbounds: inbound_response,
             status: self.status,
+            label: self.label.clone(),
         }
     }
 

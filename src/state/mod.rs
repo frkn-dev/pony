@@ -19,6 +19,14 @@ pub use connection::ConnBase;
 pub use connection::ConnBaseOp;
 pub use connection::ConnStatus;
 
+pub use storage::connection::ConnStorageApi;
+pub use storage::connection::ConnStorageBase;
+pub use storage::connection::ConnStorageOpStatus;
+pub use storage::node::NodeStorage;
+pub use storage::node::NodeStorageOpStatus;
+pub use storage::user::UserStorage;
+pub use storage::user::UserStorageOpStatus;
+
 pub use stats::StatType;
 pub use sync::SyncOp;
 
@@ -42,12 +50,5 @@ pub use state::State;
 pub use stats::ConnStat;
 pub use stats::InboundStat;
 pub use stats::Stat;
-
-pub use storage::connection::ConnStorageApi;
-pub use storage::connection::ConnStorageBase;
-pub use storage::node::NodeStorage;
-pub use storage::node::NodeStorageOpStatus;
-pub use storage::user::UserStorage;
-pub use storage::user::UserStorageOpStatus;
 
 pub use postgres::run_shadow_sync as pg_run_shadow_sync;

@@ -13,7 +13,6 @@ use pony::state::ConnBase;
 use pony::state::Node;
 use pony::state::NodeStorage;
 use pony::state::State;
-use pony::state::Tag;
 use pony::utils::*;
 use pony::xray_op::client::HandlerActions;
 use pony::xray_op::client::HandlerClient;
@@ -58,7 +57,7 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
 
     let node = Node::new(settings.node.clone(), xray_config);
 
-    let state: Arc<Mutex<AgentState>> = Arc::new(Mutex::new(State::with_node(node)));
+    let state: Arc<Mutex<AgentState>> = Arc::new(Mutex::new(State::with_node(node.clone())));
 
     let agent = Arc::new(Agent::new(
         state.clone(),
@@ -77,7 +76,6 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
                 loop {
                     sleep(Duration::from_secs(settings.agent.metrics_interval)).await;
                     let _ = agent.send_metrics(settings.carbon.address.clone()).await;
-                    log::debug!("Metrics send task tick");
                 }
             }
         });
@@ -134,45 +132,19 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
     let conn_task = tokio::spawn({
         let conn_id = uuid::Uuid::new_v4();
         let agent = agent.clone();
+        let node = node.clone();
         async move {
-            let _ = agent.xray_handler_client.create_all(&conn_id, None).await;
-
             let _ = {
                 let mut state = agent.state.lock().await;
-                let conn = ConnBase::new(None);
-                let _ = state.connections.insert(conn_id, conn.into());
+                for (tag, _) in node.inbounds {
+                    let conn = ConnBase::new(tag, None);
+                    let _ = state.connections.insert(conn_id, conn.into());
+                    let _ = xray_handler_client.create(&conn_id, tag, None).await;
+                }
             };
 
             let state = agent.state.lock().await;
             if let Some(node) = state.nodes.get_self() {
-                let vless_grpc_conn = vless_grpc_conn(
-                    &conn_id,
-                    node.address,
-                    node.inbounds
-                        .get(&Tag::VlessGrpc)
-                        .expect("VLESS gRPC inbound")
-                        .clone(),
-                    "🚀🚀🚀",
-                );
-                let vless_xtls_conn = vless_xtls_conn(
-                    &conn_id,
-                    node.address,
-                    node.inbounds
-                        .get(&Tag::VlessXtls)
-                        .expect("VLESS XTLS inbound")
-                        .clone(),
-                    "🚀🚀🚀",
-                );
-                let vmess_conn = vmess_tcp_conn(
-                    &conn_id,
-                    node.address,
-                    node.inbounds
-                        .get(&Tag::Vmess)
-                        .expect("VMESS inbound")
-                        .clone(),
-                    "🚀🚀🚀",
-                );
-
                 println!(
                     r#"
 ╔════════════════════════════════════╗
@@ -180,15 +152,17 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
 ╚════════════════════════════════════╝
 "#
                 );
-                println!(
-                    "🌐 VLESS gRPC ➜ {}\n",
-                    vless_grpc_conn.expect("vless grpc conn")
-                );
-                println!(
-                    "🔒 VLESS XTLS ➜ {}\n",
-                    vless_xtls_conn.expect("vless xtls conn")
-                );
-                println!("✨ VMESS      ➜ {}\n", vmess_conn.expect("vmess conn"));
+                for (tag, inbound) in node.inbounds {
+                    if let Ok(conn) = create_conn_link(
+                        tag,
+                        &node.uuid,
+                        inbound.as_inbound_response(),
+                        &node.label,
+                        node.address,
+                    ) {
+                        println!("🔒  {tag}  ➜ {:?}\n", conn);
+                    }
+                }
             } else {
                 panic!("Node information is missing");
             }

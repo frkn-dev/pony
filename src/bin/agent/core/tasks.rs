@@ -141,12 +141,11 @@ where
         match msg.action {
             Action::Create => {
                 let conn_id = msg.conn_id;
-
-                let conn = ConnBase::new(msg.password.clone());
+                let conn = ConnBase::new(msg.tag, msg.password.clone());
 
                 match self
                     .xray_handler_client
-                    .create_all(&msg.conn_id, conn.password.clone())
+                    .create(&msg.conn_id, msg.tag, conn.password.clone())
                     .await
                 {
                     Ok(_) => {
@@ -169,8 +168,13 @@ where
                     }
                 }
             }
+
             Action::Delete => {
-                if let Err(e) = self.xray_handler_client.remove_all(&msg.conn_id).await {
+                if let Err(e) = self
+                    .xray_handler_client
+                    .remove(&msg.conn_id, msg.tag, msg.password)
+                    .await
+                {
                     return Err(PonyError::Custom(format!(
                         "Couldn't remove connections from Xray: {}",
                         e

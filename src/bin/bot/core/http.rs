@@ -1,15 +1,19 @@
 use async_trait::async_trait;
-
-use pony::http::requests::UserIdQueryParam;
 use reqwest::Client as HttpClient;
 use reqwest::StatusCode;
 use reqwest::Url;
 
-use pony::http::requests::UserConnQueryParam;
+use pony::http::requests::ConnRequest;
+use pony::http::requests::NodeResponse;
+use pony::http::requests::NodesQueryParams;
+use pony::http::requests::UserIdQueryParam;
 use pony::http::requests::UserRegQueryParam;
 use pony::http::ResponseMessage;
+use pony::state::Conn;
 use pony::state::ConnStat;
+use pony::state::Tag;
 use pony::state::User;
+use pony::zmq::message::Action;
 use pony::{PonyError, Result};
 
 use super::BotState;
@@ -17,16 +21,25 @@ use super::BotState;
 #[async_trait]
 pub trait ApiRequests {
     async fn register_user(&self, username: &str) -> Result<Option<uuid::Uuid>>;
-    async fn get_user_vpn_connection(
+    async fn get_user_vpn_connections(
         &self,
         user_id: &uuid::Uuid,
-        limit: i32,
-    ) -> Result<Option<Vec<String>>>;
+    ) -> Result<Option<Vec<(uuid::Uuid, Conn)>>>;
     async fn get_user_traffic_stat(
         &self,
         user_id: &uuid::Uuid,
     ) -> Result<Option<Vec<(uuid::Uuid, ConnStat)>>>;
     async fn get_users(&self) -> Result<Vec<(uuid::Uuid, User)>>;
+    async fn get_nodes(&self, env: &str) -> Result<Option<Vec<NodeResponse>>>;
+    async fn post_create_or_update_connection(
+        &self,
+        conn_id: &uuid::Uuid,
+        user_id: &uuid::Uuid,
+        trial: bool,
+        limit: i32,
+        env: &str,
+        proto: Tag,
+    ) -> Result<()>;
 }
 
 #[async_trait]
@@ -72,11 +85,65 @@ impl ApiRequests for BotState {
         }
     }
 
-    async fn get_user_vpn_connection(
+    async fn post_create_or_update_connection(
+        &self,
+        conn_id: &uuid::Uuid,
+        user_id: &uuid::Uuid,
+        trial: bool,
+        limit: i32,
+        env: &str,
+        proto: Tag,
+    ) -> Result<()> {
+        let mut endpoint = Url::parse(&self.settings.api.endpoint)
+            .map_err(|_| PonyError::Custom("Invalid API endpoint".to_string()))?;
+
+        endpoint
+            .path_segments_mut()
+            .map_err(|_| PonyError::Custom("Cannot modify API endpoint path".to_string()))?
+            .push("connection");
+
+        let query = ConnRequest {
+            conn_id: *conn_id,
+            action: Action::Create,
+            password: None,
+            trial: Some(trial),
+            limit: Some(limit),
+            env: env.to_string(),
+            user_id: Some(*user_id),
+            proto: proto,
+        };
+
+        let query_str = serde_urlencoded::to_string(&query)?;
+        endpoint.set_query(Some(&query_str));
+
+        let endpoint = endpoint.to_string();
+
+        let res = HttpClient::new()
+            .post(&endpoint)
+            .header("Content-Type", "application/json")
+            .header(
+                "Authorization",
+                format!("Bearer {}", self.settings.api.token),
+            )
+            .json(&query)
+            .send()
+            .await?;
+
+        match res.status() {
+            StatusCode::OK | StatusCode::NOT_MODIFIED => Ok(()),
+
+            _ => Err(PonyError::Custom(format!(
+                "/user/connections request error: {}",
+                res.status()
+            ))
+            .into()),
+        }
+    }
+
+    async fn get_user_vpn_connections(
         &self,
         user_id: &uuid::Uuid,
-        limit: i32,
-    ) -> Result<Option<Vec<String>>> {
+    ) -> Result<Option<Vec<(uuid::Uuid, Conn)>>> {
         let mut endpoint = Url::parse(&self.settings.api.endpoint)
             .map_err(|_| PonyError::Custom("Invalid API endpoint".to_string()))?;
 
@@ -84,14 +151,51 @@ impl ApiRequests for BotState {
             .path_segments_mut()
             .map_err(|_| PonyError::Custom("Cannot modify API endpoint path".to_string()))?
             .push("user")
-            .push("connection");
+            .push("connections");
 
-        let query = UserConnQueryParam {
-            user_id: *user_id,
-            env: "all".to_string(),
-            password: None,
-            limit: limit,
-            trial: true,
+        let query = UserIdQueryParam { user_id: *user_id };
+
+        let query_str = serde_urlencoded::to_string(&query)?;
+        endpoint.set_query(Some(&query_str));
+
+        let endpoint = endpoint.to_string();
+
+        let res = HttpClient::new()
+            .get(&endpoint)
+            .header("Content-Type", "application/json")
+            .header(
+                "Authorization",
+                format!("Bearer {}", self.settings.api.token),
+            )
+            .send()
+            .await?;
+
+        match res.status() {
+            StatusCode::OK | StatusCode::NOT_MODIFIED => {
+                let body = res.text().await?;
+                let data: Vec<(uuid::Uuid, Conn)> = serde_json::from_str(&body)?;
+                Ok(Some(data))
+            }
+            StatusCode::NOT_FOUND => Ok(None),
+            _ => Err(PonyError::Custom(format!(
+                "/user/connections request error: {}",
+                res.status()
+            ))
+            .into()),
+        }
+    }
+
+    async fn get_nodes(&self, env: &str) -> Result<Option<Vec<NodeResponse>>> {
+        let mut endpoint = Url::parse(&self.settings.api.endpoint)
+            .map_err(|_| PonyError::Custom("Invalid API endpoint".to_string()))?;
+
+        endpoint
+            .path_segments_mut()
+            .map_err(|_| PonyError::Custom("Cannot modify API endpoint path".to_string()))?
+            .push("nodes");
+
+        let query = NodesQueryParams {
+            env: env.to_string(),
         };
 
         let query_str = serde_urlencoded::to_string(&query)?;
@@ -109,20 +213,17 @@ impl ApiRequests for BotState {
             .send()
             .await?;
 
-        log::debug!("result {:?} ", res);
-
         match res.status() {
             StatusCode::OK | StatusCode::NOT_MODIFIED => {
                 let body = res.text().await?;
-                let data: Vec<String> = serde_json::from_str(&body)?;
-                Ok(Some(data))
+                log::debug!("nodes response {:?}", body);
+                let data: ResponseMessage<Vec<NodeResponse>> = serde_json::from_str(&body)?;
+                Ok(Some(data.message))
             }
-            StatusCode::ACCEPTED => Ok(None),
-            _ => Err(PonyError::Custom(format!(
-                "get_user_vpn_connection request error: {}",
-                res.status()
-            ))
-            .into()),
+            StatusCode::NOT_FOUND => Ok(None),
+            _ => {
+                Err(PonyError::Custom(format!("get_nodes request error: {}", res.status())).into())
+            }
         }
     }
 
@@ -155,8 +256,6 @@ impl ApiRequests for BotState {
             )
             .send()
             .await?;
-
-        log::debug!("result {:?} ", res);
 
         if res.status().is_success() {
             let body = res.text().await?;

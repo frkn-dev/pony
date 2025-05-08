@@ -21,6 +21,7 @@ where
     fn update_trial(&mut self, conn_id: &uuid::Uuid, new_trial: bool) -> Result<()>;
     fn reset_stat(&mut self, conn_id: &uuid::Uuid, stat: StatType);
     fn all_trial(&self, status: ConnStatus) -> HashMap<uuid::Uuid, C>;
+    fn get_by_user_id(&self, user_id: &uuid::Uuid) -> Option<Vec<(uuid::Uuid, C)>>;
 }
 
 pub trait ConnStorageBase<C>
@@ -30,7 +31,6 @@ where
     fn add(&mut self, conn_id: &uuid::Uuid, new_conn: C) -> Result<ConnStorageOpStatus>;
     fn remove(&mut self, conn_id: &uuid::Uuid) -> Result<()>;
     fn get(&self, conn_id: &uuid::Uuid) -> Option<C>;
-    fn get_by_user_id(&self, user_id: &uuid::Uuid) -> Option<Vec<(uuid::Uuid, C)>>;
     fn update_stat(&mut self, conn_id: &uuid::Uuid, stat: ConnStat) -> Result<()>;
     fn reset_stat(&mut self, conn_id: &uuid::Uuid, stat: StatType);
     fn update_uplink(&mut self, conn_id: &uuid::Uuid, new_uplink: i64) -> Result<()>;
@@ -42,6 +42,7 @@ where
 #[derive(Debug)]
 pub enum ConnStorageOpStatus {
     AlreadyExist,
+    Updated,
     Ok,
 }
 
@@ -68,20 +69,6 @@ where
 
     fn get(&self, conn_id: &uuid::Uuid) -> Option<C> {
         self.0.get(conn_id).cloned()
-    }
-
-    fn get_by_user_id(&self, user_id: &uuid::Uuid) -> Option<Vec<(uuid::Uuid, C)>> {
-        let conns: Vec<(uuid::Uuid, C)> = self
-            .iter()
-            .filter(|(_, conn)| conn.get_user_id() == Some(*user_id))
-            .map(|(conn_id, conn)| (*conn_id, conn.clone()))
-            .collect();
-
-        if conns.is_empty() {
-            None
-        } else {
-            Some(conns)
-        }
     }
 
     fn update_stats(&mut self, conn_id: &uuid::Uuid, stats: ConnStat) -> Result<()> {
@@ -163,17 +150,36 @@ where
         match self.entry(*conn_id) {
             Entry::Occupied(mut entry) => {
                 let existing_conn = entry.get_mut();
+
+                if let Some(user_id) = new_conn.get_user_id() {
+                    existing_conn.set_user_id(&user_id);
+                }
+
                 existing_conn.set_trial(new_conn.get_trial());
                 existing_conn.set_limit(new_conn.get_limit());
                 existing_conn.set_password(new_conn.get_password());
                 existing_conn.set_status(new_conn.get_status());
 
-                Ok(ConnStorageOpStatus::AlreadyExist)
+                Ok(ConnStorageOpStatus::Updated)
             }
             Entry::Vacant(entry) => {
                 entry.insert(new_conn);
                 Ok(ConnStorageOpStatus::Ok)
             }
+        }
+    }
+
+    fn get_by_user_id(&self, user_id: &uuid::Uuid) -> Option<Vec<(uuid::Uuid, C)>> {
+        let conns: Vec<(uuid::Uuid, C)> = self
+            .iter()
+            .filter(|(_, conn)| conn.get_user_id() == Some(*user_id))
+            .map(|(conn_id, conn)| (*conn_id, conn.clone()))
+            .collect();
+
+        if conns.is_empty() {
+            None
+        } else {
+            Some(conns)
         }
     }
 

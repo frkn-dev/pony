@@ -102,8 +102,10 @@ impl fmt::Display for ConnStat {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "Uplink: {} B, Downlink: {} B, Online: {} ",
-            self.uplink, self.downlink, self.online
+            "Uplink: {:.2} MB, Downlink: {:.2} MB, Online: {} ",
+            self.uplink as f64 / 1_048_576.0,
+            self.downlink as f64 / 1_048_576.0,
+            self.online
         )
     }
 }

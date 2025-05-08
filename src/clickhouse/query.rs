@@ -41,9 +41,9 @@ impl Queries for ChContext {
     {
         let query = format!(
             "SELECT 
-                toInt64(toUnixTimestamp(toDateTime(anyLast(Timestamp)))) AS latest,
-                Path AS metric,
-                toFloat64(anyLast(Value)) AS value
+                  toInt64(toUnixTimestamp(toDateTime(argMax(Timestamp, Timestamp)))) AS latest,
+                  Path AS metric,
+                  toFloat64(argMax(Value, Timestamp)) AS value
             FROM default.graphite_data
             WHERE Path LIKE '{}.{}.{}.heartbeat'
             GROUP BY Path",

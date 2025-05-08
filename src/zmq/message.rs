@@ -1,6 +1,7 @@
+use serde::{Deserialize, Serialize};
 use std::fmt;
 
-use serde::{Deserialize, Serialize};
+use crate::state::Tag;
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub enum Action {
@@ -16,6 +17,7 @@ pub enum Action {
 pub struct Message {
     pub conn_id: uuid::Uuid,
     pub action: Action,
+    pub tag: Tag,
     pub password: Option<String>,
 }
 

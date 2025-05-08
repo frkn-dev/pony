@@ -22,23 +22,27 @@ pub trait Http {
 #[async_trait]
 impl<T, C> Http for Api<T, C>
 where
-    C: ConnApiOp + ConnBaseOp + Sync + Send + Clone + 'static + From<Conn> + std::fmt::Debug,
+    C: ConnApiOp
+        + ConnBaseOp
+        + Sync
+        + Send
+        + Clone
+        + 'static
+        + From<Conn>
+        + std::fmt::Debug
+        + serde::Serialize,
     T: NodeStorage + Send + Sync + Clone,
 {
     async fn run(&self) -> Result<()> {
         let auth = auth(Arc::new(self.settings.api.token.clone()));
-        let limit = self.settings.api.conn_limit_mb;
 
         let user_connection_get_route = warp::get()
             .and(warp::path("user"))
-            .and(warp::path("connection"))
+            .and(warp::path("connections"))
             .and(auth.clone())
-            .and(warp::query::<UserConnQueryParam>())
+            .and(warp::query::<UserIdQueryParam>())
             .and(with_state(self.state.clone()))
-            .and(publisher(self.publisher.clone()))
-            .and_then(|conn_req, sync_state, publisher| {
-                user_connections_lines_handler(conn_req, sync_state, publisher)
-            });
+            .and_then(|user_req, sync_state| get_user_connections_handler(user_req, sync_state));
 
         let connection_get_route = warp::get()
             .and(warp::path("connection"))
@@ -54,7 +58,7 @@ where
             .and(publisher(self.publisher.clone()))
             .and(with_state(self.state.clone()))
             .and_then(move |conn_req, publisher, state| {
-                create_connection_handler(conn_req, publisher, state, limit)
+                create_or_update_connection_handler(conn_req, publisher, state)
             });
 
         let nodes_get_route = warp::get()

@@ -1,3 +1,8 @@
+use chrono::Utc;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::net::Ipv4Addr;
+
 use crate::config::xray::Inbound;
 use crate::config::xray::StreamSettings;
 use crate::state::Node;
@@ -5,10 +10,6 @@ use crate::state::NodeStatus;
 use crate::state::Tag;
 use crate::zmq::message::Action;
 use crate::zmq::message::Message;
-use chrono::Utc;
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::net::Ipv4Addr;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct UserRegQueryParam {
@@ -77,6 +78,7 @@ pub struct NodeResponse {
     pub address: Ipv4Addr,
     pub inbounds: HashMap<Tag, InboundResponse>,
     pub status: NodeStatus,
+    pub label: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -93,6 +95,8 @@ pub struct ConnRequest {
     pub trial: Option<bool>,
     pub limit: Option<i32>,
     pub password: Option<String>,
+    pub user_id: Option<uuid::Uuid>,
+    pub proto: Tag,
 }
 
 impl ConnRequest {
@@ -101,6 +105,7 @@ impl ConnRequest {
             conn_id: self.conn_id,
             action: self.action.clone(),
             password: self.password.clone(),
+            tag: self.proto,
         }
     }
 }

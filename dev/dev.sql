@@ -1,6 +1,7 @@
 
 CREATE TYPE node_status AS ENUM ('online', 'offline');
 CREATE TYPE conn_status AS ENUM ('active', 'expired');
+CREATE TYPE proto AS ENUM ('vless_grpc', 'vless_xtls', 'vmess', 'shadowsocks');
 
 CREATE TABLE users (
     id UUID PRIMARY KEY,  

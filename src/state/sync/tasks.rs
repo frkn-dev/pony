@@ -26,7 +26,11 @@ where
 {
     async fn add_user(&self, user_id: &uuid::Uuid, user: User) -> Result<UserStorageOpStatus>;
     async fn add_node(&self, node_id: &uuid::Uuid, node: Node) -> Result<NodeStorageOpStatus>;
-    async fn add_conn(&self, conn_id: &uuid::Uuid, conn: Conn) -> Result<ConnStorageOpStatus>;
+    async fn add_or_update_conn(
+        &self,
+        conn_id: &uuid::Uuid,
+        conn: Conn,
+    ) -> Result<ConnStorageOpStatus>;
     async fn update_node_status(
         &self,
         uuid: &uuid::Uuid,
@@ -79,7 +83,11 @@ where
         }
     }
 
-    async fn add_conn(&self, conn_id: &uuid::Uuid, conn: Conn) -> Result<ConnStorageOpStatus> {
+    async fn add_or_update_conn(
+        &self,
+        conn_id: &uuid::Uuid,
+        conn: Conn,
+    ) -> Result<ConnStorageOpStatus> {
         let mut mem = self.memory.lock().await;
         match mem.connections.add_or_update(conn_id, conn.clone().into()) {
             Ok(ConnStorageOpStatus::Ok) => {
@@ -91,6 +99,16 @@ where
                     .await?;
 
                 Ok(ConnStorageOpStatus::Ok)
+            }
+            Ok(ConnStorageOpStatus::Updated) => {
+                self.sync_tx
+                    .send(SyncTask::UpdateConn {
+                        conn_id: *conn_id,
+                        conn: conn.clone(),
+                    })
+                    .await?;
+
+                Ok(ConnStorageOpStatus::Updated)
             }
             Ok(ConnStorageOpStatus::AlreadyExist) => Ok(ConnStorageOpStatus::AlreadyExist),
             Err(e) => Err(PonyError::Custom(format!("{}", e)).into()),

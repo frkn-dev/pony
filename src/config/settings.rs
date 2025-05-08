@@ -149,8 +149,6 @@ pub struct ApiServiceConfig {
     pub conn_limit_check_interval: u64,
     #[serde(default = "default_collect_conn_stat_interval")]
     pub collect_conn_stat_interval: u64,
-    #[serde(default = "default_conn_daily_limit_mb")]
-    pub conn_limit_mb: i32,
     #[serde(default = "default_healthcheck_interval")]
     pub healthcheck_interval: u64,
     #[serde(default = "default_api_token")]
@@ -437,6 +435,8 @@ pub struct BotConfig {
     pub token: String,
     #[serde(default = "default_conn_daily_limit_mb")]
     pub daily_limit_mb: i32,
+    #[serde(default = "default_env")]
+    pub env: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]

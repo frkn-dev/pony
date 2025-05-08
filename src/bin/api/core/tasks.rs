@@ -75,6 +75,7 @@ where
             Some(db_conn.password.clone()),
             db_conn.user_id,
             db_conn.stat,
+            db_conn.proto,
         );
 
         log::debug!("--> {:?} Add connection", conn);
@@ -125,18 +126,46 @@ where
             let hostname = node.hostname;
 
             async move {
-                let status = match ch.fetch_node_heartbeat::<f64>(&env, &uuid, &hostname).await {
-                    Some(hb) => {
-                        let ts = Utc.timestamp_opt(hb.latest, 0);
-                        match ts {
-                            chrono::LocalResult::Single(dt) if now - dt <= timeout => {
-                                NodeStatus::Online
+                let status =
+                    match ch.fetch_node_heartbeat::<f64>(&env, &uuid, &hostname).await {
+                        Some(hb) => {
+                            let ts = Utc.timestamp_opt(hb.latest, 0);
+                            match ts {
+                                chrono::LocalResult::Single(dt) => {
+                                    let diff = now - dt;
+                                    if diff <= timeout {
+                                        log::debug!(
+                            "[ONLINE] Heartbeat OK: now: {}, dt: {}, diff: {}s <= {}s",
+                            now, dt, diff.num_seconds(), timeout.num_seconds()
+                        );
+                                        NodeStatus::Online
+                                    } else {
+                                        log::debug!(
+                            "[OFFLINE] Heartbeat too old: now: {}, dt: {}, diff: {}s > {}s",
+                            now, dt, diff.num_seconds(), timeout.num_seconds()
+                        );
+                                        NodeStatus::Offline
+                                    }
+                                }
+                                _ => {
+                                    log::debug!(
+                                        "[OFFLINE] Could not parse timestamp from heartbeat: {:?}",
+                                        hb.latest
+                                    );
+                                    NodeStatus::Offline
+                                }
                             }
-                            _ => NodeStatus::Offline,
                         }
-                    }
-                    None => NodeStatus::Offline,
-                };
+                        None => {
+                            log::debug!(
+                                "[OFFLINE] No heartbeat data found for node {} ({}) in env {}",
+                                uuid,
+                                hostname,
+                                env
+                            );
+                            NodeStatus::Offline
+                        }
+                    };
 
                 SyncOp::update_node_status(&state, &uuid, &env, status).await?;
                 Ok::<_, PonyError>(())
@@ -214,6 +243,7 @@ where
                 action: Action::Delete,
                 conn_id: conn_id,
                 password: None,
+                tag: conn.get_proto(),
             };
 
             async move {
@@ -261,12 +291,14 @@ where
                 action: Action::ResetStat,
                 conn_id: conn_id,
                 password: None,
+                tag: conn.get_proto(),
             };
 
             let restore_msg = Message {
                 action: Action::Create,
                 conn_id: conn_id,
                 password: None,
+                tag: conn.get_proto(),
             };
 
             async move {

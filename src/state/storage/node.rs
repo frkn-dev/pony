@@ -151,10 +151,6 @@ impl NodeStorage for HashMap<String, Vec<Node>> {
             result.extend_from_slice(nodes);
         }
 
-        if let Some(all_nodes) = self.get("all") {
-            result.extend_from_slice(all_nodes);
-        }
-
         if result.is_empty() {
             None
         } else {

@@ -1,7 +1,10 @@
 use serde::{Deserialize, Serialize};
 use std::fmt;
+use tokio_postgres::types::FromSql;
+use tokio_postgres::types::ToSql;
 
-#[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq, Hash, Copy)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, Hash, Copy, ToSql, FromSql)]
+#[postgres(name = "proto", rename_all = "snake_case")]
 pub enum Tag {
     #[serde(rename = "VlessXtls")]
     VlessXtls,

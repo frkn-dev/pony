@@ -26,7 +26,10 @@ pub enum SyncTask {
         conn_id: uuid::Uuid,
         conn: Conn,
     },
-
+    UpdateConn {
+        conn_id: uuid::Uuid,
+        conn: Conn,
+    },
     InsertNode {
         node_id: uuid::Uuid,
         node: Node,

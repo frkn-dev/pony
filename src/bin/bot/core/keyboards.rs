@@ -1,5 +1,4 @@
 use async_trait::async_trait;
-use reqwest::Url;
 use std::collections::HashMap;
 
 use teloxide::types::InlineKeyboardButton;
@@ -9,26 +8,44 @@ use pony::state::ConnStat;
 
 use super::BotState;
 
+use pony::http::requests::NodeResponse;
+use pony::state::Conn;
+use pony::state::Tag;
+
 #[async_trait]
 pub trait Keyboards {
-    async fn conn_keyboard(&self, conns: Vec<String>) -> InlineKeyboardMarkup;
-    fn extract_info(conn: &str) -> (String, String);
+    async fn conn_keyboard(
+        &self,
+        conns: Vec<(uuid::Uuid, Conn, NodeResponse, Tag)>,
+    ) -> InlineKeyboardMarkup;
     fn format_traffic_stats(&self, stats: Vec<(uuid::Uuid, ConnStat)>, limit: i32) -> String;
 }
 
 #[async_trait]
 impl Keyboards for BotState {
-    async fn conn_keyboard(&self, conns: Vec<String>) -> InlineKeyboardMarkup {
+    async fn conn_keyboard(
+        &self,
+        conns: Vec<(uuid::Uuid, Conn, NodeResponse, Tag)>,
+    ) -> InlineKeyboardMarkup {
         let mut keyboard = Vec::new();
         let mut new_entries = HashMap::new();
 
-        for (i, conn) in conns.iter().enumerate() {
+        log::debug!("conn_keyboard {:?}", conns);
+
+        for (i, (conn_id, conn, node, tag)) in conns.iter().enumerate() {
+            if conn.proto != *tag {
+                continue;
+            }
+
             let key = format!("conn_{}", i);
-            let (protocol, name) = Self::extract_info(conn);
-            new_entries.insert(key.clone(), conn.clone());
+            let label = &node.label;
+            let id_str = conn_id.to_string();
+            let first_octet = id_str.split('-').next().unwrap_or("");
+
+            new_entries.insert(key.clone(), (*conn_id, conn.clone(), node.clone(), *tag));
 
             keyboard.push(vec![InlineKeyboardButton::callback(
-                format!("{} - {}", protocol, name),
+                format!("{} | {} | id: {}", tag, label, first_octet),
                 key,
             )]);
         }
@@ -37,21 +54,8 @@ impl Keyboards for BotState {
             let mut map_lock = self.callback_map.lock().await;
             map_lock.extend(new_entries);
         }
+
         InlineKeyboardMarkup::new(keyboard)
-    }
-
-    fn extract_info(conn: &str) -> (String, String) {
-        if let Ok(url) = Url::parse(conn) {
-            let scheme = url.scheme().to_uppercase();
-            let name = url.fragment().unwrap_or("UNKNOWN").to_string();
-
-            let name = urlencoding::decode(&name)
-                .map(|cow| cow.into_owned())
-                .unwrap_or(name);
-            (scheme, name)
-        } else {
-            ("UNKNOWN".to_string(), "INVALID".to_string())
-        }
     }
 
     fn format_traffic_stats(&self, stats: Vec<(uuid::Uuid, ConnStat)>, limit: i32) -> String {
@@ -59,7 +63,7 @@ impl Keyboards for BotState {
             return "Нет активных подключений.".to_string();
         }
 
-        let mut out = String::from("📊 *Статистика трафика:*\n\n");
+        let mut out = String::from("📊 *Статистика трафика за сегодня:*\n\n");
 
         for (conn_id, stat) in stats {
             let status = if stat.downlink as f64 / 1_048_576.0 >= limit.into() {
@@ -76,7 +80,6 @@ impl Keyboards for BotState {
             );
             out.push_str(&block);
         }
-
         out
     }
 }

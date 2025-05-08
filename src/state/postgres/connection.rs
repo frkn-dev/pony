@@ -9,6 +9,7 @@ use tokio_postgres::Client as PgClient;
 use crate::state::connection::Conn;
 use crate::state::ConnStat;
 use crate::state::ConnStatus;
+use crate::state::Tag;
 use crate::{PonyError, Result};
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
@@ -23,6 +24,7 @@ pub struct ConnRow {
     pub user_id: Option<uuid::Uuid>,
     pub stat: ConnStat,
     pub status: ConnStatus,
+    pub proto: Tag,
 }
 
 impl From<(uuid::Uuid, Conn)> for ConnRow {
@@ -44,6 +46,7 @@ impl From<(uuid::Uuid, Conn)> for ConnRow {
             user_id: conn.user_id,
             stat: conn_stat,
             status: conn.status,
+            proto: conn.proto,
         }
     }
 }
@@ -61,7 +64,7 @@ impl PgConn {
         let client = self.client.lock().await;
 
         let query = "
-        SELECT id, is_trial, daily_limit_mb, password, env, created_at, modified_at, user_id, online, uplink, downlink, status 
+        SELECT id, is_trial, daily_limit_mb, password, env, created_at, modified_at, user_id, online, uplink, downlink, status, proto 
         FROM connections
     ";
 
@@ -74,9 +77,9 @@ impl PgConn {
         let client = self.client.lock().await;
 
         let query = "
-        SELECT id, is_trial, daily_limit_mb, password, env, created_at, modified_at, user_id, online, uplink, downlink, status 
+        SELECT id, is_trial, daily_limit_mb, password, env, created_at, modified_at, user_id, online, uplink, downlink, status, proto 
         FROM connections
-        WHERE env = $1 or env = 'all'
+        WHERE env = $1
     ";
 
         let rows = client.query(query, &[&env]).await?;
@@ -100,6 +103,7 @@ impl PgConn {
                 let uplink: i64 = row.get(9);
                 let downlink: i64 = row.get(10);
                 let status: ConnStatus = row.get(11);
+                let proto: Tag = row.get(12);
 
                 ConnRow {
                     conn_id,
@@ -116,6 +120,7 @@ impl PgConn {
                         downlink: downlink,
                     },
                     status: status,
+                    proto: proto,
                 }
             })
             .collect()
@@ -168,8 +173,8 @@ impl PgConn {
         let client = self.client.lock().await;
 
         let query = "
-        INSERT INTO connections (id, is_trial, daily_limit_mb, password, env, created_at, modified_at, user_id, online, uplink, downlink )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+        INSERT INTO connections (id, is_trial, daily_limit_mb, password, env, created_at, modified_at, user_id, online, uplink, downlink, proto )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
     ";
 
         let result = client
@@ -187,6 +192,7 @@ impl PgConn {
                     &conn.stat.online,
                     &conn.stat.uplink,
                     &conn.stat.downlink,
+                    &conn.proto,
                 ],
             )
             .await;
@@ -205,5 +211,47 @@ impl PgConn {
                 Err(PonyError::Database(e))
             }
         }
+    }
+
+    pub async fn update(&self, conn: ConnRow) -> Result<()> {
+        let client = self.client.lock().await;
+
+        let query = "
+                    UPDATE connections SET 
+                        is_trial = $2,
+                        daily_limit_mb = $3,
+                        password = $4,
+                        env = $5,
+                        modified_at = $6,
+                        user_id = $7,
+                        online = $8,
+                        uplink = $9,
+                        downlink = $10
+                    WHERE id = $1
+                   ";
+
+        let rows = client
+            .execute(
+                query,
+                &[
+                    &conn.conn_id,
+                    &conn.trial,
+                    &conn.limit,
+                    &conn.password,
+                    &conn.env,
+                    &conn.modified_at,
+                    &conn.user_id,
+                    &conn.stat.online,
+                    &conn.stat.uplink,
+                    &conn.stat.downlink,
+                ],
+            )
+            .await?;
+
+        if rows == 0 {
+            return Err(PonyError::Custom("No rows updated".into()).into());
+        }
+
+        Ok(())
     }
 }

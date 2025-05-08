@@ -1,10 +1,14 @@
 use async_trait::async_trait;
+use pony::http::requests::NodeResponse;
+use std::collections::HashSet;
 use teloxide::types::ParseMode;
 use teloxide::{payloads::SendMessageSetters, prelude::*, types::Me, utils::command::BotCommands};
 
 use super::Command;
 use super::UserStorage;
 
+use pony::state::{Conn, ConnStat, ConnStatus, NodeStatus};
+use pony::utils::create_conn_link;
 use pony::Result;
 
 use super::keyboards::Keyboards;
@@ -20,6 +24,7 @@ pub trait Handlers {
 #[async_trait]
 impl Handlers for BotState {
     async fn message_handler(&self, bot: Bot, msg: Message, me: Me) -> Result<()> {
+        let env = &self.settings.bot.env;
         if let Some(text) = msg.text() {
             match BotCommands::parse(text, me.username()) {
                 Ok(Command::Help) => {
@@ -68,42 +73,80 @@ impl Handlers for BotState {
 
                 // Handle connections
                 Ok(Command::Connect) => {
+                    let user_map = self.users.lock().await;
+
                     if let Some(user) = msg.from {
                         if let Some(username) = user.username {
-                            let user_map = self.users.lock().await;
                             if let Some(user_id) = user_map.get(&username) {
-                                let res = self
-                                    .get_user_vpn_connection(
-                                        &user_id,
-                                        self.settings.bot.daily_limit_mb,
-                                    )
-                                    .await;
-                                match res {
-                                    Ok(Some(connection_info)) => {
-                                        let response = "Выбери VPN кофигурацию".to_string();
+                                let mut conns = match self.get_user_vpn_connections(&user_id).await
+                                {
+                                    Ok(Some(c)) => c,
+                                    _ => vec![],
+                                };
 
-                                        let keyboard = self.conn_keyboard(connection_info).await;
+                                let existing_protos: HashSet<_> =
+                                    conns.iter().map(|(_, c)| c.proto).collect();
 
-                                        bot.send_message(msg.chat.id, response)
-                                            .reply_markup(keyboard)
-                                            .await?;
-                                    }
-                                    Ok(None) => {
-                                        bot.send_message(
-                                        msg.chat.id,
-                                        "Нет ни одной конфигурации. Создаем, попробуйте /connect через пару минут ",
-                                    )
-                                    .await?;
-                                    }
-                                    Err(e) => {
-                                        log::error!("VPN conn error: {:?}", e);
-                                        bot.send_message(
-                                            msg.chat.id,
-                                            "Не удалось получить подключение",
-                                        )
-                                        .await?;
+                                let nodes: Result<Option<Vec<NodeResponse>>> =
+                                    if let Ok(Some(nodes)) = self.get_nodes(env).await {
+                                        Ok(Some(nodes))
+                                    } else {
+                                        Ok(None)
+                                    };
+
+                                if let Ok(Some(ref nodes)) = nodes {
+                                    for node in
+                                        nodes.iter().filter(|n| n.status == NodeStatus::Online)
+                                    {
+                                        for (tag, _) in &node.inbounds {
+                                            if existing_protos.contains(tag) {
+                                                continue;
+                                            }
+
+                                            let conn_id = uuid::Uuid::new_v4();
+                                            let conn = Conn::new(
+                                                true,
+                                                self.settings.bot.daily_limit_mb,
+                                                env,
+                                                ConnStatus::Active,
+                                                None,
+                                                Some(*user_id),
+                                                ConnStat::default(),
+                                                *tag,
+                                            );
+
+                                            conns.push((conn_id, conn));
+                                        }
                                     }
                                 }
+
+                                let mut connections = vec![];
+                                for (conn_id, conn) in conns.clone() {
+                                    if let Ok(Some(ref nodes)) = nodes {
+                                        if let Some(node) = nodes.iter().find(|n| {
+                                            n.status == NodeStatus::Online
+                                                && n.inbounds.contains_key(&conn.proto)
+                                        }) {
+                                            connections.push((
+                                                conn_id,
+                                                conn.clone(),
+                                                node.clone(),
+                                                conn.proto,
+                                            ));
+                                        }
+                                    }
+                                }
+
+                                let response = if connections.is_empty() {
+                                    "Что-то пошло не так".to_string()
+                                } else {
+                                    "Выбери VPN кофигурацию".to_string()
+                                };
+
+                                let keyboard = self.conn_keyboard(connections).await;
+                                bot.send_message(msg.chat.id, response)
+                                    .reply_markup(keyboard)
+                                    .await?;
                             } else {
                                 bot.send_message(msg.chat.id, "Нужно зарегистрироваться /register")
                                     .await?;
@@ -162,24 +205,59 @@ impl Handlers for BotState {
     }
 
     async fn callback_handler(&self, bot: Bot, q: CallbackQuery) -> Result<()> {
-        println!("Callback data {:?}", q.data);
-
         if let Some(ref key) = q.data {
             let map_lock = self.callback_map.lock().await;
-            if let Some(conn) = map_lock.get(key) {
-                let text = format!("🔗 Ваша VPN ссылка:\n\n`{}`", conn);
 
-                bot.answer_callback_query(&q.id).await?;
+            if let Some((conn_id, conn, node, tag)) = map_lock.get(key) {
+                let inbound = match node.inbounds.get(tag) {
+                    Some(i) => i,
+                    None => {
+                        log::warn!("No inbound found for tag {:?} on node {:?}", tag, node.uuid);
+                        return Ok(());
+                    }
+                };
 
-                if let Some(message) = q.clone().regular_message() {
-                    bot.edit_message_text(message.chat.id, message.id, text)
-                        .parse_mode(ParseMode::MarkdownV2)
-                        .await?;
-                } else if let Some(id) = q.inline_message_id {
-                    bot.edit_message_text_inline(id, text).await?;
+                let label = &node.label;
+                let address = node.address;
+                let env = &node.uuid.to_string();
+                let trial = conn.trial;
+                let limit = conn.limit;
+                let user_id = match conn.user_id {
+                    Some(id) => id,
+                    None => {
+                        log::warn!("No user_id in connection {:?}", conn_id);
+                        return Ok(());
+                    }
+                };
+                let proto = conn.proto;
+
+                if let Ok(link) = create_conn_link(*tag, conn_id, inbound.clone(), label, address) {
+                    let text = format!("🔗 Ваша VPN ссылка:\n\n`{}`", link);
+
+                    bot.answer_callback_query(&q.id).await?;
+
+                    let _ = self
+                        .post_create_or_update_connection(
+                            conn_id, &user_id, trial, limit, env, proto,
+                        )
+                        .await;
+
+                    if let Some(message) = q.clone().regular_message() {
+                        bot.edit_message_text(message.chat.id, message.id, text)
+                            .parse_mode(ParseMode::MarkdownV2)
+                            .await?;
+                    } else if let Some(id) = q.inline_message_id {
+                        bot.edit_message_text_inline(id, text)
+                            .parse_mode(ParseMode::MarkdownV2)
+                            .await?;
+                    }
+
+                    log::info!("User chose VPN link: {}", link);
+                } else {
+                    log::warn!("Failed to build link for tag {:?} on conn {}", tag, conn_id);
                 }
-
-                log::info!("User chose: {}", conn);
+            } else {
+                log::warn!("No callback mapping found for key: {}", key);
             }
         }
 

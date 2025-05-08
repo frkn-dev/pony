@@ -11,24 +11,20 @@ pub struct ConnBase {
     pub stat: ConnStat,
     pub created_at: DateTime<Utc>,
     pub modified_at: DateTime<Utc>,
-    pub proto: Option<Vec<Tag>>,
+    pub proto: Tag,
     pub password: Option<String>,
     pub user_id: Option<uuid::Uuid>,
 }
 
 impl ConnBase {
-    pub fn new(password: Option<String>) -> Self {
+    pub fn new(proto: Tag, password: Option<String>) -> Self {
         let now = Utc::now();
-        let conn_stat = ConnStat {
-            online: 0,
-            uplink: 0,
-            downlink: 0,
-        };
+
         Self {
-            stat: conn_stat,
+            stat: ConnStat::default(),
             created_at: now,
             modified_at: now,
-            proto: None,
+            proto: proto,
             password,
             user_id: None,
         }
@@ -78,7 +74,7 @@ impl fmt::Display for ConnBase {
         writeln!(f, " conn stat: {}", self.stat)?;
         writeln!(f, "  created_at: {},", self.created_at)?;
         writeln!(f, "  modified_at: {},", self.modified_at)?;
-        writeln!(f, "  proto: {:?},", self.proto.as_ref().unwrap_or(&vec![]))?;
+        writeln!(f, "  proto: {:?},", self.proto)?;
         writeln!(
             f,
             "  password: {},",
@@ -104,7 +100,7 @@ pub struct Conn {
     pub stat: ConnStat,
     pub created_at: DateTime<Utc>,
     pub modified_at: DateTime<Utc>,
-    pub proto: Option<Vec<Tag>>,
+    pub proto: Tag,
     pub password: Option<String>,
     pub user_id: Option<uuid::Uuid>,
 }
@@ -126,11 +122,7 @@ impl fmt::Display for Conn {
         write!(f, "  created_at: {},\n", self.created_at)?;
         write!(f, "  modified_at: {},\n", self.modified_at)?;
 
-        if let Some(proto) = &self.proto {
-            write!(f, "  proto: {:?},\n", proto)?;
-        } else {
-            write!(f, "  proto: None,\n")?;
-        }
+        write!(f, "  proto: {:?},\n", self.proto)?;
 
         if let Some(_password) = &self.password {
             write!(f, "  password: <secret_password>,\n")?;
@@ -151,6 +143,7 @@ impl Conn {
         password: Option<String>,
         user_id: Option<uuid::Uuid>,
         conn_stat: ConnStat,
+        proto: Tag,
     ) -> Self {
         let now = Utc::now();
 
@@ -162,7 +155,7 @@ impl Conn {
             stat: conn_stat,
             created_at: now,
             modified_at: now,
-            proto: None,
+            proto: proto,
             password: password,
             user_id: user_id,
         }
@@ -204,10 +197,8 @@ pub trait ConnBaseOp {
     fn get_modified_at(&self) -> DateTime<Utc>;
     fn set_modified_at(&mut self);
 
-    fn get_user_id(&self) -> Option<uuid::Uuid>;
-
-    fn add_proto(&mut self, tag: Tag);
-    fn remove_proto(&mut self, tag: Tag);
+    fn set_proto(&mut self, tag: Tag);
+    fn get_proto(&self) -> Tag;
 
     fn as_conn_stat(&self) -> ConnStat;
 }
@@ -221,6 +212,9 @@ pub trait ConnApiOp {
 
     fn get_status(&self) -> ConnStatus;
     fn set_status(&mut self, s: ConnStatus);
+
+    fn get_user_id(&self) -> Option<uuid::Uuid>;
+    fn set_user_id(&mut self, user_id: &uuid::Uuid);
 
     fn get_env(&self) -> String;
 }
@@ -260,27 +254,13 @@ impl ConnBaseOp for Conn {
         self.modified_at = Utc::now();
     }
 
-    fn get_user_id(&self) -> Option<uuid::Uuid> {
-        self.user_id
+    fn set_proto(&mut self, tag: Tag) {
+        self.proto = tag
+    }
+    fn get_proto(&self) -> Tag {
+        self.proto.clone()
     }
 
-    fn add_proto(&mut self, tag: Tag) {
-        if let Some(proto) = &mut self.proto {
-            if !proto.contains(&tag) {
-                proto.push(tag);
-            }
-        } else {
-            self.proto = Some(vec![tag]);
-        }
-    }
-    fn remove_proto(&mut self, tag: Tag) {
-        if let Some(proto) = &mut self.proto {
-            proto.retain(|p| *p != tag);
-            if proto.is_empty() {
-                self.proto = None;
-            }
-        }
-    }
     fn get_password(&self) -> Option<String> {
         self.password.clone()
     }
@@ -322,6 +302,13 @@ impl ConnApiOp for Conn {
     fn get_env(&self) -> String {
         self.env.clone()
     }
+
+    fn get_user_id(&self) -> Option<uuid::Uuid> {
+        self.user_id.clone()
+    }
+    fn set_user_id(&mut self, user_id: &uuid::Uuid) {
+        self.user_id = Some(*user_id);
+    }
 }
 
 impl ConnBaseOp for ConnBase {
@@ -359,26 +346,11 @@ impl ConnBaseOp for ConnBase {
         self.modified_at = Utc::now();
     }
 
-    fn get_user_id(&self) -> Option<uuid::Uuid> {
-        self.user_id
+    fn set_proto(&mut self, tag: Tag) {
+        self.proto = tag
     }
-
-    fn add_proto(&mut self, tag: Tag) {
-        if let Some(proto) = &mut self.proto {
-            if !proto.contains(&tag) {
-                proto.push(tag);
-            }
-        } else {
-            self.proto = Some(vec![tag]);
-        }
-    }
-    fn remove_proto(&mut self, tag: Tag) {
-        if let Some(proto) = &mut self.proto {
-            proto.retain(|p| *p != tag);
-            if proto.is_empty() {
-                self.proto = None;
-            }
-        }
+    fn get_proto(&self) -> Tag {
+        self.proto.clone()
     }
 
     fn get_password(&self) -> Option<String> {

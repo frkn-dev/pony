@@ -11,6 +11,7 @@ use crate::xray_api::xray::app::{
     proxyman::command::handler_service_client::HandlerServiceClient,
     stats::command::stats_service_client::StatsServiceClient,
 };
+use crate::xray_op::Tag;
 use crate::Result;
 
 pub trait XrayClient {
@@ -68,58 +69,69 @@ impl XrayClient for StatsClient {
 
 #[async_trait::async_trait]
 pub trait HandlerActions {
-    async fn create_all(&self, conn_id: &uuid::Uuid, password: Option<String>) -> Result<()>;
-    async fn remove_all(&self, conn_id: &uuid::Uuid) -> Result<()>;
+    async fn create(&self, conn_id: &uuid::Uuid, tag: Tag, password: Option<String>) -> Result<()>;
+    async fn remove(&self, conn_id: &uuid::Uuid, tag: Tag, password: Option<String>) -> Result<()>;
 }
 
 #[async_trait::async_trait]
 impl HandlerActions for Arc<Mutex<HandlerClient>> {
-    async fn create_all(&self, conn_id: &uuid::Uuid, password: Option<String>) -> Result<()> {
-        let mut protos: Vec<Box<dyn ProtocolConn>> = vec![];
-
-        protos.push(Box::new(VmessConnInfo::new(conn_id)));
-        protos.push(Box::new(VlessConnInfo::new(conn_id, ConnFlow::Vision)));
-        protos.push(Box::new(VlessConnInfo::new(conn_id, ConnFlow::Direct)));
-
-        if let Some(pass) = password.clone() {
-            protos.push(Box::new(SsConnInfo::new(conn_id, Some(pass))));
-        }
-
-        for proto in protos {
-            if let Err(e) = proto.create(self.clone()).await {
-                log::error!(
-                    "Failed to create connection for tag {:?}: {}",
-                    proto.tag(),
-                    e
-                );
-            } else {
-                log::debug!("Successfully created connection for tag {:?}", proto.tag());
+    async fn create(&self, conn_id: &uuid::Uuid, tag: Tag, password: Option<String>) -> Result<()> {
+        match tag {
+            Tag::VlessXtls => {
+                let user_info = VlessConnInfo::new(conn_id, ConnFlow::Vision);
+                let _ = user_info.create(self.clone()).await;
+                Ok(())
+            }
+            Tag::VlessGrpc => {
+                let user_info = VlessConnInfo::new(conn_id, ConnFlow::Direct);
+                let _ = user_info.create(self.clone()).await;
+                Ok(())
+            }
+            Tag::Vmess => {
+                let user_info = VmessConnInfo::new(conn_id);
+                let _ = user_info.create(self.clone()).await;
+                Ok(())
+            }
+            Tag::Shadowsocks => {
+                if let Some(pass) = password.clone() {
+                    let user_info = SsConnInfo::new(conn_id, Some(pass));
+                    let _ = user_info.create(self.clone()).await;
+                    return Ok(());
+                }
+                Err(crate::PonyError::Custom(
+                    "Create SS user error, password not provided".to_string(),
+                ))
             }
         }
-
-        Ok(())
     }
 
-    async fn remove_all(&self, conn_id: &uuid::Uuid) -> Result<()> {
-        let protos: Vec<Box<dyn ProtocolConn>> = vec![
-            Box::new(VmessConnInfo::new(conn_id)),
-            Box::new(VlessConnInfo::new(conn_id, ConnFlow::Vision)),
-            Box::new(VlessConnInfo::new(conn_id, ConnFlow::Direct)),
-            Box::new(SsConnInfo::new(conn_id, None)),
-        ];
-
-        for proto in protos {
-            if let Err(e) = proto.remove(self.clone()).await {
-                log::error!(
-                    "Failed to remove connection for tag {:?}: {}",
-                    proto.tag(),
-                    e
-                );
-            } else {
-                log::debug!("Successfully removed connection for tag {:?}", proto.tag());
+    async fn remove(&self, conn_id: &uuid::Uuid, tag: Tag, password: Option<String>) -> Result<()> {
+        match tag {
+            Tag::VlessXtls => {
+                let user_info = VlessConnInfo::new(conn_id, ConnFlow::Vision);
+                let _ = user_info.remove(self.clone()).await;
+                Ok(())
+            }
+            Tag::VlessGrpc => {
+                let user_info = VlessConnInfo::new(conn_id, ConnFlow::Direct);
+                let _ = user_info.remove(self.clone()).await;
+                Ok(())
+            }
+            Tag::Vmess => {
+                let user_info = VmessConnInfo::new(conn_id);
+                let _ = user_info.remove(self.clone()).await;
+                Ok(())
+            }
+            Tag::Shadowsocks => {
+                if let Some(pass) = password.clone() {
+                    let user_info = SsConnInfo::new(conn_id, Some(pass));
+                    let _ = user_info.remove(self.clone()).await;
+                    return Ok(());
+                }
+                Err(crate::PonyError::Custom(
+                    "Remove SS user error, password not provided".to_string(),
+                ))
             }
         }
-
-        Ok(())
     }
 }

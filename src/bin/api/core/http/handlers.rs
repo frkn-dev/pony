@@ -1,12 +1,11 @@
-use pony::http::requests::UserIdQueryParam;
-use warp::{http::StatusCode, Rejection, Reply};
+use warp::http::StatusCode;
 
 use pony::http::requests::ConnQueryParam;
 use pony::http::requests::ConnRequest;
 use pony::http::requests::NodeRequest;
 use pony::http::requests::NodeResponse;
 use pony::http::requests::NodesQueryParams;
-use pony::http::requests::UserConnQueryParam;
+use pony::http::requests::UserIdQueryParam;
 use pony::http::requests::UserRegQueryParam;
 use pony::http::ResponseMessage;
 use pony::state::Conn;
@@ -14,13 +13,14 @@ use pony::state::ConnApiOp;
 use pony::state::ConnBaseOp;
 use pony::state::ConnStat;
 use pony::state::ConnStatus;
+use pony::state::ConnStorageApi;
 use pony::state::ConnStorageBase;
+use pony::state::ConnStorageOpStatus;
 use pony::state::NodeStatus;
 use pony::state::NodeStorage;
 use pony::state::NodeStorageOpStatus;
 use pony::state::SyncOp;
 use pony::state::SyncState;
-use pony::state::Tag;
 use pony::state::User;
 use pony::state::UserStorage;
 use pony::state::UserStorageOpStatus;
@@ -31,7 +31,7 @@ use pony::zmq::message::Action;
 use pony::zmq::message::Message;
 use pony::zmq::publisher::Publisher as ZmqPublisher;
 
-pub async fn healthcheck<T, C>(state: SyncState<T, C>) -> Result<impl Reply, Rejection>
+pub async fn healthcheck<T, C>(state: SyncState<T, C>) -> Result<impl warp::Reply, warp::Rejection>
 where
     T: NodeStorage + Sync + Send + Clone + 'static,
     C: ConnApiOp + ConnBaseOp + Sync + Send + Clone + 'static + From<Conn>,
@@ -60,7 +60,9 @@ where
     }
 }
 
-pub async fn get_users_handler<T, C>(state: SyncState<T, C>) -> Result<impl Reply, Rejection>
+pub async fn get_users_handler<T, C>(
+    state: SyncState<T, C>,
+) -> Result<impl warp::Reply, warp::Rejection>
 where
     T: NodeStorage + Sync + Send + Clone + 'static,
     C: ConnApiOp + ConnBaseOp + Sync + Send + Clone + 'static + From<Conn>,
@@ -92,7 +94,7 @@ where
 pub async fn user_register_handler<T, C>(
     user_req: UserRegQueryParam,
     state: SyncState<T, C>,
-) -> Result<impl Reply, Rejection>
+) -> Result<impl warp::Reply, warp::Rejection>
 where
     T: NodeStorage + Sync + Send + Clone + 'static,
     C: ConnApiOp + ConnBaseOp + Sync + Send + Clone + 'static + From<Conn>,
@@ -143,7 +145,7 @@ where
 pub async fn user_conn_stat_handler<T, C>(
     user_req: UserIdQueryParam,
     state: SyncState<T, C>,
-) -> Result<impl Reply, Rejection>
+) -> Result<impl warp::Reply, warp::Rejection>
 where
     T: NodeStorage + Sync + Send + Clone + 'static,
     C: ConnApiOp + ConnBaseOp + Sync + Send + Clone + 'static + From<Conn>,
@@ -192,7 +194,7 @@ pub async fn node_register<T, C>(
     node_req: NodeRequest,
     state: SyncState<T, C>,
     publisher: ZmqPublisher,
-) -> Result<impl Reply, Rejection>
+) -> Result<impl warp::Reply, warp::Rejection>
 where
     T: NodeStorage + Sync + Send + Clone + 'static,
     C: ConnApiOp + ConnBaseOp + Sync + Send + Clone + 'static + From<Conn>,
@@ -215,6 +217,7 @@ where
                     conn_id: *conn_id,
                     action: Action::Create,
                     password: conn.get_password(),
+                    tag: conn.get_proto(),
                 };
                 let _ = publisher.send(&node_req.uuid.to_string(), msg).await;
             }
@@ -253,52 +256,36 @@ where
 }
 
 /// Handler creates connection
-pub async fn create_connection_handler<T, C>(
+pub async fn create_or_update_connection_handler<T, C>(
     conn_req: ConnRequest,
     publisher: ZmqPublisher,
     state: SyncState<T, C>,
-    limit: i32,
 ) -> Result<impl warp::Reply, warp::Rejection>
 where
     T: NodeStorage + Sync + Send + Clone + 'static,
     C: ConnBaseOp + ConnApiOp + Sync + Send + Clone + 'static + From<Conn>,
 {
-    let message = conn_req.as_message();
-    log::debug!("Message sent {}", message);
-    match publisher.send(&conn_req.env, message).await {
-        Ok(_) => {
-            let trial = conn_req.trial.unwrap_or(true);
-            let limit = conn_req.limit.unwrap_or(limit);
+    let conn = Conn::new(
+        conn_req.trial.unwrap_or(true),
+        conn_req.limit.unwrap_or(0),
+        &conn_req.env,
+        ConnStatus::Active,
+        conn_req.password.clone(),
+        conn_req.user_id,
+        ConnStat::default(),
+        conn_req.proto,
+    )
+    .into();
 
-            let conn_stat = ConnStat {
-                online: 0,
-                downlink: 0,
-                uplink: 0,
-            };
+    let msg = conn_req.as_message();
 
-            let conn = Conn::new(
-                trial,
-                limit,
-                &conn_req.env,
-                ConnStatus::Active,
-                conn_req.password.clone(),
-                None,
-                conn_stat,
-            )
-            .into();
-            let conn_id = conn_req.conn_id;
-
-            let msg = Message {
-                conn_id: conn_id,
-                password: conn_req.password,
-                action: Action::Create,
-            };
-
-            let _ = SyncOp::add_conn(&state, &conn_id, conn).await;
-            let _ = publisher.send(&conn_req.env.to_string(), msg).await;
+    match SyncOp::add_or_update_conn(&state, &conn_req.conn_id, conn).await {
+        Ok(ConnStorageOpStatus::Ok) => {
+            log::debug!("/connection req Message sent {}", msg);
+            let _ = publisher.send(&conn_req.env.to_string(), msg.clone()).await;
             let response = ResponseMessage {
                 status: 200,
-                message: "Connection Created".to_string(),
+                message: format!("connection {} is added", conn_req.conn_id),
             };
 
             Ok(warp::reply::with_status(
@@ -306,8 +293,32 @@ where
                 StatusCode::OK,
             ))
         }
+        Ok(ConnStorageOpStatus::Updated) => {
+            log::debug!("/connection req Message sent {}", msg);
+            let _ = publisher.send(&conn_req.env.to_string(), msg.clone()).await;
+            let response = ResponseMessage {
+                status: 200,
+                message: format!("connection {} is modified", conn_req.conn_id),
+            };
+
+            Ok(warp::reply::with_status(
+                warp::reply::json(&response),
+                StatusCode::OK,
+            ))
+        }
+        Ok(ConnStorageOpStatus::AlreadyExist) => {
+            let response = ResponseMessage {
+                status: 304,
+                message: format!("connection {} is modified", conn_req.conn_id),
+            };
+
+            Ok(warp::reply::with_status(
+                warp::reply::json(&response),
+                StatusCode::NOT_MODIFIED,
+            ))
+        }
         Err(err) => {
-            let error_message = format!("Error: Cannot handle /conn req: {}", err);
+            let error_message = format!("Error: Cannot handle /connection req: {}", err);
             let json_error_message = warp::reply::json(&error_message);
             Ok(warp::reply::with_status(
                 json_error_message,
@@ -328,11 +339,7 @@ where
 {
     let state = state.memory.lock().await;
 
-    let nodes = if node_req.env == "all" {
-        state.nodes.all()
-    } else {
-        state.nodes.by_env(&node_req.env)
-    };
+    let nodes = state.nodes.by_env(&node_req.env);
 
     match nodes {
         Some(nodes) => {
@@ -363,15 +370,24 @@ where
     }
 }
 
+/// Get user connections handler
+
 /// Get list of user connection credentials
-pub async fn user_connections_lines_handler<T, C>(
-    user_req: UserConnQueryParam,
+pub async fn get_user_connections_handler<T, C>(
+    user_req: UserIdQueryParam,
     state: SyncState<T, C>,
-    publisher: ZmqPublisher,
 ) -> Result<impl warp::Reply, warp::Rejection>
 where
     T: NodeStorage + Sync + Send + Clone + 'static,
-    C: ConnBaseOp + ConnApiOp + Sync + Send + Clone + 'static + From<Conn> + std::fmt::Debug,
+    C: ConnBaseOp
+        + ConnApiOp
+        + Sync
+        + Send
+        + Clone
+        + 'static
+        + From<Conn>
+        + std::fmt::Debug
+        + serde::ser::Serialize,
 {
     log::debug!("Received: {:?}", user_req);
 
@@ -383,97 +399,8 @@ where
     };
 
     if connections.is_none() {
-        log::debug!("Connections not found, creating");
+        log::debug!("Connections not found");
 
-        let conn_id = uuid::Uuid::new_v4();
-        let conn_stat = ConnStat {
-            online: 0,
-            downlink: 0,
-            uplink: 0,
-        };
-        let conn = Conn::new(
-            user_req.trial,
-            user_req.limit,
-            &user_req.env,
-            ConnStatus::Active,
-            user_req.password.clone(),
-            Some(user_id),
-            conn_stat,
-        );
-
-        let message = Message {
-            conn_id,
-            action: Action::Create,
-            password: None,
-        };
-
-        if SyncOp::add_conn(&state, &conn_id, conn.clone())
-            .await
-            .is_ok()
-            && publisher.send(&user_req.env, message).await.is_ok()
-        {
-            return Ok(warp::reply::with_status(
-                warp::reply::json(&serde_json::json!({
-                    "message": "User connections not found, creation requested"
-                })),
-                warp::http::StatusCode::ACCEPTED,
-            ));
-        } else {
-            return Ok(warp::reply::with_status(
-                warp::reply::json(&serde_json::json!({ "error": "Failed to create connection" })),
-                warp::http::StatusCode::INTERNAL_SERVER_ERROR,
-            ));
-        }
-    }
-
-    let mut connection_links = Vec::new();
-
-    let (connections, nodes) = {
-        let mem = state.memory.lock().await;
-        let conns = mem.connections.get_by_user_id(&user_id).unwrap_or_default();
-        let nodes = if user_req.env == "all" {
-            mem.nodes.all()
-        } else {
-            mem.nodes.by_env(&user_req.env)
-        };
-        (conns, nodes)
-    };
-
-    for (conn_id, _) in connections {
-        if let Some(ref nodes) = nodes {
-            for node in nodes.iter().filter(|n| n.status == NodeStatus::Online) {
-                for (tag, inbound) in &node.inbounds {
-                    let link = match tag {
-                        Tag::VlessXtls => utils::vless_xtls_conn(
-                            &conn_id,
-                            node.address,
-                            inbound.clone(),
-                            &node.label,
-                        ),
-                        Tag::VlessGrpc => utils::vless_grpc_conn(
-                            &conn_id,
-                            node.address,
-                            inbound.clone(),
-                            &node.label,
-                        ),
-                        Tag::Vmess => utils::vmess_tcp_conn(
-                            &conn_id,
-                            node.address,
-                            inbound.clone(),
-                            &node.label,
-                        ),
-                        _ => None,
-                    };
-
-                    if let Some(link) = link {
-                        connection_links.push(link);
-                    }
-                }
-            }
-        }
-    }
-
-    if connection_links.is_empty() {
         return Ok(warp::reply::with_status(
             warp::reply::json(&serde_json::json!({ "error": "NO CONNECTIONS AVAILABLE" })),
             warp::http::StatusCode::NOT_FOUND,
@@ -481,7 +408,7 @@ where
     }
 
     Ok(warp::reply::with_status(
-        warp::reply::json(&connection_links),
+        warp::reply::json(&connections),
         warp::http::StatusCode::OK,
     ))
 }
@@ -508,29 +435,15 @@ where
                 .filter(|node| node.status == NodeStatus::Online)
             {
                 for (tag, inbound) in &node.inbounds {
-                    let link = match tag {
-                        Tag::VlessXtls => utils::vless_xtls_conn(
-                            &conn_id,
-                            node.address,
-                            inbound.clone(),
-                            &node.label,
-                        ),
-                        Tag::VlessGrpc => utils::vless_grpc_conn(
-                            &conn_id,
-                            node.address,
-                            inbound.clone(),
-                            &node.label,
-                        ),
-                        Tag::Vmess => utils::vmess_tcp_conn(
-                            &conn_id,
-                            node.address,
-                            inbound.clone(),
-                            &node.label,
-                        ),
-                        _ => None,
-                    };
+                    let link = utils::create_conn_link(
+                        *tag,
+                        &conn_id,
+                        inbound.as_inbound_response(),
+                        &node.label,
+                        node.address,
+                    );
 
-                    if let Some(link) = link {
+                    if let Ok(link) = link {
                         connection_links.push(link);
                     }
                 }

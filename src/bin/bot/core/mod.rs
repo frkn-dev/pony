@@ -4,6 +4,9 @@ use teloxide::utils::command::BotCommands;
 use tokio::sync::Mutex;
 
 use pony::config::settings::BotSettings;
+use pony::http::requests::NodeResponse;
+use pony::state::Conn;
+use pony::state::Tag;
 use pony::state::User;
 
 pub mod handlers;
@@ -25,10 +28,12 @@ enum Command {
     Limit,
 }
 
+type CallbackMap = Arc<Mutex<HashMap<String, (uuid::Uuid, Conn, NodeResponse, Tag)>>>;
+
 #[derive(Debug)]
 pub struct BotState {
     pub settings: BotSettings,
-    pub callback_map: Arc<Mutex<HashMap<String, String>>>,
+    pub callback_map: CallbackMap,
     pub users: Arc<Mutex<HashMap<String, uuid::Uuid>>>,
 }
 

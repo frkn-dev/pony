@@ -1,5 +1,6 @@
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
+use std::fmt;
 
 use crate::state::connection::ConnApiOp;
 use crate::state::connection::ConnBaseOp;
@@ -43,7 +44,19 @@ where
 pub enum ConnStorageOpStatus {
     AlreadyExist,
     Updated,
+    UpdatedStat,
     Ok,
+}
+
+impl fmt::Display for ConnStorageOpStatus {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::AlreadyExist => write!(f, "AlreadyExist"),
+            Self::Updated => write!(f, "Updated"),
+            Self::Ok => write!(f, "Ok"),
+            Self::UpdatedStat => write!(f, "UpdatedStat"),
+        }
+    }
 }
 
 impl<C> ConnStorageBase<C> for Connections<C>

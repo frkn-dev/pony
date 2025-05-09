@@ -39,7 +39,7 @@ where
     ) -> Result<()>;
     async fn update_conn_stat(&self, conn_id: &uuid::Uuid, stat: ConnStat) -> Result<()>;
     async fn check_limit_and_expire_conn(&self, conn_id: &uuid::Uuid) -> Result<ConnStatus>;
-    async fn activate_trial_conn(&self, conn_id: &uuid::Uuid) -> Result<()>;
+    async fn activate_trial_conn(&self, conn_id: &uuid::Uuid) -> Result<ConnStorageOpStatus>;
 }
 
 #[async_trait::async_trait]
@@ -110,7 +110,7 @@ where
 
                 Ok(ConnStorageOpStatus::Updated)
             }
-            Ok(ConnStorageOpStatus::AlreadyExist) => Ok(ConnStorageOpStatus::AlreadyExist),
+            Ok(op) => Err(PonyError::Custom(format!("Operation isn't supported {}", op)).into()),
             Err(e) => Err(PonyError::Custom(format!("{}", e)).into()),
         }
     }
@@ -182,7 +182,7 @@ where
         Ok(ConnStatus::Active)
     }
 
-    async fn activate_trial_conn(&self, conn_id: &uuid::Uuid) -> Result<()> {
+    async fn activate_trial_conn(&self, conn_id: &uuid::Uuid) -> Result<ConnStorageOpStatus> {
         let mut mem = self.memory.lock().await;
 
         if let Some(conn) = mem.connections.get_mut(&conn_id) {
@@ -208,13 +208,30 @@ where
                         status: ConnStatus::Active,
                     })
                     .await;
+
+                return Ok(ConnStorageOpStatus::Updated);
+            } else if conn.get_status() == ConnStatus::Active {
+                let _uplink = conn.set_uplink(0);
+                let _downlink = conn.set_downlink(0);
+                conn.set_modified_at();
+
+                let _ = self
+                    .sync_tx
+                    .send(SyncTask::UpdateConnStat {
+                        conn_id: *conn_id,
+                        stat: ConnStat::default(),
+                    })
+                    .await;
+                return Ok(ConnStorageOpStatus::UpdatedStat);
+            } else {
+                return Err(PonyError::Custom(
+                    format!("Status {} not found ", conn.get_status()).into(),
+                ));
             }
         } else {
             return Err(PonyError::Custom(
                 format!("Connection {} not found ", conn_id).into(),
             ));
         }
-
-        Ok(())
     }
 }

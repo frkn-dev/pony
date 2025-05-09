@@ -11,6 +11,7 @@ use pony::state::ConnRow;
 use pony::state::ConnStat;
 use pony::state::ConnStatus;
 use pony::state::ConnStorageApi;
+use pony::state::ConnStorageOpStatus;
 use pony::state::Node;
 use pony::state::NodeStatus;
 use pony::state::NodeStorage;
@@ -278,7 +279,7 @@ where
             state
                 .connections
                 .iter()
-                .filter(|(_, conn)| conn.get_trial() && conn.get_status() == ConnStatus::Expired)
+                .filter(|(_, conn)| conn.get_trial())
                 .map(|(k, v)| (k.clone(), v.clone()))
                 .collect::<Vec<_>>()
         };
@@ -302,12 +303,22 @@ where
             };
 
             async move {
-                if let Ok(_) = SyncOp::activate_trial_conn(&state, &conn_id).await {
-                    let _ = publisher.send(&conn.get_env(), restore_msg).await?;
-                    let _ = publisher.send(&conn.get_env(), reset_msg).await?;
-                    log::info!("Trial connection {} was restored", conn_id);
+                if let Ok(status) = SyncOp::activate_trial_conn(&state, &conn_id).await {
+                    match status {
+                        ConnStorageOpStatus::Updated => {
+                            let _ = publisher.send(&conn.get_env(), restore_msg).await?;
+                            let _ = publisher.send(&conn.get_env(), reset_msg).await?;
+                            log::info!("Trial connection {} was restored", conn_id);
 
-                    Ok(())
+                            Ok(())
+                        }
+                        ConnStorageOpStatus::UpdatedStat => {
+                            log::info!("Trial connection stat {} was restored", conn_id);
+
+                            Ok(())
+                        }
+                        _ => Err(PonyError::Custom("Op isnt' supported".to_string())),
+                    }
                 } else {
                     Err(PonyError::Custom(
                         "SyncOp::activate_trial_conn failed".to_string(),

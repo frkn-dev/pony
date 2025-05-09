@@ -317,6 +317,14 @@ where
                 StatusCode::NOT_MODIFIED,
             ))
         }
+        Ok(op) => {
+            let error_message = format!("Error: Operation isn't supported: {}", op);
+            let json_error_message = warp::reply::json(&error_message);
+            Ok(warp::reply::with_status(
+                json_error_message,
+                StatusCode::BAD_REQUEST,
+            ))
+        }
         Err(err) => {
             let error_message = format!("Error: Cannot handle /connection req: {}", err);
             let json_error_message = warp::reply::json(&error_message);

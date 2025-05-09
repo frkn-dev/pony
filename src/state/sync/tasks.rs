@@ -188,9 +188,18 @@ where
         if let Some(conn) = mem.connections.get_mut(&conn_id) {
             if conn.get_status() == ConnStatus::Expired {
                 let _uplink = conn.set_uplink(0);
+                let _downlink = conn.set_downlink(0);
 
                 conn.set_status(ConnStatus::Active);
                 conn.set_modified_at();
+
+                let _ = self
+                    .sync_tx
+                    .send(SyncTask::UpdateConnStat {
+                        conn_id: *conn_id,
+                        stat: ConnStat::default(),
+                    })
+                    .await;
 
                 let _ = self
                     .sync_tx

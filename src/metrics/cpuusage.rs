@@ -50,7 +50,7 @@ pub fn cpu_metrics(env: &str, hostname: &str) -> Vec<MetricType> {
         System::new_with_specifics(RefreshKind::nothing().with_cpu(CpuRefreshKind::everything()));
 
     s.refresh_cpu_all();
-    sleep(Duration::from_millis(100));
+    sleep(Duration::from_millis(1000));
     s.refresh_cpu_all();
 
     let cpu_metrics: Vec<_> = s

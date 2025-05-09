@@ -303,8 +303,8 @@ where
 
             async move {
                 if let Ok(_) = SyncOp::activate_trial_conn(&state, &conn_id).await {
-                    let _ = publisher.send(&conn.get_env(), reset_msg).await?;
                     let _ = publisher.send(&conn.get_env(), restore_msg).await?;
+                    let _ = publisher.send(&conn.get_env(), reset_msg).await?;
                     log::info!("Trial connection {} was restored", conn_id);
 
                     Ok(())

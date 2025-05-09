@@ -45,8 +45,6 @@ where
                 let topic_str = parts.next().unwrap_or("");
                 let payload = parts.next().unwrap_or("");
 
-                log::debug!("ZMQ: topic: {}, payload: {}", topic_str, payload);
-
                 match Topic::from_raw(topic_str) {
                     Topic::Init(uuid) if uuid != topic0 => {
                         log::warn!("ZMQ: Skipping init for another node: {}", uuid);

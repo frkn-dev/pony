@@ -195,28 +195,28 @@ async fn main() -> Result<()> {
     let _ = tokio::spawn({
         log::info!("collect_conn_stat task started");
         let api = api.clone();
-        let job_interval = Duration::from_secs(settings.api.conn_limit_check_interval);
+        let job_interval = Duration::from_secs(settings.api.collect_conn_stat_interval);
 
         async move {
             loop {
+                tokio::time::sleep(job_interval).await;
                 if let Err(e) = api.collect_conn_stat().await {
                     log::error!("collect_conn_stat task  failed: {:?}", e);
                 }
-                tokio::time::sleep(job_interval).await;
             }
         }
     });
 
     let api_for_expire = api.clone();
     let _ = tokio::spawn({
-        log::info!("check_limit_and_expire_conns task started");
+        log::info!("enforce_all_trial_limits task started");
         let api = api_for_expire.clone();
         let job_interval = Duration::from_secs(settings.api.conn_limit_check_interval);
 
         async move {
             loop {
-                if let Err(e) = api.check_limit_and_expire_conns().await {
-                    log::error!("check_limit_and_expire_conns task failed: {:?}", e);
+                if let Err(e) = api.enforce_all_trial_limits().await {
+                    log::error!("enforce_all_trial_limits task failed: {:?}", e);
                 }
                 tokio::time::sleep(job_interval).await;
             }

@@ -1,6 +1,6 @@
 #!/bin/bash -e
 
-PONY_VERSION="${PONY_VERSION:-v0.1.11}"
+PONY_VERSION="${PONY_VERSION:-v0.1.19}"
 INSTALL_DIR="/opt/vpn"
 ARCH=$(uname -m)
 AGENT_URL="https://github.com/frkn-dev/pony/releases/download/$PONY_VERSION/agent-$ARCH"

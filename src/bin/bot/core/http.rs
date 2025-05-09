@@ -28,7 +28,7 @@ pub trait ApiRequests {
     async fn get_user_traffic_stat(
         &self,
         user_id: &uuid::Uuid,
-    ) -> Result<Option<Vec<(uuid::Uuid, ConnStat)>>>;
+    ) -> Result<Option<Vec<(uuid::Uuid, ConnStat, Tag)>>>;
     async fn get_users(&self) -> Result<Vec<(uuid::Uuid, User)>>;
     async fn get_nodes(&self, env: &str) -> Result<Option<Vec<NodeResponse>>>;
     async fn post_create_or_update_connection(
@@ -230,7 +230,7 @@ impl ApiRequests for BotState {
     async fn get_user_traffic_stat(
         &self,
         user_id: &uuid::Uuid,
-    ) -> Result<Option<Vec<(uuid::Uuid, ConnStat)>>> {
+    ) -> Result<Option<Vec<(uuid::Uuid, ConnStat, Tag)>>> {
         let mut endpoint = Url::parse(&self.settings.api.endpoint)
             .map_err(|_| PonyError::Custom("Invalid API endpoint".to_string()))?;
 
@@ -260,7 +260,8 @@ impl ApiRequests for BotState {
         if res.status().is_success() {
             let body = res.text().await?;
             log::debug!("body: {}", body);
-            let data: ResponseMessage<Vec<(uuid::Uuid, ConnStat)>> = serde_json::from_str(&body)?;
+            let data: ResponseMessage<Vec<(uuid::Uuid, ConnStat, Tag)>> =
+                serde_json::from_str(&body)?;
 
             Ok(Some(data.message))
         } else {

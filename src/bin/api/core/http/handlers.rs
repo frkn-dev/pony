@@ -21,6 +21,7 @@ use pony::state::NodeStorage;
 use pony::state::NodeStorageOpStatus;
 use pony::state::SyncOp;
 use pony::state::SyncState;
+use pony::state::Tag;
 use pony::state::User;
 use pony::state::UserStorage;
 use pony::state::UserStorageOpStatus;
@@ -154,7 +155,7 @@ where
 
     let mem = state.memory.lock().await;
 
-    let mut result: Vec<(uuid::Uuid, ConnStat)> = vec![];
+    let mut result: Vec<(uuid::Uuid, ConnStat, Tag)> = vec![];
 
     if let Some(connections) = mem.connections.get_by_user_id(&user_req.user_id) {
         for (conn_id, conn) in connections {
@@ -164,10 +165,10 @@ where
                 uplink: conn.get_uplink(),
             };
 
-            result.push((conn_id, stat));
+            result.push((conn_id, stat, conn.get_proto()));
         }
 
-        let response = ResponseMessage::<Vec<(uuid::Uuid, ConnStat)>> {
+        let response = ResponseMessage::<Vec<(uuid::Uuid, ConnStat, Tag)>> {
             status: 200,
             message: result,
         };

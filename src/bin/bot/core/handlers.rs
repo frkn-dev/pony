@@ -177,7 +177,9 @@ impl Handlers for BotState {
                                             stats,
                                             self.settings.bot.daily_limit_mb,
                                         );
-                                        bot.send_message(msg.chat.id, stat_str).await?;
+                                        bot.parse_mode(ParseMode::MarkdownV2)
+                                            .send_message(msg.chat.id, stat_str)
+                                            .await?;
                                     }
 
                                     Ok(None) => {

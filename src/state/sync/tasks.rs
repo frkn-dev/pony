@@ -38,7 +38,6 @@ where
         status: NodeStatus,
     ) -> Result<()>;
     async fn update_conn_stat(&self, conn_id: &uuid::Uuid, stat: ConnStat) -> Result<()>;
-    async fn check_limit_and_expire_conn(&self, conn_id: &uuid::Uuid) -> Result<ConnStatus>;
     async fn activate_trial_conn(&self, conn_id: &uuid::Uuid) -> Result<ConnStorageOpStatus>;
 }
 
@@ -149,37 +148,6 @@ where
             .await?;
 
         Ok(())
-    }
-
-    async fn check_limit_and_expire_conn(&self, conn_id: &uuid::Uuid) -> Result<ConnStatus> {
-        let mut mem = self.memory.lock().await;
-
-        if let Some(conn) = mem.connections.get_mut(&conn_id) {
-            if conn.get_status() == ConnStatus::Active {
-                let used = conn.get_downlink();
-
-                if (used as f64 / 1_048_576.0) >= conn.get_limit() as f64 {
-                    conn.set_status(ConnStatus::Expired);
-                    conn.set_modified_at();
-
-                    let _ = self
-                        .sync_tx
-                        .send(SyncTask::UpdateConnStatus {
-                            conn_id: *conn_id,
-                            status: ConnStatus::Expired,
-                        })
-                        .await;
-
-                    return Ok(ConnStatus::Expired);
-                }
-            }
-        } else {
-            return Err(PonyError::Custom(
-                format!("Connection {} not found ", conn_id).into(),
-            ));
-        }
-
-        Ok(ConnStatus::Active)
     }
 
     async fn activate_trial_conn(&self, conn_id: &uuid::Uuid) -> Result<ConnStorageOpStatus> {

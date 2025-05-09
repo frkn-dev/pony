@@ -18,7 +18,7 @@ pub trait Keyboards {
         &self,
         conns: Vec<(uuid::Uuid, Conn, NodeResponse, Tag)>,
     ) -> InlineKeyboardMarkup;
-    fn format_traffic_stats(&self, stats: Vec<(uuid::Uuid, ConnStat)>, limit: i32) -> String;
+    fn format_traffic_stats(&self, stats: Vec<(uuid::Uuid, ConnStat, Tag)>, limit: i32) -> String;
 }
 
 #[async_trait]
@@ -56,21 +56,24 @@ impl Keyboards for BotState {
         InlineKeyboardMarkup::new(keyboard)
     }
 
-    fn format_traffic_stats(&self, stats: Vec<(uuid::Uuid, ConnStat)>, limit: i32) -> String {
+    fn format_traffic_stats(&self, stats: Vec<(uuid::Uuid, ConnStat, Tag)>, limit: i32) -> String {
         if stats.is_empty() {
             return "Нет активных подключений.".to_string();
         }
 
         let mut out = String::from("📊 *Статистика трафика за сегодня:*\n\n");
 
-        for (conn_id, stat) in stats {
-            let status = if stat.downlink as f64 / 1_048_576.0 >= limit.into() {
-                "Expired".to_string()
-            } else {
-                "Active".to_string()
-            };
+        let mut total_uplink = 0;
+        let mut total_downlink = 0;
+
+        for (conn_id, stat, proto) in &stats {
+            total_uplink += stat.uplink;
+            total_downlink += stat.downlink;
+
             let block = format!(
-                "🔹  Status: {status} \n `{}`\n  • Uplink: {:.0} MB\n  • Downlink: {:.0} / {limit} MB\n Devices Online: {}\n\n",
+                "🔹 {} \n id: `{}` \n\n • Upload: {:.0} MB\n • Download: {:.0}   MB\n • Devices Online: {}\n\n",
+            
+                proto,
                 conn_id,
                 stat.uplink as f64 / 1_048_576.0,
                 stat.downlink as f64 / 1_048_576.0,
@@ -78,6 +81,19 @@ impl Keyboards for BotState {
             );
             out.push_str(&block);
         }
+
+        let status = if total_downlink as f64 / 1_048_576.0 >= limit as f64 {
+            "Expired"
+        } else {
+            "Active"
+        };
+
+        out.push_str(&format!(
+            "🔻 *Суммарно:* \n Status: {status}\n\n↑ Upload {:.0} MB\n↓ Download {:.0} MB\n\n  *Download Limit:* {limit}  MB\n",
+            total_uplink as f64 / 1_048_576.0,
+            total_downlink as f64 / 1_048_576.0
+        ));
+
         out
     }
 }

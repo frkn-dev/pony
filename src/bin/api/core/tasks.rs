@@ -4,6 +4,7 @@ use chrono::NaiveTime;
 use chrono::TimeZone;
 use chrono::Utc;
 use futures::future::join_all;
+use std::collections::HashMap;
 
 use pony::clickhouse::query::Queries;
 use pony::state::Conn;
@@ -16,6 +17,7 @@ use pony::state::Node;
 use pony::state::NodeStatus;
 use pony::state::NodeStorage;
 use pony::state::SyncOp;
+use pony::state::SyncTask;
 use pony::state::User;
 use pony::state::UserRow;
 use pony::state::UserStorage;
@@ -34,7 +36,7 @@ pub trait Tasks {
     async fn add_user(&self, db_user: UserRow) -> Result<()>;
     async fn node_healthcheck(&self) -> Result<()>;
     async fn collect_conn_stat(&self) -> Result<()>;
-    async fn check_limit_and_expire_conns(&self) -> Result<()>;
+    async fn enforce_all_trial_limits(&self) -> Result<()>;
     async fn restore_trial_conns(&self) -> Result<()>;
 }
 
@@ -43,6 +45,7 @@ impl<T, C> Tasks for Api<T, C>
 where
     T: NodeStorage + Send + Sync + Clone + 'static,
     C: ConnApiOp + ConnBaseOp + Send + Sync + Clone + 'static + From<Conn>,
+    Vec<(uuid::Uuid, pony::state::Conn)>: FromIterator<(uuid::Uuid, C)>,
 {
     async fn add_user(&self, db_user: UserRow) -> Result<()> {
         let user = User {
@@ -225,40 +228,79 @@ where
         Ok(())
     }
 
-    async fn check_limit_and_expire_conns(&self) -> Result<()> {
-        let conns_map = {
+    async fn enforce_all_trial_limits(&self) -> Result<()> {
+        let conns: Vec<(uuid::Uuid, Conn)> = {
             let state = self.state.memory.lock().await;
             state
                 .connections
                 .iter()
-                .filter(|(_, conn)| conn.get_trial() && conn.get_status() == ConnStatus::Active)
-                .map(|(k, v)| (k.clone(), v.clone()))
-                .collect::<Vec<_>>()
+                .filter_map(|(id, conn)| {
+                    if conn.get_trial() && conn.get_status() == ConnStatus::Active {
+                        Some((*id, conn.clone()))
+                    } else {
+                        None
+                    }
+                })
+                .collect()
         };
 
-        let tasks = conns_map.into_iter().map(|(conn_id, conn)| {
-            let state = self.state.clone();
-            let publisher = self.publisher.clone();
+        let mut grouped: HashMap<Option<uuid::Uuid>, Vec<(uuid::Uuid, Conn)>> = HashMap::new();
+        for (conn_id, conn) in conns {
+            grouped
+                .entry(conn.get_user_id())
+                .or_default()
+                .push((conn_id, conn));
+        }
 
-            let msg = Message {
-                action: Action::Delete,
-                conn_id: conn_id,
-                password: None,
-                tag: conn.get_proto(),
-            };
+        let state = self.state.clone();
+        let publisher = self.publisher.clone();
+
+        let tasks = grouped.into_iter().map(move |(_user_id, conns)| {
+            let state = state.clone();
+            let publisher = publisher.clone();
 
             async move {
-                let msg = msg.clone();
-                if let Ok(status) = SyncOp::check_limit_and_expire_conn(&state, &conn_id).await {
-                    if status == ConnStatus::Expired {
+                let total_downlink: i64 = conns.iter().map(|(_, c)| c.get_downlink()).sum();
+
+                let limit = conns.iter().map(|(_, c)| c.get_limit()).max().unwrap_or(0);
+
+                if (total_downlink as f64 / 1_048_576.0) >= limit as f64 {
+                    for (conn_id, conn) in conns {
+                        {
+                            let mut mem = state.memory.lock().await;
+                            if let Some(conn) = mem.connections.get_mut(&conn_id) {
+                                conn.set_status(ConnStatus::Expired);
+                                conn.set_modified_at();
+                            }
+                        }
+
+                        let _ = state
+                            .sync_tx
+                            .send(SyncTask::UpdateConnStatus {
+                                conn_id,
+                                status: ConnStatus::Expired,
+                            })
+                            .await;
+
+                        let msg = Message {
+                            action: Action::Delete,
+                            conn_id,
+                            password: conn.get_password(),
+                            tag: conn.get_proto(),
+                        };
+
                         let _ = publisher.send(&conn.get_env(), msg).await;
+
+                        log::info!(
+                            "Trial connection {} expired: downlink = {:.2} MB, limit = {} MB",
+                            conn_id,
+                            total_downlink as f64 / 1_048_576.0,
+                            limit
+                        );
                     }
-                    Ok(())
-                } else {
-                    Err(PonyError::Custom(
-                        "SyncOp::check_limit_and_expire_conn failed".to_string(),
-                    ))
                 }
+
+                Ok::<_, PonyError>(())
             }
         });
 
@@ -266,7 +308,7 @@ where
 
         for result in results {
             if let Err(e) = result {
-                log::error!("Error during check_limit_and_expire_conns: {:?}", e);
+                log::error!("Error during enforce_all_trial_limits: {:?}", e);
             }
         }
 

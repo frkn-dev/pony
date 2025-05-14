@@ -9,7 +9,7 @@ pub trait NodeStorage {
     fn add(&mut self, new_node: Node) -> Result<NodeStorageOpStatus>;
     fn all(&self) -> Option<Vec<Node>>;
     fn all_json(&self) -> serde_json::Value;
-    fn by_env(&self, env: &str) -> Option<Vec<Node>>;
+    fn get_by_env(&self, env: &str) -> Option<Vec<Node>>;
     fn get(&self, env: &str, uuid: &uuid::Uuid) -> Option<&Node>;
     fn get_self(&self) -> Option<Node>;
     fn get_mut(&mut self, env: &str, uuid: &uuid::Uuid) -> Option<&mut Node>;
@@ -48,7 +48,7 @@ impl NodeStorage for Node {
             "Cannot add node to single Node instance".into(),
         ))
     }
-    fn by_env(&self, _env: &str) -> Option<Vec<Node>> {
+    fn get_by_env(&self, _env: &str) -> Option<Vec<Node>> {
         Some(vec![self.clone()])
     }
     fn all(&self) -> Option<Vec<Node>> {
@@ -63,6 +63,7 @@ impl NodeStorage for Node {
     fn get(&self, _env: &str, _uuid: &uuid::Uuid) -> Option<&Node> {
         None
     }
+
     fn get_mut(&mut self, _env: &str, _uuid: &uuid::Uuid) -> Option<&mut Node> {
         None
     }
@@ -143,21 +144,11 @@ impl NodeStorage for HashMap<String, Vec<Node>> {
     fn get_mut(&mut self, env: &str, uuid: &uuid::Uuid) -> Option<&mut Node> {
         self.get_mut(env)?.iter_mut().find(|n| &n.uuid == uuid)
     }
-
-    fn by_env(&self, env: &str) -> Option<Vec<Node>> {
-        let mut result = Vec::new();
-
-        if let Some(nodes) = self.get(env) {
-            result.extend_from_slice(nodes);
-        }
-
-        if result.is_empty() {
-            None
-        } else {
-            Some(result)
-        }
+    fn get_by_env(&self, env: &str) -> Option<Vec<Node>> {
+        self.get(env)
+            .map(|nodes| nodes.iter().cloned().collect::<Vec<_>>())
+            .filter(|v| !v.is_empty())
     }
-
     fn all(&self) -> Option<Vec<Node>> {
         let nodes: Vec<Node> = self.values().flatten().cloned().collect();
 

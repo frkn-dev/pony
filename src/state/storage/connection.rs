@@ -23,12 +23,14 @@ where
     fn reset_stat(&mut self, conn_id: &uuid::Uuid, stat: StatType);
     fn all_trial(&self, status: ConnStatus) -> HashMap<uuid::Uuid, C>;
     fn get_by_user_id(&self, user_id: &uuid::Uuid) -> Option<Vec<(uuid::Uuid, C)>>;
+    fn delete(&mut self, conn_id: &uuid::Uuid) -> Result<()>;
 }
 
 pub trait ConnStorageBase<C>
 where
     C: Clone + Send + Sync + 'static,
 {
+    fn len(&self) -> usize;
     fn add(&mut self, conn_id: &uuid::Uuid, new_conn: C) -> Result<ConnStorageOpStatus>;
     fn remove(&mut self, conn_id: &uuid::Uuid) -> Result<()>;
     fn get(&self, conn_id: &uuid::Uuid) -> Option<C>;
@@ -63,6 +65,10 @@ impl<C> ConnStorageBase<C> for Connections<C>
 where
     C: ConnBaseOp + Clone + Send + Sync + 'static,
 {
+    fn len(&self) -> usize {
+        self.0.len()
+    }
+
     fn add(&mut self, conn_id: &uuid::Uuid, new_conn: C) -> Result<ConnStorageOpStatus> {
         match self.entry(*conn_id) {
             Entry::Occupied(_) => return Ok(ConnStorageOpStatus::AlreadyExist),
@@ -172,6 +178,7 @@ where
                 existing_conn.set_limit(new_conn.get_limit());
                 existing_conn.set_password(new_conn.get_password());
                 existing_conn.set_status(new_conn.get_status());
+                existing_conn.set_deleted(new_conn.get_deleted());
 
                 Ok(ConnStorageOpStatus::Updated)
             }
@@ -179,6 +186,17 @@ where
                 entry.insert(new_conn);
                 Ok(ConnStorageOpStatus::Ok)
             }
+        }
+    }
+    fn delete(&mut self, conn_id: &uuid::Uuid) -> Result<()> {
+        if let Some(conn) = self.get_mut(conn_id) {
+            conn.set_deleted(true);
+            Ok(())
+        } else {
+            Err(PonyError::Custom(format!(
+                "Connection not found {}",
+                conn_id
+            )))
         }
     }
 

@@ -164,6 +164,21 @@ async fn main() -> Result<()> {
         });
     }
 
+    if settings.api.metrics_enabled {
+        log::info!("Running HB metrics send task");
+        tokio::spawn({
+            let settings = settings.clone();
+            let api = api.clone();
+
+            async move {
+                loop {
+                    sleep(Duration::from_secs(settings.api.metrics_hb_interval)).await;
+                    let _ = api.send_hb_metric(settings.carbon.address.clone()).await;
+                }
+            }
+        });
+    }
+
     if debug {
         let token = Arc::new(settings.api.token);
         tokio::spawn(debug::start_ws_server(

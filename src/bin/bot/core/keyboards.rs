@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use pony::state::ConnStatus;
 use std::collections::HashMap;
 
 use teloxide::types::InlineKeyboardButton;
@@ -18,7 +19,7 @@ pub trait Keyboards {
         &self,
         conns: Vec<(uuid::Uuid, Conn, NodeResponse, Tag)>,
     ) -> InlineKeyboardMarkup;
-    fn format_traffic_stats(&self, stats: Vec<(uuid::Uuid, ConnStat, Tag)>, limit: i32) -> String;
+    fn format_traffic_stats(&self, data: Vec<(uuid::Uuid, ConnStat, Tag, ConnStatus)>, limit: i32) -> String;
 }
 
 #[async_trait]
@@ -56,8 +57,8 @@ impl Keyboards for BotState {
         InlineKeyboardMarkup::new(keyboard)
     }
 
-    fn format_traffic_stats(&self, stats: Vec<(uuid::Uuid, ConnStat, Tag)>, limit: i32) -> String {
-        if stats.is_empty() {
+    fn format_traffic_stats(&self, data: Vec<(uuid::Uuid, ConnStat, Tag, ConnStatus)>, limit: i32) -> String {
+        if data.is_empty() {
             return "Нет активных подключений.".to_string();
         }
 
@@ -66,12 +67,12 @@ impl Keyboards for BotState {
         let mut total_uplink = 0;
         let mut total_downlink = 0;
 
-        for (conn_id, stat, proto) in &stats {
+        for (conn_id, stat, proto, conn_status) in &data {
             total_uplink += stat.uplink;
             total_downlink += stat.downlink;
 
             let block = format!(
-                "🔹 {} \n id: `{}` \n\n • Upload: {:.0} MB\n • Download: {:.0}   MB\n • Devices Online: {}\n\n",
+                "🔹 {} \n id: `{}` \n\n Status: {conn_status}\n\n • Upload: {:.0} MB\n • Download: {:.0}   MB\n • Devices Online: {}\n\n",
             
                 proto,
                 conn_id,

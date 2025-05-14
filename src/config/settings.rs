@@ -115,6 +115,10 @@ fn default_metrics_interval() -> u64 {
     60
 }
 
+fn default_metrics_hb_interval() -> u64 {
+    1
+}
+
 fn default_healthcheck_interval() -> u64 {
     60
 }
@@ -157,6 +161,8 @@ pub struct ApiServiceConfig {
     pub metrics_enabled: bool,
     #[serde(default = "default_metrics_interval")]
     pub metrics_interval: u64,
+    #[serde(default = "default_metrics_hb_interval")]
+    pub metrics_hb_interval: u64,
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]
@@ -175,6 +181,8 @@ pub struct AgentConfig {
     pub metrics_enabled: bool,
     #[serde(default = "default_metrics_interval")]
     pub metrics_interval: u64,
+    #[serde(default = "default_metrics_hb_interval")]
+    pub metrics_hb_interval: u64,
     #[serde(default = "default_enabled")]
     pub stat_enabled: bool,
     #[serde(default = "default_stat_job_interval")]

@@ -83,6 +83,22 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
         tasks.push(metrics_handle);
     }
 
+    if settings.agent.metrics_enabled && !settings.agent.local {
+        log::info!("Running HB metrics send task");
+        let metrics_handle = tokio::spawn({
+            let settings = settings.clone();
+            let agent = agent.clone();
+
+            async move {
+                loop {
+                    sleep(Duration::from_secs(settings.agent.metrics_hb_interval)).await;
+                    let _ = agent.send_hb_metric(settings.carbon.address.clone()).await;
+                }
+            }
+        });
+        tasks.push(metrics_handle);
+    }
+
     if settings.agent.stat_enabled && !settings.agent.local {
         log::info!("Running Stat Task");
         let stats_task = tokio::spawn({

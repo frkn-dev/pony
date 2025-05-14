@@ -12,13 +12,19 @@ use crate::zmq::message::Action;
 use crate::zmq::message::Message;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct UserRegQueryParam {
-    pub username: String,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct UserIdQueryParam {
     pub user_id: uuid::Uuid,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UserSubQueryParam {
+    pub user_id: uuid::Uuid,
+    #[serde(default = "default_format")]
+    pub format: String,
+}
+
+fn default_format() -> String {
+    "txt".to_string()
 }
 
 #[derive(Serialize, Deserialize)]
@@ -38,7 +44,6 @@ pub struct UserConnQueryParam {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct ConnQueryParam {
     pub conn_id: uuid::Uuid,
-    pub env: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -83,6 +88,7 @@ pub struct NodeResponse {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct InboundResponse {
+    pub tag: Tag,
     pub port: u16,
     pub stream_settings: Option<StreamSettings>,
 }

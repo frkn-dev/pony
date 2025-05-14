@@ -25,6 +25,7 @@ pub struct ConnRow {
     pub stat: ConnStat,
     pub status: ConnStatus,
     pub proto: Tag,
+    is_deleted: bool,
 }
 
 impl From<(uuid::Uuid, Conn)> for ConnRow {
@@ -47,6 +48,7 @@ impl From<(uuid::Uuid, Conn)> for ConnRow {
             stat: conn_stat,
             status: conn.status,
             proto: conn.proto,
+            is_deleted: conn.is_deleted,
         }
     }
 }
@@ -64,7 +66,7 @@ impl PgConn {
         let client = self.client.lock().await;
 
         let query = "
-        SELECT id, is_trial, daily_limit_mb, password, env, created_at, modified_at, user_id, online, uplink, downlink, status, proto 
+        SELECT id, is_trial, daily_limit_mb, password, env, created_at, modified_at, user_id, online, uplink, downlink, status, proto, is_deleted 
         FROM connections
     ";
 
@@ -77,7 +79,7 @@ impl PgConn {
         let client = self.client.lock().await;
 
         let query = "
-        SELECT id, is_trial, daily_limit_mb, password, env, created_at, modified_at, user_id, online, uplink, downlink, status, proto 
+        SELECT id, is_trial, daily_limit_mb, password, env, created_at, modified_at, user_id, online, uplink, downlink, status, proto, is_deleted
         FROM connections
         WHERE env = $1
     ";
@@ -104,6 +106,7 @@ impl PgConn {
                 let downlink: i64 = row.get(10);
                 let status: ConnStatus = row.get(11);
                 let proto: Tag = row.get(12);
+                let is_deleted: bool = row.get(13);
 
                 ConnRow {
                     conn_id,
@@ -121,6 +124,7 @@ impl PgConn {
                     },
                     status: status,
                     proto: proto,
+                    is_deleted: is_deleted,
                 }
             })
             .collect()
@@ -169,12 +173,21 @@ impl PgConn {
         Ok(())
     }
 
+    pub async fn delete(&self, conn_id: &uuid::Uuid) -> Result<()> {
+        let query = format!("UPDATE connections SET is_deleted = true WHERE id = $1");
+
+        let client = self.client.lock().await;
+        client.execute(&query, &[conn_id]).await?;
+
+        Ok(())
+    }
+
     pub async fn insert(&self, conn: ConnRow) -> Result<()> {
         let client = self.client.lock().await;
 
         let query = "
-        INSERT INTO connections (id, is_trial, daily_limit_mb, password, env, created_at, modified_at, user_id, online, uplink, downlink, proto, status )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+        INSERT INTO connections (id, is_trial, daily_limit_mb, password, env, created_at, modified_at, user_id, online, uplink, downlink, proto, status, is_deleted )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
     ";
 
         let result = client
@@ -194,6 +207,7 @@ impl PgConn {
                     &conn.stat.downlink,
                     &conn.proto,
                     &conn.status,
+                    &conn.is_deleted,
                 ],
             )
             .await;
@@ -228,7 +242,8 @@ impl PgConn {
                         online = $8,
                         uplink = $9,
                         downlink = $10, 
-                        status = $11
+                        status = $11,
+                        is_deleted = $12
                     WHERE id = $1
                    ";
 
@@ -247,6 +262,7 @@ impl PgConn {
                     &conn.stat.uplink,
                     &conn.stat.downlink,
                     &conn.status,
+                    &conn.is_deleted,
                 ],
             )
             .await?;

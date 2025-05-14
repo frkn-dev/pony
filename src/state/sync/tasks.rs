@@ -25,12 +25,14 @@ where
     C: ConnBaseOp + ConnApiOp + Send + Sync + Clone + 'static + From<Conn>,
 {
     async fn add_user(&self, user_id: &uuid::Uuid, user: User) -> Result<UserStorageOpStatus>;
+    async fn delete_user(&self, user_id: &uuid::Uuid) -> Result<()>;
     async fn add_node(&self, node_id: &uuid::Uuid, node: Node) -> Result<NodeStorageOpStatus>;
     async fn add_or_update_conn(
         &self,
         conn_id: &uuid::Uuid,
         conn: Conn,
     ) -> Result<ConnStorageOpStatus>;
+    async fn delete_connection(&self, conn_id: &uuid::Uuid) -> Result<()>;
     async fn update_node_status(
         &self,
         uuid: &uuid::Uuid,
@@ -50,7 +52,7 @@ where
     async fn add_user(&self, user_id: &uuid::Uuid, user: User) -> Result<UserStorageOpStatus> {
         let mut mem = self.memory.lock().await;
 
-        match mem.users.try_add(*user_id, user.clone()) {
+        match mem.users.try_add(user_id, user.clone()) {
             Ok(UserStorageOpStatus::Ok) => {
                 self.sync_tx
                     .send(SyncTask::InsertUser {
@@ -60,10 +62,35 @@ where
                     .await?;
                 Ok(UserStorageOpStatus::Ok)
             }
+            Ok(UserStorageOpStatus::Updated) => {
+                self.sync_tx
+                    .send(SyncTask::UpdateUser {
+                        user_id: *user_id,
+                        user: user,
+                    })
+                    .await?;
+                Ok(UserStorageOpStatus::Updated)
+            }
+
             Ok(UserStorageOpStatus::AlreadyExist) => Ok(UserStorageOpStatus::AlreadyExist),
             Err(e) => Err(PonyError::Custom(format!("{}", e)).into()),
         }
     }
+
+    async fn delete_user(&self, user_id: &uuid::Uuid) -> Result<()> {
+        let mut mem = self.memory.lock().await;
+
+        match mem.users.delete(user_id) {
+            Ok(_) => {
+                self.sync_tx
+                    .send(SyncTask::DeleteUser { user_id: *user_id })
+                    .await?;
+                Ok(())
+            }
+            Err(e) => Err(PonyError::Custom(e.to_string())),
+        }
+    }
+
     async fn add_node(&self, node_id: &uuid::Uuid, node: Node) -> Result<NodeStorageOpStatus> {
         let mut mem = self.memory.lock().await;
 
@@ -111,6 +138,19 @@ where
             }
             Ok(op) => Err(PonyError::Custom(format!("Operation isn't supported {}", op)).into()),
             Err(e) => Err(PonyError::Custom(format!("{}", e)).into()),
+        }
+    }
+    async fn delete_connection(&self, conn_id: &uuid::Uuid) -> Result<()> {
+        let mut mem = self.memory.lock().await;
+
+        match mem.connections.delete(conn_id) {
+            Ok(_) => {
+                self.sync_tx
+                    .send(SyncTask::DeleteConn { conn_id: *conn_id })
+                    .await?;
+                Ok(())
+            }
+            Err(e) => Err(PonyError::Custom(e.to_string())),
         }
     }
     async fn update_node_status(

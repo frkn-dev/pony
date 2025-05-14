@@ -8,6 +8,7 @@ use pony::state::Conn;
 use pony::state::ConnApiOp;
 use pony::state::ConnBaseOp;
 use pony::state::NodeStorage;
+use pony::state::User;
 use pony::Result;
 
 use super::super::Api;
@@ -37,83 +38,108 @@ where
     async fn run(&self) -> Result<()> {
         let auth = auth(Arc::new(self.settings.api.token.clone()));
 
-        let user_connection_get_route = warp::get()
+        let get_healthcheck_route = warp::get()
+            .and(warp::path("healthcheck"))
+            .and(with_state(self.state.clone()))
+            .and_then(healthcheck_handler);
+
+        let get_user_connections_route = warp::get()
             .and(warp::path("user"))
             .and(warp::path("connections"))
             .and(auth.clone())
             .and(warp::query::<UserIdQueryParam>())
             .and(with_state(self.state.clone()))
-            .and_then(|user_req, sync_state| get_user_connections_handler(user_req, sync_state));
+            .and_then(get_user_connections_handler);
 
-        let connection_get_route = warp::get()
+        let get_connection_route = warp::get()
             .and(warp::path("connection"))
             .and(auth.clone())
             .and(warp::query::<ConnQueryParam>())
             .and(with_state(self.state.clone()))
-            .and_then(|conn_req, state| connections_lines_handler(conn_req, state));
+            .and_then(connections_lines_handler);
 
-        let connection_post_route = warp::post()
+        let get_nodes_route = warp::get()
+            .and(warp::path("nodes"))
+            .and(auth.clone())
+            .and(warp::query::<NodesQueryParams>())
+            .and(with_state(self.state.clone()))
+            .and_then(get_nodes_handler);
+
+        let get_user_conn_stat_route = warp::get()
+            .and(warp::path("user"))
+            .and(warp::path("stat"))
+            .and(auth.clone())
+            .and(warp::query::<UserIdQueryParam>())
+            .and(with_state(self.state.clone()))
+            .and_then(user_conn_stat_handler);
+
+        let get_subscription_route = warp::get()
+            .and(warp::path("sub"))
+            .and(warp::query::<UserSubQueryParam>())
+            .and(with_state(self.state.clone()))
+            .and_then(subscription_link_handler);
+
+        let get_users_route = warp::get()
+            .and(warp::path("users"))
+            .and(auth.clone())
+            .and(with_state(self.state.clone()))
+            .and_then(get_users_handler);
+
+        let post_connection_route = warp::post()
             .and(warp::path("connection"))
             .and(auth.clone())
             .and(warp::body::json())
             .and(publisher(self.publisher.clone()))
             .and(with_state(self.state.clone()))
-            .and_then(move |conn_req, publisher, state| {
-                create_or_update_connection_handler(conn_req, publisher, state)
-            });
+            .and_then(create_or_update_connection_handler);
 
-        let nodes_get_route = warp::get()
-            .and(warp::path("nodes"))
-            .and(auth.clone())
-            .and(warp::query::<NodesQueryParams>())
-            .and(with_state(self.state.clone()))
-            .and_then(|node_req, state| get_nodes_handler(node_req, state));
-
-        let node_register_route = warp::post()
+        let post_node_register_route = warp::post()
             .and(warp::path("node"))
             .and(warp::path("register"))
             .and(auth.clone())
             .and(warp::body::json::<NodeRequest>())
             .and(with_state(self.state.clone()))
             .and(publisher(self.publisher.clone()))
-            .and_then(|node_req, state, publisher| node_register(node_req, state, publisher));
+            .and_then(node_register_handler);
 
-        let user_conn_stat_route = warp::get()
-            .and(warp::path("user"))
-            .and(warp::path("stat"))
-            .and(auth.clone())
-            .and(warp::query::<UserIdQueryParam>())
-            .and(with_state(self.state.clone()))
-            .and_then(|user_req, sync_state| user_conn_stat_handler(user_req, sync_state));
-
-        let user_register_route = warp::post()
+        let post_user_register_route = warp::post()
             .and(warp::path("user"))
             .and(warp::path("register"))
             .and(auth.clone())
-            .and(warp::body::json::<UserRegQueryParam>())
+            .and(warp::body::json::<User>())
             .and(with_state(self.state.clone()))
-            .and_then(|user_req, sync_state| user_register_handler(user_req, sync_state));
+            .and(publisher(self.publisher.clone()))
+            .and_then(user_register_handler);
 
-        let users_route = warp::get()
-            .and(warp::path("users"))
-            .and(auth)
+        let post_user_all_connections_route = warp::post()
+            .and(warp::path("user"))
+            .and(warp::path("connections"))
+            .and(auth.clone())
+            .and(warp::body::json::<UserIdQueryParam>())
+            .and(publisher(self.publisher.clone()))
             .and(with_state(self.state.clone()))
-            .and_then(|sync_state| get_users_handler(sync_state));
+            .and_then(create_all_connections_handler);
 
-        let healthcheck_route = warp::get()
-            .and(warp::path("healthcheck"))
+        let delete_user_route = warp::delete()
+            .and(warp::path("user"))
+            .and(auth.clone())
+            .and(warp::body::json::<UserIdQueryParam>())
+            .and(publisher(self.publisher.clone()))
             .and(with_state(self.state.clone()))
-            .and_then(|sync_state| healthcheck(sync_state));
+            .and_then(delete_user_handler);
 
-        let routes = connection_post_route
-            .or(user_connection_get_route)
-            .or(connection_get_route)
-            .or(nodes_get_route)
-            .or(node_register_route)
-            .or(user_register_route)
-            .or(user_conn_stat_route)
-            .or(users_route)
-            .or(healthcheck_route)
+        let routes = get_healthcheck_route
+            .or(get_user_connections_route)
+            .or(get_connection_route)
+            .or(get_nodes_route)
+            .or(get_user_conn_stat_route)
+            .or(get_subscription_route)
+            .or(get_users_route)
+            .or(post_node_register_route)
+            .or(post_user_register_route)
+            .or(post_user_all_connections_route)
+            .or(post_connection_route)
+            .or(delete_user_route)
             .recover(rejection);
 
         if let Some(ipv4) = self.settings.api.address {

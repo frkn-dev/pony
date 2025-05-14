@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 use pony::http::requests::NodeResponse;
 use std::collections::HashSet;
+use teloxide::sugar::request::RequestLinkPreviewExt;
 use teloxide::types::ParseMode;
 use teloxide::{payloads::SendMessageSetters, prelude::*, types::Me, utils::command::BotCommands};
 
@@ -25,6 +26,24 @@ pub trait Handlers {
 impl Handlers for BotState {
     async fn message_handler(&self, bot: Bot, msg: Message, me: Me) -> Result<()> {
         let env = &self.settings.bot.env;
+
+        let reply1 = format!(
+            "Добро пожаловать в *FRKN*\nЭтот бот выдаёт ссылки на подключение к *VPN* \n\n"
+        );
+        let reply2 = format!("Kлиенты:\n*Android*: Hiddify\n*Windows*: Hiddify, Clash Verge\n");
+        let reply3 = format!(
+            "*iOS, MacOS*: Clash Verge, Streisand, Foxray, Shadowrocket\n*Linux*: Clash Verge\n"
+        );
+        let reply4 = format!(
+            "Больше [клиентов](https://github.com/XTLS/Xray-core?tab=readme-ov-file#gui-clients)\n"
+        );
+
+        let reply5 =
+            format!("\nДоступно в сутки 1024 Мегабайта, команда /limit для просмотра статистики");
+        let reply6 = format!("\n\nПолучить *VPN* /connect или /sub");
+
+        let welcome_msg = format!("{reply1}\n{reply2}{reply3}\n{reply4}\n{reply5}\n{reply6}");
+
         if let Some(text) = msg.text() {
             match BotCommands::parse(text, me.username()) {
                 Ok(Command::Help) => {
@@ -32,32 +51,37 @@ impl Handlers for BotState {
                     bot.send_message(msg.chat.id, Command::descriptions().to_string())
                         .await?;
                 }
-                Ok(Command::Start) => {
-                    bot.send_message(msg.chat.id, "Пожалуйста зарегистрируйтесь /register")
-                        .await?;
-                }
 
-                Ok(Command::Register) => {
-                    // Handle user registration.
+                // Handle user registration.
+                Ok(Command::Start) => {
                     if let Some(user) = msg.from {
                         if let Some(username) = user.username {
-                            match self.register_user(&username).await {
+                            match self
+                                .register_user_req(
+                                    &username,
+                                    Some((user.id.0 as i64).try_into().unwrap()),
+                                )
+                                .await
+                            {
                                 Ok(Some(user_id)) => {
-                                    let reply = format!("Спасибо за регистрацию {}", username);
-                                    let _ = self.add_user(&username, user_id).await;
+                                    if let Some(result) = self.add_user(&username, user_id).await {
+                                        log::debug!("Couldn't add user {} {:?}", user_id, result);
+                                    }
 
-                                    bot.send_message(msg.chat.id, reply).await?;
+                                    bot.send_message(msg.chat.id, welcome_msg)
+                                        .disable_link_preview(true)
+                                        .parse_mode(ParseMode::MarkdownV2)
+                                        .await?;
                                 }
                                 Ok(None) => {
                                     let reply = format!(
-                                        "Уже зарегистрирован, используй комманду /connect  {}",
-                                        username
+                                        "Для получения VPN Используй комманду /connect или /sub",
                                     );
                                     bot.send_message(msg.chat.id, reply).await?;
                                 }
                                 Err(e) => {
-                                    log::error!("Command::Register error {}", e);
-                                    let reply = format!("Упс, ошибка {}", username);
+                                    log::error!("Command::Start error {}", e);
+                                    let reply = format!("Упс, ошибка");
                                     bot.send_message(msg.chat.id, reply).await?;
                                 }
                             }
@@ -71,18 +95,22 @@ impl Handlers for BotState {
 
                     if let Some(user) = msg.from {
                         if let Some(username) = user.username {
-                            if let Some(user_id) = user_map.get(&username) {
-                                let mut conns = match self.get_user_vpn_connections(&user_id).await
-                                {
-                                    Ok(Some(c)) => c,
-                                    _ => vec![],
-                                };
+                            if let Some((user_id, deleted)) = user_map.get(&username) {
+                                if *deleted {
+                                    bot.send_message(msg.chat.id, "Для начала /start").await?;
+                                    return Ok(());
+                                }
+                                let mut conns =
+                                    match self.get_user_vpn_connections_req(&user_id).await {
+                                        Ok(Some(c)) => c,
+                                        _ => vec![],
+                                    };
 
                                 let existing_protos: HashSet<_> =
                                     conns.iter().map(|(_, c)| c.proto).collect();
 
                                 let nodes: Result<Option<Vec<NodeResponse>>> =
-                                    if let Ok(Some(nodes)) = self.get_nodes(env).await {
+                                    if let Ok(Some(nodes)) = self.get_nodes_req(env).await {
                                         Ok(Some(nodes))
                                     } else {
                                         Ok(None)
@@ -111,7 +139,6 @@ impl Handlers for BotState {
                                             *tag,
                                         );
 
-                                        log::debug!("conns.push {} {}", conn_id, conn.proto);
                                         conns.push((conn_id, conn));
                                     }
                                 }
@@ -124,24 +151,12 @@ impl Handlers for BotState {
                                             nodes.iter().filter(|n| n.status == NodeStatus::Online)
                                         {
                                             if let Some(_inbound) = node.inbounds.get(&conn.proto) {
-                                                log::debug!(
-                                                    "connections.push {} {} {}",
-                                                    conn_id,
-                                                    conn.proto,
-                                                    node.uuid
-                                                );
                                                 connections.push((
                                                     *conn_id,
                                                     conn.clone(),
                                                     node.clone(),
                                                     conn.proto,
                                                 ));
-                                            } else {
-                                                log::debug!(
-                                                    "SKIP node {} does not support proto {}",
-                                                    node.uuid,
-                                                    conn.proto
-                                                );
                                             }
                                         }
                                     }
@@ -157,8 +172,59 @@ impl Handlers for BotState {
                                     .reply_markup(keyboard)
                                     .await?;
                             } else {
-                                bot.send_message(msg.chat.id, "Нужно зарегистрироваться /register")
+                                bot.send_message(msg.chat.id, "Для начала /start").await?;
+                            }
+                        }
+                    }
+                }
+
+                // Handle Subscriptions link
+                Ok(Command::Sub) => {
+                    let user_map = self.users.lock().await;
+
+                    if let Some(user) = msg.from {
+                        if let Some(username) = user.username {
+                            if let Some((user_id, deleted)) = user_map.get(&username) {
+                                if *deleted {
+                                    bot.send_message(msg.chat.id, "Для начала /start").await?;
+                                    return Ok(());
+                                }
+                                let conns = match self.get_user_vpn_connections_req(&user_id).await
+                                {
+                                    Ok(Some(c)) => c,
+                                    _ => vec![],
+                                };
+
+                                if conns.is_empty() {
+                                    if let Err(e) =
+                                        self.post_create_all_connection_req(user_id).await
+                                    {
+                                        log::error!("Cannot create connections {}", e);
+                                    }
+                                }
+
+                                let sub_clash_link = format!(
+                                    "`{}/sub?user_id={}&format=clash`",
+                                    self.settings.api.endpoint, user_id
+                                );
+
+                                let sub_link = format!(
+                                    "`{}/sub?user_id={}`",
+                                    self.settings.api.endpoint, user_id
+                                );
+
+                                let response1 = format!("*Default Subscription Link*\n  Клиенты: Hiddify, Streisand, Foxray\n\n{sub_link}\n\n");
+                                let response2 = format!("*Clash Subscription Link*  \n  Клиенты: Clash Verge, Shadowrocket\n\n{sub_clash_link}");
+
+                                let response3 = format!("Скопируй ссылку и импортируй её в клиенте, ссылка автоматически обновляет доступные подключения");
+
+                                let response = format!("{response1} {response2}\n\n {response3}");
+
+                                bot.send_message(msg.chat.id, response)
+                                    .parse_mode(ParseMode::MarkdownV2)
                                     .await?;
+                            } else {
+                                bot.send_message(msg.chat.id, "Для начала /start").await?;
                             }
                         }
                     }
@@ -169,12 +235,16 @@ impl Handlers for BotState {
                     if let Some(user) = msg.from {
                         if let Some(username) = user.username {
                             let user_map = self.users.lock().await;
-                            if let Some(user_id) = user_map.get(&username) {
-                                let stats = self.get_user_traffic_stat(&user_id).await;
+                            if let Some((user_id, deleted)) = user_map.get(&username) {
+                                if *deleted {
+                                    bot.send_message(msg.chat.id, "Для начала /start").await?;
+                                    return Ok(());
+                                }
+                                let stats = self.get_user_traffic_stat_req(&user_id).await;
                                 match stats {
-                                    Ok(Some(stats)) => {
+                                    Ok(Some(data)) => {
                                         let stat_str = self.format_traffic_stats(
-                                            stats,
+                                            data,
                                             self.settings.bot.daily_limit_mb,
                                         );
                                         bot.parse_mode(ParseMode::MarkdownV2)
@@ -200,14 +270,42 @@ impl Handlers for BotState {
                                     }
                                 }
                             } else {
-                                bot.send_message(msg.chat.id, "Нужно зарегистрироваться /register")
+                                bot.send_message(msg.chat.id, "Для начала /start").await?;
+                            }
+                        }
+                    }
+                }
+                Ok(Command::Stop) => {
+                    if let Some(user) = msg.from {
+                        if let Some(username) = user.username {
+                            let mut user_map = self.users.lock().await;
+                            if let Some((user_id, is_deleted)) = user_map.get_mut(&username) {
+                                if *is_deleted == true {
+                                    bot.send_message(msg.chat.id, "Для начала /start")
+                                        .disable_link_preview(true)
+                                        .parse_mode(ParseMode::MarkdownV2)
+                                        .await?;
+                                    return Ok(());
+                                }
+                                *is_deleted = true;
+
+                                if let Err(e) = self.delete_user_req(user_id).await {
+                                    log::error!("DELETE /user error {}", e);
+                                }
+                                bot.send_message(msg.chat.id, "Спасибо что был с нами, удачи")
+                                    .disable_link_preview(true)
+                                    .parse_mode(ParseMode::MarkdownV2)
                                     .await?;
                             }
                         }
                     }
                 }
+
                 Err(_) => {
-                    bot.send_message(msg.chat.id, "Command not found!").await?;
+                    bot.send_message(msg.chat.id, welcome_msg)
+                        .disable_link_preview(true)
+                        .parse_mode(ParseMode::MarkdownV2)
+                        .await?;
                 }
             }
         }
@@ -230,7 +328,7 @@ impl Handlers for BotState {
 
                 let label = &node.label;
                 let address = node.address;
-                let env = &node.uuid.to_string();
+                let env = &self.settings.bot.env;
                 let trial = conn.trial;
                 let limit = conn.limit;
                 let user_id = match conn.user_id {
@@ -248,7 +346,7 @@ impl Handlers for BotState {
                     bot.answer_callback_query(&q.id).await?;
 
                     let _ = self
-                        .post_create_or_update_connection(
+                        .post_create_or_update_connection_req(
                             conn_id, &user_id, trial, limit, env, proto,
                         )
                         .await;

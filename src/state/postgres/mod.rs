@@ -64,6 +64,17 @@ pub async fn run_shadow_sync(mut rx: mpsc::Receiver<SyncTask>, db: PgContext) {
                     log::error!("Failed to sync InsertUser: {err}");
                 }
             }
+            SyncTask::UpdateUser { user_id, user } => {
+                let user_row: UserRow = (user_id, user).into();
+                if let Err(err) = db.user().update(user_row).await {
+                    log::error!("Failed to sync UpdateUser: {err}");
+                }
+            }
+            SyncTask::DeleteUser { user_id } => {
+                if let Err(err) = db.user().delete(&user_id).await {
+                    log::error!("Failed to sync DeleteUser: {err}");
+                }
+            }
             SyncTask::InsertNode { node_id, node } => {
                 if let Err(err) = db.node().insert(node_id, node).await {
                     log::error!("Failed to sync InsertNode: {err}");
@@ -88,6 +99,11 @@ pub async fn run_shadow_sync(mut rx: mpsc::Receiver<SyncTask>, db: PgContext) {
                 let conn_row: ConnRow = (conn_id, conn).into();
                 if let Err(err) = db.conn().update(conn_row).await {
                     log::error!("Failed to sync UpdateConn: {err}");
+                }
+            }
+            SyncTask::DeleteConn { conn_id } => {
+                if let Err(err) = db.conn().delete(&conn_id).await {
+                    log::error!("Failed to sync DeleteConn: {err}");
                 }
             }
             SyncTask::UpdateConnStat { conn_id, stat } => {

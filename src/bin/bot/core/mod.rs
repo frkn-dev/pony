@@ -20,10 +20,12 @@ enum Command {
     Help,
     /// Старт
     Start,
-    /// Зарегистрироваться
-    Register,
+    /// Cтоп
+    Stop,
     ///Получить ссылки для подключения
     Connect,
+    /// Subscription link
+    Sub,
     ///Получить статистику
     Limit,
 }

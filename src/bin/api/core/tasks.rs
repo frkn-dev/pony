@@ -48,10 +48,20 @@ where
     Vec<(uuid::Uuid, pony::state::Conn)>: FromIterator<(uuid::Uuid, C)>,
 {
     async fn add_user(&self, db_user: UserRow) -> Result<()> {
+        let tg_id = if let Some(tg_id) = db_user.telegram_id {
+            Some(tg_id as u64)
+        } else {
+            None
+        };
         let user = User {
             username: db_user.username,
+            telegram_id: tg_id,
+            env: db_user.env,
+            limit: db_user.limit,
+            password: db_user.password,
             created_at: db_user.created_at,
             modified_at: db_user.modified_at,
+            is_deleted: false,
         };
 
         let user_id = db_user.user_id;

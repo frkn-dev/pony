@@ -14,6 +14,7 @@ pub struct ConnBase {
     pub proto: Tag,
     pub password: Option<String>,
     pub user_id: Option<uuid::Uuid>,
+    pub is_deleted: bool,
 }
 
 impl ConnBase {
@@ -27,6 +28,7 @@ impl ConnBase {
             proto: proto,
             password,
             user_id: None,
+            is_deleted: false,
         }
     }
 }
@@ -45,6 +47,7 @@ impl From<Conn> for ConnBase {
             proto: conn.proto,
             password: conn.password,
             user_id: conn.user_id,
+            is_deleted: conn.is_deleted,
         }
     }
 }
@@ -63,6 +66,7 @@ impl From<&Conn> for ConnBase {
             proto: conn.proto.clone(),
             password: conn.password.clone(),
             user_id: conn.user_id,
+            is_deleted: conn.is_deleted,
         }
     }
 }
@@ -103,6 +107,7 @@ pub struct Conn {
     pub proto: Tag,
     pub password: Option<String>,
     pub user_id: Option<uuid::Uuid>,
+    pub is_deleted: bool,
 }
 
 impl fmt::Display for Conn {
@@ -129,6 +134,7 @@ impl fmt::Display for Conn {
         } else {
             write!(f, "  password: None,\n")?;
         }
+        write!(f, "deleted: {}\n", self.is_deleted)?;
 
         write!(f, "}}")
     }
@@ -158,6 +164,7 @@ impl Conn {
             proto: proto,
             password: password,
             user_id: user_id,
+            is_deleted: false,
         }
     }
 }
@@ -201,6 +208,9 @@ pub trait ConnBaseOp {
     fn get_proto(&self) -> Tag;
 
     fn as_conn_stat(&self) -> ConnStat;
+
+    fn set_deleted(&mut self);
+    fn get_deleted(&self) -> bool;
 }
 
 pub trait ConnApiOp {
@@ -266,6 +276,13 @@ impl ConnBaseOp for Conn {
     }
     fn set_password(&mut self, new_password: Option<String>) {
         self.password = new_password;
+    }
+
+    fn set_deleted(&mut self) {
+        self.is_deleted = true;
+    }
+    fn get_deleted(&self) -> bool {
+        self.is_deleted.clone()
     }
 
     fn as_conn_stat(&self) -> ConnStat {
@@ -366,5 +383,12 @@ impl ConnBaseOp for ConnBase {
             downlink: self.stat.downlink,
             online: self.stat.online,
         }
+    }
+
+    fn set_deleted(&mut self) {
+        self.is_deleted = true;
+    }
+    fn get_deleted(&self) -> bool {
+        self.is_deleted.clone()
     }
 }

@@ -29,6 +29,7 @@ pub trait ConnStorageBase<C>
 where
     C: Clone + Send + Sync + 'static,
 {
+    fn len(&self) -> usize;
     fn add(&mut self, conn_id: &uuid::Uuid, new_conn: C) -> Result<ConnStorageOpStatus>;
     fn remove(&mut self, conn_id: &uuid::Uuid) -> Result<()>;
     fn get(&self, conn_id: &uuid::Uuid) -> Option<C>;
@@ -63,6 +64,10 @@ impl<C> ConnStorageBase<C> for Connections<C>
 where
     C: ConnBaseOp + Clone + Send + Sync + 'static,
 {
+    fn len(&self) -> usize {
+        self.0.len()
+    }
+
     fn add(&mut self, conn_id: &uuid::Uuid, new_conn: C) -> Result<ConnStorageOpStatus> {
         match self.entry(*conn_id) {
             Entry::Occupied(_) => return Ok(ConnStorageOpStatus::AlreadyExist),

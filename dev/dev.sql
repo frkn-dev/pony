@@ -42,3 +42,24 @@ CREATE TABLE nodes (
     UNIQUE(uuid, env)
 );
 
+
+ALTER TABLE users
+    ADD COLUMN telegram_id BIGINT;
+
+ALTER TABLE users
+    ADD COLUMN env TEXT NOT NULL DEFAULT 'dev';
+
+ALTER TABLE users
+    ADD COLUMN daily_limit_mb INTEGER NOT NULL DEFAULT 1024;
+
+ALTER TABLE users
+    ADD COLUMN password TEXT;
+
+ALTER TABLE users
+    ADD COLUMN is_deleted BOOL NOT NULL DEFAULT false;
+
+ALTER TABLE connections
+    ADD COLUMN is_deleted BOOL NOT NULL DEFAULT false;
+
+
+

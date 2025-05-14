@@ -68,6 +68,7 @@ impl Inbound {
         InboundResponse {
             port: self.port,
             stream_settings: self.stream_settings.clone(),
+            tag: self.tag,
         }
     }
 

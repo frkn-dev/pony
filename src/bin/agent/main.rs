@@ -10,7 +10,7 @@ mod core;
 #[derive(Parser)]
 #[command(
     about = "Pony Agent - control tool for Xray/Wireguard",
-    version = "v0.1.20"
+    version = "v0.1.21"
 )]
 struct Cli {
     #[arg(short, long, default_value = "config.toml")]

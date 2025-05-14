@@ -61,16 +61,13 @@ where
             password: db_user.password,
             created_at: db_user.created_at,
             modified_at: db_user.modified_at,
-            is_deleted: false,
+            is_deleted: db_user.is_deleted,
         };
 
         let user_id = db_user.user_id;
-
-        log::debug!("--> {:?} Add user", user);
-
         let mut state = self.state.memory.lock().await;
 
-        match state.users.try_add(user_id, user) {
+        match state.users.try_add(&user_id, user) {
             Ok(_) => Ok(()),
             Err(e) => Err(format!(
                 "Create: Failed to add user {} to state: {}",
@@ -91,8 +88,6 @@ where
             db_conn.stat,
             db_conn.proto,
         );
-
-        log::debug!("--> {:?} Add connection", conn);
 
         let mut state = self.state.memory.lock().await;
         match state

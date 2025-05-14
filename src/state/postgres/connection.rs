@@ -242,7 +242,8 @@ impl PgConn {
                         online = $8,
                         uplink = $9,
                         downlink = $10, 
-                        status = $11
+                        status = $11,
+                        is_deleted = $12
                     WHERE id = $1
                    ";
 
@@ -261,6 +262,7 @@ impl PgConn {
                     &conn.stat.uplink,
                     &conn.stat.downlink,
                     &conn.status,
+                    &conn.is_deleted,
                 ],
             )
             .await?;

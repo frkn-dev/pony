@@ -108,9 +108,10 @@ where
             .and(auth.clone())
             .and(warp::body::json::<User>())
             .and(with_state(self.state.clone()))
+            .and(publisher(self.publisher.clone()))
             .and_then(user_register_handler);
 
-        let post_user_all_connections = warp::post()
+        let post_user_all_connections_route = warp::post()
             .and(warp::path("user"))
             .and(warp::path("connections"))
             .and(auth.clone())
@@ -118,6 +119,14 @@ where
             .and(publisher(self.publisher.clone()))
             .and(with_state(self.state.clone()))
             .and_then(create_all_connections_handler);
+
+        let delete_user_route = warp::delete()
+            .and(warp::path("user"))
+            .and(auth.clone())
+            .and(warp::body::json::<UserIdQueryParam>())
+            .and(publisher(self.publisher.clone()))
+            .and(with_state(self.state.clone()))
+            .and_then(delete_user_handler);
 
         let routes = get_healthcheck_route
             .or(get_user_connections_route)
@@ -128,8 +137,9 @@ where
             .or(get_users_route)
             .or(post_node_register_route)
             .or(post_user_register_route)
-            .or(post_user_all_connections)
+            .or(post_user_all_connections_route)
             .or(post_connection_route)
+            .or(delete_user_route)
             .recover(rejection);
 
         if let Some(ipv4) = self.settings.api.address {

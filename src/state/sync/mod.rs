@@ -22,6 +22,13 @@ pub enum SyncTask {
         user_id: uuid::Uuid,
         user: User,
     },
+    DeleteUser {
+        user_id: uuid::Uuid,
+    },
+    UpdateUser {
+        user_id: uuid::Uuid,
+        user: User,
+    },
     InsertConn {
         conn_id: uuid::Uuid,
         conn: Conn,
@@ -29,6 +36,9 @@ pub enum SyncTask {
     UpdateConn {
         conn_id: uuid::Uuid,
         conn: Conn,
+    },
+    DeleteConn {
+        conn_id: uuid::Uuid,
     },
     InsertNode {
         node_id: uuid::Uuid,

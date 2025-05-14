@@ -84,6 +84,48 @@ impl PgUser {
         }
     }
 
+    pub async fn delete(&self, user_id: &uuid::Uuid) -> Result<()> {
+        let client = self.client.lock().await;
+
+        let _ = client
+            .execute(
+                "UPDATE users SET is_deleted = true WHERE id = $1",
+                &[user_id],
+            )
+            .await?;
+
+        Ok(())
+    }
+    pub async fn update(&self, user: UserRow) -> Result<()> {
+        let client = self.client.lock().await;
+
+        let query = "
+                    UPDATE users SET telegram_id = $2, env = $3, daily_limit_mb = $4, password = $5,  modified_at = $6, is_deleted = $7
+                    WHERE username = $1
+                   ";
+
+        let rows = client
+            .execute(
+                query,
+                &[
+                    &user.username,
+                    &user.telegram_id,
+                    &user.env,
+                    &user.limit,
+                    &user.password,
+                    &user.modified_at,
+                    &user.is_deleted,
+                ],
+            )
+            .await?;
+
+        if rows == 0 {
+            return Err(PonyError::Custom("No rows updated".into()).into());
+        }
+
+        Ok(())
+    }
+
     pub async fn all(&self) -> Result<Vec<UserRow>> {
         let client = self.client.lock().await;
 

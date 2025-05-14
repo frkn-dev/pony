@@ -36,7 +36,7 @@ type CallbackMap = Arc<Mutex<HashMap<String, (uuid::Uuid, Conn, NodeResponse, Ta
 pub struct BotState {
     pub settings: BotSettings,
     pub callback_map: CallbackMap,
-    pub users: Arc<Mutex<HashMap<String, uuid::Uuid>>>,
+    pub users: Arc<Mutex<HashMap<String, (uuid::Uuid, bool)>>>,
 }
 
 impl BotState {
@@ -49,9 +49,9 @@ impl BotState {
     }
 
     pub async fn add_users(&mut self, users: Arc<Vec<(uuid::Uuid, User)>>) {
-        let mut user_map: HashMap<String, uuid::Uuid> = HashMap::new();
+        let mut user_map: HashMap<String, (uuid::Uuid, bool)> = HashMap::new();
         for (id, user) in users.iter() {
-            user_map.insert(user.username.clone(), *id);
+            user_map.insert(user.username.clone(), (*id, user.is_deleted));
         }
         self.users = Arc::clone(&Arc::new(Mutex::new(user_map.clone())));
     }
@@ -59,13 +59,23 @@ impl BotState {
 
 #[async_trait::async_trait]
 pub trait UserStorage {
-    async fn add_user(&self, username: &str, user_id: uuid::Uuid);
+    async fn add_user(&self, username: &str, user_id: uuid::Uuid) -> Option<(uuid::Uuid, bool)>;
 }
 
 #[async_trait::async_trait]
 impl UserStorage for BotState {
-    async fn add_user(&self, username: &str, user_id: uuid::Uuid) {
-        let users = &mut self.users.lock().await;
-        users.insert(username.to_string(), user_id);
+    async fn add_user(&self, username: &str, user_id: uuid::Uuid) -> Option<(uuid::Uuid, bool)> {
+        let mut users = self.users.lock().await;
+
+        match users.get_mut(username) {
+            Some((id, flag)) => {
+                *flag = false;
+                Some((*id, false))
+            }
+            None => {
+                users.insert(username.to_string(), (user_id, false));
+                None
+            }
+        }
     }
 }

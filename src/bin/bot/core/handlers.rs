@@ -57,14 +57,16 @@ impl Handlers for BotState {
                     if let Some(user) = msg.from {
                         if let Some(username) = user.username {
                             match self
-                                .register_user(
+                                .register_user_req(
                                     &username,
                                     Some((user.id.0 as i64).try_into().unwrap()),
                                 )
                                 .await
                             {
                                 Ok(Some(user_id)) => {
-                                    let _ = self.add_user(&username, user_id).await;
+                                    if let Some(result) = self.add_user(&username, user_id).await {
+                                        log::debug!("Couldn't add user {} {:?}", user_id, result);
+                                    }
 
                                     bot.send_message(msg.chat.id, welcome_msg)
                                         .disable_link_preview(true)
@@ -93,18 +95,22 @@ impl Handlers for BotState {
 
                     if let Some(user) = msg.from {
                         if let Some(username) = user.username {
-                            if let Some(user_id) = user_map.get(&username) {
-                                let mut conns = match self.get_user_vpn_connections(&user_id).await
-                                {
-                                    Ok(Some(c)) => c,
-                                    _ => vec![],
-                                };
+                            if let Some((user_id, deleted)) = user_map.get(&username) {
+                                if *deleted {
+                                    bot.send_message(msg.chat.id, "Для начала /start").await?;
+                                    return Ok(());
+                                }
+                                let mut conns =
+                                    match self.get_user_vpn_connections_req(&user_id).await {
+                                        Ok(Some(c)) => c,
+                                        _ => vec![],
+                                    };
 
                                 let existing_protos: HashSet<_> =
                                     conns.iter().map(|(_, c)| c.proto).collect();
 
                                 let nodes: Result<Option<Vec<NodeResponse>>> =
-                                    if let Ok(Some(nodes)) = self.get_nodes(env).await {
+                                    if let Ok(Some(nodes)) = self.get_nodes_req(env).await {
                                         Ok(Some(nodes))
                                     } else {
                                         Ok(None)
@@ -178,14 +184,21 @@ impl Handlers for BotState {
 
                     if let Some(user) = msg.from {
                         if let Some(username) = user.username {
-                            if let Some(user_id) = user_map.get(&username) {
-                                let conns = match self.get_user_vpn_connections(&user_id).await {
+                            if let Some((user_id, deleted)) = user_map.get(&username) {
+                                if *deleted {
+                                    bot.send_message(msg.chat.id, "Для начала /start").await?;
+                                    return Ok(());
+                                }
+                                let conns = match self.get_user_vpn_connections_req(&user_id).await
+                                {
                                     Ok(Some(c)) => c,
                                     _ => vec![],
                                 };
 
                                 if conns.is_empty() {
-                                    if let Err(e) = self.post_create_all_connection(user_id).await {
+                                    if let Err(e) =
+                                        self.post_create_all_connection_req(user_id).await
+                                    {
                                         log::error!("Cannot create connections {}", e);
                                     }
                                 }
@@ -222,12 +235,16 @@ impl Handlers for BotState {
                     if let Some(user) = msg.from {
                         if let Some(username) = user.username {
                             let user_map = self.users.lock().await;
-                            if let Some(user_id) = user_map.get(&username) {
-                                let stats = self.get_user_traffic_stat(&user_id).await;
+                            if let Some((user_id, deleted)) = user_map.get(&username) {
+                                if *deleted {
+                                    bot.send_message(msg.chat.id, "Для начала /start").await?;
+                                    return Ok(());
+                                }
+                                let stats = self.get_user_traffic_stat_req(&user_id).await;
                                 match stats {
-                                    Ok(Some(stats)) => {
+                                    Ok(Some(data)) => {
                                         let stat_str = self.format_traffic_stats(
-                                            stats,
+                                            data,
                                             self.settings.bot.daily_limit_mb,
                                         );
                                         bot.parse_mode(ParseMode::MarkdownV2)
@@ -258,7 +275,32 @@ impl Handlers for BotState {
                         }
                     }
                 }
-                Ok(Command::Stop) => log::error!("Not implemented"),
+                Ok(Command::Stop) => {
+                    if let Some(user) = msg.from {
+                        if let Some(username) = user.username {
+                            let mut user_map = self.users.lock().await;
+                            if let Some((user_id, is_deleted)) = user_map.get_mut(&username) {
+                                if *is_deleted == true {
+                                    bot.send_message(msg.chat.id, "Для начала /start")
+                                        .disable_link_preview(true)
+                                        .parse_mode(ParseMode::MarkdownV2)
+                                        .await?;
+                                    return Ok(());
+                                }
+                                *is_deleted = true;
+
+                                if let Err(e) = self.delete_user_req(user_id).await {
+                                    log::error!("DELETE /user error {}", e);
+                                }
+                                bot.send_message(msg.chat.id, "Спасибо что был с нами, удачи")
+                                    .disable_link_preview(true)
+                                    .parse_mode(ParseMode::MarkdownV2)
+                                    .await?;
+                            }
+                        }
+                    }
+                }
+
                 Err(_) => {
                     bot.send_message(msg.chat.id, welcome_msg)
                         .disable_link_preview(true)
@@ -304,7 +346,7 @@ impl Handlers for BotState {
                     bot.answer_callback_query(&q.id).await?;
 
                     let _ = self
-                        .post_create_or_update_connection(
+                        .post_create_or_update_connection_req(
                             conn_id, &user_id, trial, limit, env, proto,
                         )
                         .await;

@@ -1,5 +1,5 @@
 use crate::metrics::metrics::MetricType;
-use crate::Result;
+use crate::{PonyError, Result};
 
 pub mod bandwidth;
 pub mod cpuusage;
@@ -12,6 +12,7 @@ pub mod xray;
 #[async_trait::async_trait]
 pub trait Metrics<T> {
     async fn collect_metrics<M>(&self) -> Vec<MetricType>;
+    async fn collect_hb_metrics<M>(&self) -> MetricType;
 
     async fn send_metrics(&self, carbon_address: String) -> Result<()> {
         let metrics = self.collect_metrics::<T>().await;
@@ -26,5 +27,16 @@ pub trait Metrics<T> {
             }
         }
         Ok(())
+    }
+    async fn send_hb_metric(&self, carbon_address: String) -> Result<()> {
+        let metric = self.collect_hb_metrics::<f64>().await;
+
+        match metric {
+            MetricType::F64(m) => {
+                m.send(&carbon_address).await?;
+                Ok(())
+            }
+            _ => Err(PonyError::Custom("Doesn't support metric type".to_string())),
+        }
     }
 }

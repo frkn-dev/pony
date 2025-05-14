@@ -51,7 +51,7 @@ async fn main() -> Result<()> {
     let bot = Bot::new(settings.bot.token.clone());
     let mut bot_state = BotState::new(settings);
 
-    if let Ok(users) = bot_state.get_users().await {
+    if let Ok(users) = bot_state.get_users_req().await {
         log::debug!("Users {:?}", users);
         bot_state.add_users(Arc::new(users)).await;
     } else {

@@ -209,7 +209,7 @@ pub trait ConnBaseOp {
 
     fn as_conn_stat(&self) -> ConnStat;
 
-    fn set_deleted(&mut self);
+    fn set_deleted(&mut self, v: bool);
     fn get_deleted(&self) -> bool;
 }
 
@@ -278,8 +278,8 @@ impl ConnBaseOp for Conn {
         self.password = new_password;
     }
 
-    fn set_deleted(&mut self) {
-        self.is_deleted = true;
+    fn set_deleted(&mut self, v: bool) {
+        self.is_deleted = v;
     }
     fn get_deleted(&self) -> bool {
         self.is_deleted.clone()
@@ -385,8 +385,8 @@ impl ConnBaseOp for ConnBase {
         }
     }
 
-    fn set_deleted(&mut self) {
-        self.is_deleted = true;
+    fn set_deleted(&mut self, v: bool) {
+        self.is_deleted = v;
     }
     fn get_deleted(&self) -> bool {
         self.is_deleted.clone()

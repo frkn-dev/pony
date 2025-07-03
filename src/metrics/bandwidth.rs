@@ -46,25 +46,25 @@ impl AsMetric for Bandwidth {
         vec![
             Metric {
                 //dev.localhost.network.eth0.rx_bps (bytes per second)
-                path: format!("{env}.{hostname}.network.{interface}.rx_bps"),
+                metric: format!("{env}.{hostname}.network.{interface}.rx_bps"),
                 value: self.rx_bps,
                 timestamp,
             },
             Metric {
                 //dev.localhost.network.eth0.tx_bps (bytes per second)
-                path: format!("{env}.{hostname}.network.{interface}.tx_bps"),
+                metric: format!("{env}.{hostname}.network.{interface}.tx_bps"),
                 value: self.tx_bps,
                 timestamp,
             },
             Metric {
                 //dev.localhost.network.eth0.rx_err
-                path: format!("{env}.{hostname}.network.{interface}.rx_err"),
+                metric: format!("{env}.{hostname}.network.{interface}.rx_err"),
                 value: self.rx_err,
                 timestamp,
             },
             Metric {
                 //dev.localhost.network.eth0.tx_err
-                path: format!("{env}.{hostname}.network.{interface}.tx_err"),
+                metric: format!("{env}.{hostname}.network.{interface}.tx_err"),
                 value: self.tx_err,
                 timestamp,
             },

@@ -3,13 +3,14 @@ use std::collections::HashMap;
 use std::fmt;
 use std::ops::{Deref, DerefMut};
 
-use super::connection::ConnApiOp;
-use super::connection::ConnBaseOp;
 use super::node::Node;
 use super::user::User;
-use super::NodeStorage;
 
-#[derive(Clone, Deserialize, Serialize, Debug)]
+use crate::state::connection::op::api::Operations as ConnectionApiOp;
+use crate::state::connection::op::base::Operations as ConnectionBaseOp;
+use crate::state::storage::node::Operations as NodeStorageOp;
+
+#[derive(Clone, Deserialize, Serialize, Debug, PartialEq)]
 pub struct Connections<C>(pub HashMap<uuid::Uuid, C>);
 
 impl<C> Default for Connections<C> {
@@ -54,8 +55,8 @@ where
 
 impl<T: Default, C> State<T, C>
 where
-    T: NodeStorage + Sync + Send + Clone + 'static,
-    C: ConnBaseOp + ConnApiOp + Clone + Send + Sync + 'static,
+    T: NodeStorageOp + Sync + Send + Clone + 'static,
+    C: ConnectionApiOp + ConnectionBaseOp + Clone + Send + Sync + 'static + PartialEq,
 {
     pub fn new() -> Self {
         State {
@@ -68,7 +69,7 @@ where
 
 impl<C> State<Node, C>
 where
-    C: ConnBaseOp + Send + Sync + Clone + 'static,
+    C: ConnectionBaseOp + Send + Sync + Clone + 'static + PartialEq,
 {
     pub fn with_node(node: Node) -> Self {
         Self {

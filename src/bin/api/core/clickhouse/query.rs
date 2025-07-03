@@ -6,7 +6,7 @@ use std::fmt::Debug;
 use uuid::Uuid;
 
 use super::ChContext;
-use super::MetricValue;
+use pony::metrics::metrics::Metric;
 
 #[async_trait]
 pub trait Queries {
@@ -15,7 +15,7 @@ pub trait Queries {
         env: &str,
         uuid: &Uuid,
         hostname: &str,
-    ) -> Option<MetricValue<T>>
+    ) -> Option<Metric<T>>
     where
         T: DeserializeOwned + Debug + Send + Clone + Sync + 'static;
 
@@ -23,7 +23,7 @@ pub trait Queries {
         &self,
         conn_id: uuid::Uuid,
         start: DateTime<Utc>,
-    ) -> Option<Vec<MetricValue<T>>>
+    ) -> Option<Vec<Metric<T>>>
     where
         T: DeserializeOwned + Debug + Send + Clone + Sync + 'static;
 }
@@ -35,13 +35,13 @@ impl Queries for ChContext {
         env: &str,
         uuid: &Uuid,
         hostname: &str,
-    ) -> Option<MetricValue<T>>
+    ) -> Option<Metric<T>>
     where
         T: DeserializeOwned + Debug + Send + Clone + Sync + 'static,
     {
         let query = format!(
             "SELECT 
-                  toInt64(toUnixTimestamp(toDateTime(argMax(Timestamp, Timestamp)))) AS latest,
+                  toInt64(toUnixTimestamp(toDateTime(argMax(Timestamp, Timestamp)))) AS timestamp,
                   Path AS metric,
                   toFloat64(argMax(Value, Timestamp)) AS value
             FROM default.graphite_data
@@ -55,8 +55,7 @@ impl Queries for ChContext {
         let client = self.client();
         let client = client.lock().await;
 
-        let result = client.query(&query).fetch_all::<MetricValue<T>>().await;
-
+        let result = client.query(&query).fetch_all::<Metric<T>>().await;
         result.ok().and_then(|mut rows| rows.pop())
     }
 
@@ -64,19 +63,19 @@ impl Queries for ChContext {
         &self,
         conn_id: uuid::Uuid,
         start: DateTime<Utc>,
-    ) -> Option<Vec<MetricValue<T>>>
+    ) -> Option<Vec<Metric<T>>>
     where
         T: DeserializeOwned + Debug + Send + Clone + Sync + 'static,
     {
         let start_str = start.format("%Y-%m-%d %H:%M:%S").to_string();
         let query = format!(
             "SELECT 
-                   anyLast(latest) as latest,
+                   anyLast(timestamp) as timestamp,
                    metric, 
                    toInt64(sum(metric_value)) AS value
                FROM (
                  SELECT
-                   toInt64(toUnixTimestamp(toDateTime(anyLast(Timestamp)))) AS latest,
+                   toInt64(toUnixTimestamp(toDateTime(anyLast(Timestamp)))) AS timestamp,
                    extract(Path, '[^.]+$') AS metric,
                    anyLast(Value) AS metric_value
                  FROM default.graphite_data
@@ -95,9 +94,7 @@ impl Queries for ChContext {
         let client = self.client();
         let client = client.lock().await;
 
-        let result = client.query(&query).fetch_all::<MetricValue<T>>().await;
-
-        log::debug!("ch result {:?}", result);
+        let result = client.query(&query).fetch_all::<Metric<T>>().await;
 
         result.ok()
     }

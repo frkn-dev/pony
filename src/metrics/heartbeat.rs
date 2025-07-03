@@ -8,7 +8,7 @@ static BEAT_INDEX: OnceLock<AtomicUsize> = OnceLock::new();
 
 pub fn heartbeat_metrics(env: &str, uuid: &uuid::Uuid, hostname: &str) -> MetricType {
     let timestamp = current_timestamp();
-    let path = format!("{env}.{hostname}.{uuid}.heartbeat");
+    let metric_name = format!("{env}.{hostname}.{uuid}.heartbeat");
 
     let pattern: &[f64] = &[
         1.0, 1.0, 2.5, 0.4, 0.6, 1.3, 1.0, 1.0, 1.1, 1.0, 1.0, 0.8, 1.0, 1.9, 0.3, 0.5, 1.0,
@@ -22,6 +22,6 @@ pub fn heartbeat_metrics(env: &str, uuid: &uuid::Uuid, hostname: &str) -> Metric
         pattern[index]
     };
 
-    let metric = Metric::new(path, value, timestamp);
+    let metric = Metric::new(metric_name, value, timestamp);
     MetricType::F64(metric)
 }

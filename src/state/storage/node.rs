@@ -2,14 +2,17 @@ use serde_json::json;
 use std::collections::HashMap;
 
 use crate::state::node::Node;
+use crate::state::storage::Status as OperationStatus;
 use crate::state::tag::Tag;
 use crate::{PonyError, Result};
 
-pub trait NodeStorage {
-    fn add(&mut self, new_node: Node) -> Result<NodeStorageOpStatus>;
+pub trait Operations {
+    fn iter_nodes(&self) -> Box<dyn Iterator<Item = (&uuid::Uuid, &Node)> + '_>;
+    fn add(&mut self, new_node: Node) -> Result<OperationStatus>;
     fn all(&self) -> Option<Vec<Node>>;
     fn all_json(&self) -> serde_json::Value;
     fn get_by_env(&self, env: &str) -> Option<Vec<Node>>;
+    fn get_by_id(&self, id: &uuid::Uuid) -> Option<Node>;
     fn get(&self, env: &str, uuid: &uuid::Uuid) -> Option<&Node>;
     fn get_self(&self) -> Option<Node>;
     fn get_mut(&mut self, env: &str, uuid: &uuid::Uuid) -> Option<&mut Node>;
@@ -36,14 +39,11 @@ pub trait NodeStorage {
     ) -> Result<()>;
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum NodeStorageOpStatus {
-    AlreadyExist,
-    Ok,
-}
-
-impl NodeStorage for Node {
-    fn add(&mut self, _new_node: Node) -> Result<NodeStorageOpStatus> {
+impl Operations for Node {
+    fn iter_nodes(&self) -> Box<dyn Iterator<Item = (&uuid::Uuid, &Node)> + '_> {
+        Box::new(std::iter::empty())
+    }
+    fn add(&mut self, _new_node: Node) -> Result<OperationStatus> {
         Err(PonyError::Custom(
             "Cannot add node to single Node instance".into(),
         ))
@@ -112,19 +112,34 @@ impl NodeStorage for Node {
             Err(PonyError::Custom("Node ID does not match".into()))
         }
     }
+    fn get_by_id(&self, _: &uuid::Uuid) -> std::option::Option<Node> {
+        None
+    }
 }
 
-impl NodeStorage for HashMap<String, Vec<Node>> {
-    fn add(&mut self, new_node: Node) -> Result<NodeStorageOpStatus> {
+impl Operations for HashMap<String, Vec<Node>> {
+    fn iter_nodes(&self) -> Box<dyn Iterator<Item = (&uuid::Uuid, &Node)> + '_> {
+        let all_nodes: Vec<(&uuid::Uuid, &Node)> = self
+            .values()
+            .flat_map(|nodes_vec| nodes_vec.iter())
+            .map(|node| (&node.uuid, node))
+            .collect();
+
+        Box::new(all_nodes.into_iter())
+    }
+    fn add(&mut self, new_node: Node) -> Result<OperationStatus> {
         let env = new_node.env.clone();
         let uuid = new_node.uuid;
 
+        if self
+            .values()
+            .any(|nodes| nodes.iter().any(|n| n.uuid == uuid))
+        {
+            return Ok(OperationStatus::AlreadyExist(uuid));
+        }
+
         match self.get_mut(&env) {
             Some(nodes) => {
-                if nodes.iter().any(|n| n.uuid == uuid) {
-                    return Ok(NodeStorageOpStatus::AlreadyExist);
-                }
-
                 nodes.push(new_node);
             }
             None => {
@@ -132,7 +147,7 @@ impl NodeStorage for HashMap<String, Vec<Node>> {
             }
         }
 
-        Ok(NodeStorageOpStatus::Ok)
+        Ok(OperationStatus::Ok(uuid))
     }
 
     fn get_self(&self) -> Option<Node> {
@@ -149,17 +164,21 @@ impl NodeStorage for HashMap<String, Vec<Node>> {
             .map(|nodes| nodes.iter().cloned().collect::<Vec<_>>())
             .filter(|v| !v.is_empty())
     }
+    fn get_by_id(&self, node_id: &uuid::Uuid) -> Option<Node> {
+        self.values()
+            .flat_map(|nodes| nodes.iter())
+            .find(|node| &node.uuid == node_id)
+            .cloned()
+    }
     fn all(&self) -> Option<Vec<Node>> {
         let nodes: Vec<Node> = self.values().flatten().cloned().collect();
 
         (!nodes.is_empty()).then_some(nodes)
     }
-
     fn all_json(&self) -> serde_json::Value {
         let nodes: Vec<&Node> = self.values().flat_map(|v| v.iter()).collect();
         serde_json::to_value(&nodes).unwrap_or_else(|_| json!([]))
     }
-
     fn update_node_uplink(
         &mut self,
         tag: &Tag,
@@ -177,7 +196,6 @@ impl NodeStorage for HashMap<String, Vec<Node>> {
             format!("Node not found in env {} with id {}", env, node_id).into(),
         ))
     }
-
     fn update_node_downlink(
         &mut self,
         tag: &Tag,
@@ -195,7 +213,6 @@ impl NodeStorage for HashMap<String, Vec<Node>> {
             format!("Node not found in env {} with id {}", env, node_id).into(),
         ))
     }
-
     fn update_node_conn_count(
         &mut self,
         tag: &Tag,

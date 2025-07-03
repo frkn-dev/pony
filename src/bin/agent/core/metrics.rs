@@ -10,21 +10,21 @@ use pony::metrics::metrics::MetricType;
 use pony::metrics::xray::xray_conn_metrics;
 use pony::metrics::xray::xray_stat_metrics;
 use pony::metrics::Metrics;
-use pony::state::Conn;
-use pony::state::ConnBaseOp;
-use pony::state::NodeStorage;
+use pony::Conn as Connection;
+use pony::ConnectionBaseOp;
+use pony::NodeStorageOp;
 
 use crate::core::Agent;
 
 #[async_trait::async_trait]
 impl<T, C> Metrics<T> for Agent<T, C>
 where
-    T: NodeStorage + Send + Sync + Clone + 'static,
-    C: ConnBaseOp + Send + Sync + Clone + 'static + From<Conn>,
+    T: NodeStorageOp + Send + Sync + Clone + 'static,
+    C: ConnectionBaseOp + Send + Sync + Clone + 'static + From<Connection>,
 {
     async fn collect_metrics<M>(&self) -> Vec<MetricType>
     where
-        T: NodeStorage + Sync + Send + Clone + 'static,
+        T: NodeStorageOp + Sync + Send + Clone + 'static,
     {
         let mut metrics: Vec<MetricType> = Vec::new();
         let state = self.state.lock().await;
@@ -65,7 +65,7 @@ where
             MetricType::F64(Metric::new(
                 "hb.unknown".into(),
                 0.0,
-                Utc::now().timestamp() as u64,
+                Utc::now().timestamp(),
             ))
         }
     }

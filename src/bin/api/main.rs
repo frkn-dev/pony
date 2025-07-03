@@ -9,23 +9,23 @@ use tokio::sync::Mutex;
 use tokio::time::sleep;
 use tokio::time::Duration;
 
-use pony::clickhouse::ChContext;
 use pony::config::settings::ApiSettings;
 use pony::config::settings::Settings;
 use pony::http::debug;
 use pony::metrics::Metrics;
-use pony::state::pg_run_shadow_sync;
-use pony::state::PgContext;
-use pony::state::State;
-use pony::state::SyncState;
 use pony::utils::*;
 use pony::zmq::publisher::Publisher as ZmqPublisher;
-use pony::ApiState;
+use pony::State;
 use pony::{PonyError, Result};
 
+use crate::core::clickhouse::ChContext;
 use crate::core::http::routes::Http;
+use crate::core::postgres::run_shadow_sync;
+use crate::core::postgres::PgContext;
+use crate::core::sync::SyncState;
 use crate::core::tasks::Tasks;
 use crate::core::Api;
+use crate::core::ApiState;
 
 mod core;
 
@@ -58,7 +58,7 @@ async fn main() -> Result<()> {
             out.finish(format_args!(
                 "[{}][{}][{}] {}",
                 record.level(),
-                human_readable_date(current_timestamp()),
+                human_readable_date(current_timestamp() as u64),
                 record.target(),
                 message
             ))
@@ -91,7 +91,7 @@ async fn main() -> Result<()> {
     ));
 
     let _ = {
-        match measure_time(db.user().all(), "get all users()".to_string()).await {
+        match measure_time(db.user().all(), "db.user().all()".to_string()).await {
             Ok(users) => {
                 let futures: Vec<_> = users.into_iter().map(|user| api.add_user(user)).collect();
 
@@ -109,7 +109,7 @@ async fn main() -> Result<()> {
             }
         }
 
-        match measure_time(db.node().all(), "get all nodes()".to_string()).await {
+        match measure_time(db.node().all(), "db.node().all()".to_string()).await {
             Ok(nodes) => {
                 let futures: Vec<_> = nodes.into_iter().map(|node| api.add_node(node)).collect();
 
@@ -127,7 +127,7 @@ async fn main() -> Result<()> {
             }
         }
 
-        match measure_time(db.conn().all(), "get all connections from db".to_string()).await {
+        match measure_time(db.conn().all(), "db.conn().all()".to_string()).await {
             Ok(conns) => {
                 let futures: Vec<_> = conns.into_iter().map(|conn| api.add_conn(conn)).collect();
 
@@ -230,7 +230,7 @@ async fn main() -> Result<()> {
 
         async move {
             loop {
-                if let Err(e) = api.enforce_all_trial_limits().await {
+                if let Err(e) = api.enforce_xray_trial_limits().await {
                     log::error!("enforce_all_trial_limits task failed: {:?}", e);
                 }
                 tokio::time::sleep(job_interval).await;
@@ -244,7 +244,7 @@ async fn main() -> Result<()> {
         move || {
             let api = api_for_restore.clone();
             async move {
-                if let Err(e) = api.restore_trial_conns().await {
+                if let Err(e) = api.restore_xray_trial_conns().await {
                     log::error!("Scheduled daily task failed: {:?}", e);
                 }
             }
@@ -253,7 +253,7 @@ async fn main() -> Result<()> {
     ));
 
     let _ = tokio::spawn(async move {
-        pg_run_shadow_sync(rx, db).await;
+        run_shadow_sync(rx, db).await;
     });
 
     let api = api.clone();

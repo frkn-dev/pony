@@ -36,7 +36,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             out.finish(format_args!(
                 "[{}][{}][{}] {}",
                 record.level(),
-                human_readable_date(current_timestamp()),
+                human_readable_date(current_timestamp() as u64),
                 record.target(),
                 message
             ))

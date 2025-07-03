@@ -1,12 +1,15 @@
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
-use crate::state::Tag;
+use crate::state::connection::wireguard::Param as WgParam;
+use crate::state::tag::Tag;
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub enum Action {
     #[serde(rename = "create")]
     Create,
+    #[serde(rename = "update")]
+    Update,
     #[serde(rename = "delete")]
     Delete,
     #[serde(rename = "reset_stat")]
@@ -18,6 +21,7 @@ pub struct Message {
     pub conn_id: uuid::Uuid,
     pub action: Action,
     pub tag: Tag,
+    pub wg: Option<WgParam>,
     pub password: Option<String>,
 }
 

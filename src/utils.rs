@@ -1,22 +1,47 @@
-use std::collections::HashMap;
-use std::net::IpAddr;
-use std::net::Ipv4Addr;
-use std::{
-    time::Instant,
-    time::{SystemTime, UNIX_EPOCH},
-};
-use url::Url;
-
 use base64::Engine;
 use chrono::{Duration, Local, NaiveTime};
 use chrono::{TimeZone, Utc};
+use defguard_wireguard_rs::net::IpAddrMask;
+use ipnet::Ipv4Net;
+use ipnet::Ipv6Net;
 use log::LevelFilter;
 use rand::{distributions::Alphanumeric, Rng};
+use std::collections::HashMap;
+use std::net::IpAddr;
+use std::net::Ipv4Addr;
+use std::time::Instant;
 use tokio::time::{sleep, Duration as TokioDuration};
+use url::Url;
 
 use crate::http::requests::InboundResponse;
-use crate::state::Tag;
+use crate::state::tag::Tag;
 use crate::{PonyError, Result};
+
+pub fn increment_ip(ip: Ipv4Addr) -> Option<Ipv4Addr> {
+    let ip_u32 = u32::from(ip);
+    let next = ip_u32.checked_add(1)?;
+    Some(Ipv4Addr::from(next))
+}
+
+pub fn ip_in_mask(mask: &IpAddrMask, addr: IpAddr) -> bool {
+    match (mask.ip, mask.cidr, addr) {
+        (IpAddr::V4(base), cidr, IpAddr::V4(addr)) => {
+            if let Ok(net) = Ipv4Net::new(base, cidr) {
+                net.contains(&addr)
+            } else {
+                false
+            }
+        }
+        (IpAddr::V6(base), cidr, IpAddr::V6(addr)) => {
+            if let Ok(net) = Ipv6Net::new(base, cidr) {
+                net.contains(&addr)
+            } else {
+                false
+            }
+        }
+        _ => false,
+    }
+}
 
 pub async fn run_daily<F, Fut>(task: F, target_time: NaiveTime)
 where
@@ -57,6 +82,10 @@ pub fn to_pg_bigint(value: u64) -> Option<i64> {
     }
 }
 
+pub fn from_pg_bigint(value: i64) -> u64 {
+    value as u64
+}
+
 pub fn generate_random_password(length: usize) -> String {
     rand::thread_rng()
         .sample_iter(&Alphanumeric)
@@ -83,11 +112,8 @@ where
     result
 }
 
-pub fn current_timestamp() -> u64 {
-    let now = SystemTime::now();
-    now.duration_since(UNIX_EPOCH)
-        .expect("Time went backwards")
-        .as_secs()
+pub fn current_timestamp() -> i64 {
+    Utc::now().timestamp()
 }
 
 pub fn human_readable_date(timestamp: u64) -> String {
@@ -130,6 +156,40 @@ pub fn create_conn_link(
         Url::parse(&raw_link).map_err(|_| PonyError::Custom("Invalid URL generated".into()))?;
 
     Ok(parsed.to_string())
+}
+
+pub fn wireguard_conn(
+    conn_id: &Uuid,
+    ipv4: &Ipv4Addr,
+    inbound: InboundResponse,
+    label: &str,
+    private_key: &str,
+    client_ip: &IpAddrMask,
+) -> Result<String> {
+    if let Some(wg) = inbound.wg {
+        let server_pubkey = wg.pubkey;
+        let host = ipv4;
+        let port = wg.port;
+
+        let config = format!(
+            "[Interface]\n\
+         PrivateKey = {private_key}\n\
+         Address    = {client_ip}\n\
+         DNS        = 1.1.1.1\n\
+         \n\
+         [Peer]\n\
+         PublicKey           = {server_pubkey}\n\
+         Endpoint            = {host}:{port}\n\
+         AllowedIPs          = 0.0.0.0/0, ::/0\n\
+         PersistentKeepalive = 25\n\
+         \n\
+         # {label} — conn_id: {conn_id}\n"
+        );
+
+        Ok(config)
+    } else {
+        Err(PonyError::Custom("WG is not configured".into()))
+    }
 }
 
 fn vless_xtls_conn(
@@ -443,7 +503,7 @@ pub fn generate_clash_config(proxies: Vec<ClashProxy>) -> ClashConfig {
         proxy_groups: vec![ClashProxyGroup {
             name: "♻️ Automatic".into(),
             group_type: "url-test".into(),
-            url: "https://dev.frkn.org/api/healthcheck".into(),
+            url: "http://www.gstatic.com/generate_204".into(),
             interval: 300,
             proxies: proxy_names,
         }],

@@ -7,11 +7,13 @@ use super::vless::ConnFlow;
 use super::vless::ConnInfo as VlessConnInfo;
 use super::vmess::ConnInfo as VmessConnInfo;
 use super::ProtocolConn;
+
 use crate::xray_api::xray::app::{
     proxyman::command::handler_service_client::HandlerServiceClient,
     stats::command::stats_service_client::StatsServiceClient,
 };
 use crate::xray_op::Tag;
+use crate::PonyError;
 use crate::Result;
 
 pub trait XrayClient {
@@ -102,6 +104,7 @@ impl HandlerActions for Arc<Mutex<HandlerClient>> {
                     "Create SS user error, password not provided".to_string(),
                 ))
             }
+            _ => Err(PonyError::Custom("Not supported by Xray".into())),
         }
     }
 
@@ -132,6 +135,7 @@ impl HandlerActions for Arc<Mutex<HandlerClient>> {
                     "Remove SS user error, password not provided".to_string(),
                 ))
             }
+            Tag::Wireguard => todo!(),
         }
     }
 }

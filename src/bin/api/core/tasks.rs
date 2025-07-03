@@ -6,101 +6,82 @@ use chrono::Utc;
 use futures::future::join_all;
 use std::collections::HashMap;
 
-use pony::clickhouse::query::Queries;
-use pony::state::Conn;
-use pony::state::ConnRow;
-use pony::state::ConnStat;
-use pony::state::ConnStatus;
-use pony::state::ConnStorageApi;
-use pony::state::ConnStorageOpStatus;
-use pony::state::Node;
-use pony::state::NodeStatus;
-use pony::state::NodeStorage;
-use pony::state::SyncOp;
-use pony::state::SyncTask;
-use pony::state::User;
-use pony::state::UserRow;
-use pony::state::UserStorage;
-use pony::state::{ConnApiOp, ConnBaseOp};
+use pony::state::node::Node;
+use pony::state::node::Status as NodeStatus;
+use pony::state::storage::connection::ApiOp;
 use pony::zmq::message::Action;
 use pony::zmq::message::Message;
+use pony::Conn as Connection;
+use pony::ConnectionApiOp;
+use pony::ConnectionBaseOp;
+use pony::ConnectionStat;
+use pony::ConnectionStatus;
+use pony::NodeStorageOp;
+use pony::OperationStatus;
+use pony::OperationStatus as StorageOperationStatus;
 use pony::PonyError;
 use pony::Result;
+use pony::Tag;
 
+use crate::core::clickhouse::query::Queries;
+use crate::core::postgres::connection::ConnRow;
+use crate::core::postgres::user::UserRow;
+use crate::core::sync::tasks::SyncOp;
+use crate::core::sync::SyncTask;
 use crate::Api;
 
 #[async_trait]
 pub trait Tasks {
     async fn add_node(&self, db_node: Node) -> Result<()>;
-    async fn add_conn(&self, db_conn: ConnRow) -> Result<()>;
-    async fn add_user(&self, db_user: UserRow) -> Result<()>;
+    async fn add_conn(&self, db_conn: ConnRow) -> Result<OperationStatus>;
+    async fn add_user(&self, db_user: UserRow) -> Result<OperationStatus>;
     async fn node_healthcheck(&self) -> Result<()>;
     async fn collect_conn_stat(&self) -> Result<()>;
-    async fn enforce_all_trial_limits(&self) -> Result<()>;
-    async fn restore_trial_conns(&self) -> Result<()>;
+    async fn enforce_xray_trial_limits(&self) -> Result<()>;
+    async fn restore_xray_trial_conns(&self) -> Result<()>;
 }
 
 #[async_trait]
-impl<T, C> Tasks for Api<T, C>
+impl<N, C> Tasks for Api<N, C>
 where
-    T: NodeStorage + Send + Sync + Clone + 'static,
-    C: ConnApiOp + ConnBaseOp + Send + Sync + Clone + 'static + From<Conn>,
-    Vec<(uuid::Uuid, pony::state::Conn)>: FromIterator<(uuid::Uuid, C)>,
+    N: NodeStorageOp + Send + Sync + Clone + 'static,
+    C: ConnectionApiOp
+        + ConnectionBaseOp
+        + Send
+        + Sync
+        + Clone
+        + 'static
+        + From<Connection>
+        + std::cmp::PartialEq,
+    Vec<(uuid::Uuid, Connection)>: FromIterator<(uuid::Uuid, C)>,
+    Connection: From<C>,
 {
-    async fn add_user(&self, db_user: UserRow) -> Result<()> {
-        let tg_id = if let Some(tg_id) = db_user.telegram_id {
-            Some(tg_id as u64)
-        } else {
-            None
-        };
-        let user = User {
-            username: db_user.username,
-            telegram_id: tg_id,
-            env: db_user.env,
-            limit: db_user.limit,
-            password: db_user.password,
-            created_at: db_user.created_at,
-            modified_at: db_user.modified_at,
-            is_deleted: db_user.is_deleted,
-        };
-
+    async fn add_user(&self, db_user: UserRow) -> Result<OperationStatus> {
         let user_id = db_user.user_id;
-        let mut state = self.state.memory.lock().await;
+        let user = db_user.try_into()?;
 
-        match state.users.try_add(&user_id, user) {
-            Ok(_) => Ok(()),
-            Err(e) => Err(format!(
-                "Create: Failed to add user {} to state: {}",
-                db_user.user_id, e
-            )
-            .into()),
+        let mut mem = self.state.memory.lock().await;
+
+        if mem.users.contains_key(&user_id) {
+            return Ok(OperationStatus::AlreadyExist(user_id));
         }
+
+        mem.users.insert(user_id, user);
+        Ok(OperationStatus::Ok(user_id))
     }
 
-    async fn add_conn(&self, db_conn: ConnRow) -> Result<()> {
-        let conn = Conn::new(
-            db_conn.trial,
-            db_conn.limit,
-            &db_conn.env,
-            db_conn.status,
-            Some(db_conn.password.clone()),
-            db_conn.user_id,
-            db_conn.stat,
-            db_conn.proto,
-        );
+    async fn add_conn(&self, db_conn: ConnRow) -> Result<OperationStatus> {
+        let conn_id = db_conn.conn_id;
+        let conn: Connection = db_conn.try_into()?;
 
         let mut state = self.state.memory.lock().await;
-        match state
-            .connections
-            .add_or_update(&db_conn.conn_id.clone(), conn.clone().into())
-        {
-            Ok(_) => Ok(()),
-            Err(e) => Err(format!(
+        state.connections.add(&conn_id, conn.into()).map_err(|e| {
+            format!(
                 "Create: Failed to add connection {} to state: {}",
-                db_conn.conn_id, e
+                conn_id, e
             )
-            .into()),
-        }
+            .into()
+        })
     }
     async fn add_node(&self, db_node: Node) -> Result<()> {
         let mut state = self.state.memory.lock().await;
@@ -138,7 +119,7 @@ where
                 let status =
                     match ch.fetch_node_heartbeat::<f64>(&env, &uuid, &hostname).await {
                         Some(hb) => {
-                            let ts = Utc.timestamp_opt(hb.latest, 0);
+                            let ts = Utc.timestamp_opt(hb.timestamp, 0);
                             match ts {
                                 chrono::LocalResult::Single(dt) => {
                                     let diff = now - dt;
@@ -159,7 +140,7 @@ where
                                 _ => {
                                     log::debug!(
                                         "[OFFLINE] Could not parse timestamp from heartbeat: {:?}",
-                                        hb.latest
+                                        hb.timestamp
                                     );
                                     NodeStatus::Offline
                                 }
@@ -196,7 +177,7 @@ where
             state
                 .connections
                 .iter()
-                .filter(|(_, conn)| conn.get_status() == ConnStatus::Active)
+                .filter(|(_, conn)| conn.get_status() == ConnectionStatus::Active)
                 .map(|(k, v)| (k.clone(), v.clone()))
                 .collect::<Vec<_>>()
         };
@@ -212,7 +193,7 @@ where
             async move {
                 if let Some(metrics) = ch.fetch_conn_stats::<i64>(conn_id, start_of_day).await {
                     log::debug!("metrics {:?}", metrics);
-                    let stat = ConnStat::from_metrics(metrics);
+                    let stat = ConnectionStat::from_metrics(metrics);
                     log::debug!("Stat to update - {}", stat);
                     SyncOp::update_conn_stat(&state, &conn_id, stat).await
                 } else {
@@ -233,14 +214,14 @@ where
         Ok(())
     }
 
-    async fn enforce_all_trial_limits(&self) -> Result<()> {
-        let conns: Vec<(uuid::Uuid, Conn)> = {
+    async fn enforce_xray_trial_limits(&self) -> Result<()> {
+        let conns: Vec<(uuid::Uuid, Connection)> = {
             let state = self.state.memory.lock().await;
             state
                 .connections
                 .iter()
                 .filter_map(|(id, conn)| {
-                    if conn.get_trial() && conn.get_status() == ConnStatus::Active {
+                    if conn.get_trial() && conn.get_status() == ConnectionStatus::Active {
                         Some((*id, conn.clone()))
                     } else {
                         None
@@ -249,7 +230,8 @@ where
                 .collect()
         };
 
-        let mut grouped: HashMap<Option<uuid::Uuid>, Vec<(uuid::Uuid, Conn)>> = HashMap::new();
+        let mut grouped: HashMap<Option<uuid::Uuid>, Vec<(uuid::Uuid, Connection)>> =
+            HashMap::new();
         for (conn_id, conn) in conns {
             grouped
                 .entry(conn.get_user_id())
@@ -274,7 +256,7 @@ where
                         {
                             let mut mem = state.memory.lock().await;
                             if let Some(conn) = mem.connections.get_mut(&conn_id) {
-                                conn.set_status(ConnStatus::Expired);
+                                conn.set_status(ConnectionStatus::Expired);
                                 conn.set_modified_at();
                             }
                         }
@@ -283,7 +265,7 @@ where
                             .sync_tx
                             .send(SyncTask::UpdateConnStatus {
                                 conn_id,
-                                status: ConnStatus::Expired,
+                                status: ConnectionStatus::Expired,
                             })
                             .await;
 
@@ -291,7 +273,8 @@ where
                             action: Action::Delete,
                             conn_id,
                             password: conn.get_password(),
-                            tag: conn.get_proto(),
+                            tag: conn.get_proto().proto(),
+                            wg: None,
                         };
 
                         let _ = publisher.send(&conn.get_env(), msg).await;
@@ -320,58 +303,61 @@ where
         Ok(())
     }
 
-    async fn restore_trial_conns(&self) -> Result<()> {
+    async fn restore_xray_trial_conns(&self) -> Result<()> {
         let conns_map = {
             let state = self.state.memory.lock().await;
             state
                 .connections
                 .iter()
-                .filter(|(_, conn)| conn.get_trial())
+                .filter(|(_, conn)| {
+                    conn.get_trial() && !matches!(conn.get_proto().proto(), Tag::Wireguard)
+                })
                 .map(|(k, v)| (k.clone(), v.clone()))
                 .collect::<Vec<_>>()
         };
 
-        let tasks = conns_map.into_iter().map(|(conn_id, conn)| {
+        let tasks = conns_map.into_iter().filter_map(|(conn_id, conn)| {
             let state = self.state.clone();
             let publisher = self.publisher.clone();
 
+            let tag = conn.get_proto().proto();
+            let wg = conn.get_wireguard();
+            let password = conn.get_password();
+
             let reset_msg = Message {
                 action: Action::ResetStat,
-                conn_id: conn_id,
-                password: None,
-                tag: conn.get_proto(),
+                conn_id,
+                password: password.clone(),
+                tag: tag,
+                wg: wg.cloned(),
             };
 
             let restore_msg = Message {
                 action: Action::Create,
-                conn_id: conn_id,
-                password: None,
-                tag: conn.get_proto(),
+                conn_id,
+                password: password,
+                tag: tag,
+                wg: wg.cloned(),
             };
 
-            async move {
-                if let Ok(status) = SyncOp::activate_trial_conn(&state, &conn_id).await {
-                    match status {
-                        ConnStorageOpStatus::Updated => {
-                            let _ = publisher.send(&conn.get_env(), restore_msg).await?;
-                            let _ = publisher.send(&conn.get_env(), reset_msg).await?;
-                            log::info!("Trial connection {} was restored", conn_id);
-
-                            Ok(())
-                        }
-                        ConnStorageOpStatus::UpdatedStat => {
-                            log::info!("Trial connection stat {} was restored", conn_id);
-
-                            Ok(())
-                        }
-                        _ => Err(PonyError::Custom("Op isnt' supported".to_string())),
+            Some(async move {
+                match SyncOp::activate_trial_conn(&state, &conn_id).await {
+                    Ok(StorageOperationStatus::Updated(_id)) => {
+                        publisher.send(&conn.get_env(), restore_msg).await?;
+                        publisher.send(&conn.get_env(), reset_msg).await?;
+                        log::info!("Trial connection {} was restored", conn_id);
+                        Ok(())
                     }
-                } else {
-                    Err(PonyError::Custom(
-                        "SyncOp::activate_trial_conn failed".to_string(),
-                    ))
+                    Ok(StorageOperationStatus::UpdatedStat(_id)) => {
+                        log::info!("Trial connection stat {} was restored", conn_id);
+                        Ok(())
+                    }
+                    Ok(_) => Err(PonyError::Custom("Op isn't supported".into())),
+                    Err(_) => Err(PonyError::Custom(
+                        "SyncOp::activate_trial_conn failed".into(),
+                    )),
                 }
-            }
+            })
         });
 
         let results = join_all(tasks).await;

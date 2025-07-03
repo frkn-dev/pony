@@ -15,19 +15,19 @@ impl AsMetric for LoadAvgWrapper {
         vec![
             Metric {
                 //dev.localhost.loadavg.1m
-                path: format!("{env}.{hostname}.{name}.1m"),
+                metric: format!("{env}.{hostname}.{name}.1m"),
                 value: self.load_avg.one,
                 timestamp: timestamp,
             },
             Metric {
                 //dev.localhost.loadavg.5m
-                path: format!("{env}.{hostname}.{name}.5m"),
+                metric: format!("{env}.{hostname}.{name}.5m"),
                 value: self.load_avg.five,
                 timestamp: timestamp,
             },
             Metric {
                 //dev.localhost.loadavg.15m
-                path: format!("{env}.{hostname}.{name}.15m"),
+                metric: format!("{env}.{hostname}.{name}.15m"),
                 value: self.load_avg.fifteen,
                 timestamp: timestamp,
             },

@@ -47,6 +47,14 @@ fn default_xray_config_path() -> String {
     "dev/xray-config.json".to_string()
 }
 
+fn default_wg_port() -> u16 {
+    51820
+}
+
+fn default_wg_interface() -> String {
+    "wg0".to_string()
+}
+
 fn default_pg_address() -> String {
     "localhost".to_string()
 }
@@ -319,8 +327,24 @@ pub struct PaymentConfig {
 
 #[derive(Clone, Debug, Deserialize, Default)]
 pub struct XrayConfig {
+    #[serde(default = "default_enabled")]
+    pub enabled: bool,
     #[serde(default = "default_xray_config_path")]
     pub xray_config_path: String,
+}
+
+#[derive(Clone, Default, Debug, Deserialize)]
+pub struct WgConfig {
+    #[serde(default = "default_enabled")]
+    pub enabled: bool,
+    #[serde(default = "default_wg_port")]
+    pub port: u16,
+    #[serde(default = "default_wg_interface")]
+    pub interface: String,
+    pub network: Option<String>,
+    pub privkey: Option<String>,
+    pub pubkey: Option<String>,
+    pub address: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]
@@ -420,6 +444,8 @@ pub struct AgentSettings {
     pub agent: AgentConfig,
     #[serde(default)]
     pub xray: XrayConfig,
+    #[serde(default)]
+    pub wg: WgConfig,
     #[serde(default)]
     pub zmq: ZmqSubscriberConfig,
     #[serde(default)]

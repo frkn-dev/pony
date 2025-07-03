@@ -16,7 +16,13 @@ impl reject::Reject for MethodError {}
 #[derive(Serialize, Debug, Deserialize)]
 pub struct ResponseMessage<T> {
     pub status: u16,
-    pub message: T,
+    pub message: String,
+    pub response: T,
+}
+
+#[derive(Serialize, Debug, Deserialize)]
+pub struct IdResponse {
+    pub id: uuid::Uuid,
 }
 
 #[derive(Debug)]

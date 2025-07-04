@@ -74,12 +74,12 @@ impl Node {
         let now = Utc::now();
         let mut inbounds: HashMap<Tag, Inbound> = HashMap::new();
 
-        let _ = {
+        {
             if let Some(config) = xray_config {
                 let xray_inbounds = config
                     .inbounds
                     .into_iter()
-                    .map(|inbound| (inbound.tag.clone(), inbound))
+                    .map(|inbound| (inbound.tag, inbound))
                     .collect::<HashMap<Tag, Inbound>>();
 
                 inbounds.extend(xray_inbounds);
@@ -127,7 +127,7 @@ impl Node {
             env: self.env.clone(),
             hostname: self.hostname.clone(),
             address: self.address,
-            uuid: self.uuid.clone(),
+            uuid: self.uuid,
             inbounds: inbound_response,
             status: self.status,
             label: self.label.clone(),

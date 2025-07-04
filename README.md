@@ -1,31 +1,28 @@
-
-
 [![Release](https://github.com/frkn-dev/pony/actions/workflows/release.yml/badge.svg?branch=main)](https://github.com/frkn-dev/pony/actions/workflows/release.yml) [![Pony Build](https://github.com/frkn-dev/pony/actions/workflows/rust.yml/badge.svg?branch=main)](https://github.com/frkn-dev/pony/actions/workflows/rust.yml)
 
 # Pony - a cluster platform for Xray/Wiregard
 
-## Architecture 
+## Architecture
 
-Contains 3 parts 
+Contains 3 parts
 
 - agent — manages Xray/Wireguard(in progress) connections/users/metrics
 - api — manages cluster of servers, gets API calls and send commands to servers
-- bot — just a telegram -bot allows users to interact with platform
+- bot — https://github.com/frkn-dev/vpn-bot
 
-
-### As dependencies the platfrom has 
+### As dependencies the platfrom has
 
 - PostgreSQL — user and node data storage
-- Clickhouse —  metrics storage
+- Clickhouse — metrics storage
 - ZeroMQ — communicating bus
-- Carbon — metrics relay 
+- Carbon — metrics relay
 - Xray Core — censorship avoiding platfrom
-- Nginx — reverse proxy 
+- Wireguard
+- Nginx — reverse proxy
 
+## Agent Installation
 
-## Agent Installation 
-
-1. Create .env file 
+1. Create .env file
 
 ```
 export XRAY_VERSION="v24.11.30"
@@ -34,7 +31,7 @@ export INSTALL_DIR="/opt/vpn"
 export XRAY_CONFIG_PATH="$INSTALL_DIR/xray-config.json"
 export PONY_CONFIG_PATH="$INSTALL_DIR/config-agent.toml"
 
-# Xray core settings 
+# Xray core settings
 export XRAY_API_PORT=55555
 export SHADOWSOCKS_PORT=1080
 export VMESS_HOST="google.com"
@@ -44,7 +41,7 @@ export VLESS_GRPC_PORT=8445
 export VLESS_SERVER_NAME="discordapp.com"
 export VLESS_DEST="discordapp.com:443"
 
-# Pony agent settings 
+# Pony agent settings
 export CARBON_ADDRESS="Carbon Relay Address:2003"
 export ZMQ_ENDPOINT="tcp://Pony API Address:3000"
 export ENV="dev"
@@ -60,10 +57,10 @@ export UUID="8381b11e-6f3a-4248-9ae7-c14343ef6b1e"
 source ./env
 bash deploy/install
 ```
+
 Note: The script will install Xray Core and Pony Agent automatically.
 
-
-### Features 
+### Features
 
 - Standalone Agent — can run without external dependencies: just Xray Core and a config file.
 - Automatic Xray Config Parsing — reads xray-config.json to fetch inbounds and settings automatically.
@@ -74,7 +71,3 @@ Note: The script will install Xray Core and Pony Agent automatically.
 - Node Health Monitoring — API periodically checks the health and status of all connected nodes.
 - Metrics System — system and logic metrics are collected in Graphite format and stored in Clickhouse for analytics.
 - Trial User Support — supports trial users with daily traffic limitation control.
-
-
-
-

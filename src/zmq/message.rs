@@ -6,7 +6,7 @@ use crate::state::tag::Tag;
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub enum Action {
-    #[serde(rename = "create")]
+    #[serde(rename = "create")] // COMMENT(qezz): I think you can rename_all with snake_case
     Create,
     #[serde(rename = "update")]
     Update,

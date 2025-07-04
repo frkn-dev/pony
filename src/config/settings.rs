@@ -195,6 +195,11 @@ pub struct NodeConfig {
 }
 
 impl NodeConfig {
+    // FIXME(qezz): validate() mutates self, while in theory it should not.
+    // Common solution is to have 2 types for config, e.g. `RawNodeConfig`
+    // and `NodeConfig`.
+    //
+    // Then: NodeConfig::from_raw(raw: RawNodeConfig) -> NodeConfig { ... }
     pub fn validate(&mut self) -> Result<(), Box<dyn Error>> {
         if self.hostname.is_none() {
             match env::var("HOSTNAME") {

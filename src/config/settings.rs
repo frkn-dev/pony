@@ -207,7 +207,24 @@ impl NodeConfig {
             }
         }
 
-        if self.default_interface.is_none() {
+        if let Some(ref interface_name) = self.default_interface {
+            let interfaces = get_interfaces();
+            if let Some(interface) = interfaces.iter().find(|i| &i.name == interface_name) {
+                match interface.ipv4.first() {
+                    Some(network) => self.address = Some(network.addr),
+                    None => {
+                        return Err(
+                            "Validation error: Cannot get IPv4 address for the specified interface"
+                                .into(),
+                        )
+                    }
+                }
+            } else {
+                return Err(
+                    format!("Validation error: Interface {} not found", interface_name).into(),
+                );
+            }
+        } else {
             match get_default_interface() {
                 Ok(interface) => {
                     self.default_interface = Some(interface.name);
@@ -224,24 +241,6 @@ impl NodeConfig {
                         format!("Validation error: Cannot get default interface: {}", e).into(),
                     )
                 }
-            }
-        } else {
-            let interface_name = self.default_interface.as_ref().expect("interface");
-            let interfaces = get_interfaces();
-            if let Some(interface) = interfaces.iter().find(|i| &i.name == interface_name) {
-                match interface.ipv4.first() {
-                    Some(network) => self.address = Some(network.addr),
-                    None => {
-                        return Err(
-                            "Validation error: Cannot get IPv4 address for the specified interface"
-                                .into(),
-                        )
-                    }
-                }
-            } else {
-                return Err(
-                    format!("Validation error: Interface {} not found", interface_name).into(),
-                );
             }
         }
 

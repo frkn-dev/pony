@@ -1,5 +1,4 @@
 use chrono::NaiveTime;
-use clap::Parser;
 use fern::Dispatch;
 use futures::future::join_all;
 use std::net::Ipv4Addr;
@@ -29,23 +28,17 @@ use crate::core::ApiState;
 
 mod core;
 
-#[derive(Parser)]
-#[command(about = "Pony Api - control tool for Xray/Wireguard")]
-struct Cli {
-    #[arg(short, long, default_value = "config.toml")]
-    config: String,
-}
-
 #[tokio::main]
 async fn main() -> Result<()> {
     #[cfg(feature = "debug")]
     console_subscriber::init();
 
-    let args = Cli::parse();
+    let config_path = &std::env::args()
+        .nth(1)
+        .expect("required config path as an argument");
+    println!("Config file {:?}", config_path);
 
-    println!("Config file {:?}", args.config);
-
-    let mut settings = ApiSettings::new(&args.config);
+    let mut settings = ApiSettings::new(&config_path);
 
     if let Err(e) = settings.validate() {
         panic!("Wrong settings file {}", e);

@@ -1,4 +1,3 @@
-use clap::Parser;
 use fern::Dispatch;
 
 use pony::config::settings::AgentSettings;
@@ -7,24 +6,16 @@ use pony::utils::*;
 
 mod core;
 
-#[derive(Parser)]
-#[command(
-    about = "Pony Agent - control tool for Xray/Wireguard",
-    version = "v0.1.21"
-)]
-struct Cli {
-    #[arg(short, long, default_value = "config.toml")]
-    config: String,
-}
-
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(feature = "debug")]
     console_subscriber::init();
 
-    let args = Cli::parse();
-    println!("Config file {:?}", args.config);
+    let config_path = &std::env::args()
+        .nth(1)
+        .expect("required config path as an argument");
+    println!("Config file {}", config_path);
 
-    let mut settings = AgentSettings::new(&args.config);
+    let mut settings = AgentSettings::new(config_path);
 
     if let Err(e) = settings.validate() {
         panic!("Wrong settings file {}", e);

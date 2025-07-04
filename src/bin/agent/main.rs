@@ -17,9 +17,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut settings = AgentSettings::new(config_path);
 
-    if let Err(e) = settings.validate() {
-        panic!("Wrong settings file {}", e);
-    }
+    settings.validate().expect("Wrong settings file");
     println!(">>> Settings: {:?}", settings.clone());
 
     Dispatch::new()

@@ -40,9 +40,7 @@ async fn main() -> Result<()> {
 
     let mut settings = ApiSettings::new(&config_path);
 
-    if let Err(e) = settings.validate() {
-        panic!("Wrong settings file {}", e);
-    }
+    settings.validate().expect("Wrong settings file");
     println!(">>> Settings: {:?}", settings.clone());
 
     // Logs handler init
@@ -63,10 +61,7 @@ async fn main() -> Result<()> {
 
     let debug = settings.debug.enabled;
 
-    let db = match PgContext::init(&settings.pg).await {
-        Ok(ctx) => ctx,
-        Err(e) => panic!("DB error: {}", e),
-    };
+    let db = PgContext::init(&settings.pg).await.expect("DB error");
 
     let ch = ChContext::new(&settings.clickhouse.address);
     let publisher = ZmqPublisher::new(&settings.zmq.endpoint).await;

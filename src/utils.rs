@@ -149,7 +149,7 @@ pub fn create_conn_link(
         Tag::VlessXtls => vless_xtls_conn(conn_id, address, inbound.clone(), label),
         Tag::VlessGrpc => vless_grpc_conn(conn_id, address, inbound.clone(), label),
         Tag::Vmess => vmess_tcp_conn(conn_id, address, inbound.clone(), label),
-        _ => return Err(PonyError::Custom("Cannot complete conn line".into()).into()),
+        _ => return Err(PonyError::Custom("Cannot complete conn line".into())),
     }?;
 
     let parsed =
@@ -173,6 +173,8 @@ pub fn wireguard_conn(
         let dns: Vec<_> = wg.dns.iter().map(|d| d.to_string()).collect();
         let dns = dns.join(",");
 
+        // COMMENT(qezz): You can use raw strings, e.g. `r#"hello world"#`
+        // Then no need to add the `\n\` on each line.
         let config = format!(
             "[Interface]\n\
          PrivateKey = {private_key}\n\
@@ -218,6 +220,7 @@ fn vless_xtls_conn(
             "VLESS XTLS: reality settings SNI error".into(),
         ))?;
 
+    // COMMENT(qezz): A uri builder would probably come in handy here
     Ok(format!(
         "vless://{conn_id}@{ipv4}:{port}?security=reality&flow=xtls-rprx-vision&type=tcp&sni={sni}&fp=chrome&pbk={pbk}&sid={sid}#{label} XTLS"
     ))
@@ -293,6 +296,7 @@ fn vmess_tcp_conn(
         .first()
         .ok_or(PonyError::Custom("VMESS: path settings error".into()))?;
 
+    // COMMENT(qezz): This is usually done via having a struct that implements `Serialize`
     conn.insert("add".to_string(), ipv4.to_string());
     conn.insert("aid".to_string(), "0".to_string());
     conn.insert("host".to_string(), host.to_string());

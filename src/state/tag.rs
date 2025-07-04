@@ -32,6 +32,11 @@ impl fmt::Display for Tag {
 
 impl Tag {
     pub fn is_wireguard(&self) -> bool {
+        // COMMENT(qezz): I'm sure it's possible to just use
+        //
+        // `*self == Tag::Wireguard`
+        //
+        // The `matches!()` is only needed when there's multiple entries
         matches!(self, Tag::Wireguard)
     }
 

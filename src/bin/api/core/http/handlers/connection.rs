@@ -1,4 +1,5 @@
 use base64::Engine;
+use warp::http::Response;
 
 use defguard_wireguard_rs::net::IpAddrMask;
 use warp::http::StatusCode;
@@ -689,11 +690,10 @@ where
     ))
 }
 
-//ToDo - Rework
 pub async fn subscription_link_handler<N, C>(
     user_req: UserSubQueryParam,
     state: SyncState<N, C>,
-) -> Result<impl warp::Reply, warp::Rejection>
+) -> Result<Box<dyn warp::Reply + Send>, warp::Rejection>
 where
     N: NodeStorageOp + Sync + Send + Clone + 'static,
     C: ConnectionApiOp
@@ -732,14 +732,16 @@ where
     }
 
     if inbounds_by_node.is_empty() {
-        return Ok(warp::reply::with_status(
-            warp::reply::with_header(
-                "NO SUBSCRIPTION LINKS AVAILABLE".to_string(),
-                "Content-Type",
-                "application/yaml",
-            ),
+        let message = format!("Connections are not found");
+        let response = ResponseMessage::<Option<Vec<&(uuid::Uuid, Connection)>>> {
+            status: StatusCode::NOT_FOUND.as_u16(),
+            message,
+            response: Some(vec![]),
+        };
+        return Ok(Box::new(warp::reply::with_status(
+            warp::reply::json(&response),
             StatusCode::NOT_FOUND,
-        ));
+        )));
     }
 
     match user_req.format.as_str() {
@@ -758,10 +760,12 @@ where
             let yaml = serde_yaml::to_string(&config)
                 .unwrap_or_else(|_| "---\nerror: failed to serialize\n".into());
 
-            return Ok(warp::reply::with_status(
-                warp::reply::with_header(yaml, "Content-Type", "application/yaml"),
-                StatusCode::OK,
-            ));
+            let response = Response::builder()
+                .header("Content-Type", "application/yaml")
+                .status(StatusCode::OK)
+                .body(yaml);
+
+            return Ok(Box::new(response));
         }
 
         _ => {
@@ -775,10 +779,10 @@ where
             let sub = base64::engine::general_purpose::STANDARD.encode(links.join("\n"));
             let body = format!("{}\n", sub);
 
-            return Ok(warp::reply::with_status(
+            return Ok(Box::new(warp::reply::with_status(
                 warp::reply::with_header(body, "Content-Type", "text/plain"),
                 StatusCode::OK,
-            ));
+            )));
         }
     }
 }

@@ -235,11 +235,7 @@ where
         + PartialEq,
 {
     let mem = state.memory.lock().await;
-    let users: Vec<(&uuid::Uuid, &User)> = mem
-        .users
-        .iter()
-        .filter(|(_id, u)| u.is_deleted == false)
-        .collect();
+    let users: Vec<(&uuid::Uuid, &User)> = mem.users.iter().collect();
 
     let response = ResponseMessage::<Option<Vec<(&uuid::Uuid, &User)>>> {
         status: 200,
@@ -271,7 +267,8 @@ where
     log::debug!("Received: {:?}", user_req);
 
     let mem = state.memory.lock().await;
-    let mut result: Vec<(uuid::Uuid, ConnectionStat, Tag, ConnectionStatus)> = Vec::new();
+    let mut result: Vec<(uuid::Uuid, ConnectionStat, Tag, ConnectionStatus, i32, bool)> =
+        Vec::new();
 
     if let Some(connections) = mem.connections.get_by_user_id(&user_req.user_id) {
         for (conn_id, conn) in connections {
@@ -283,7 +280,14 @@ where
                 uplink: conn.get_uplink(),
             };
 
-            result.push((conn_id, stat, tag, conn.get_status()));
+            result.push((
+                conn_id,
+                stat,
+                tag,
+                conn.get_status(),
+                conn.get_limit(),
+                conn.get_trial(),
+            ));
         }
 
         let response = ResponseMessage {
@@ -297,12 +301,13 @@ where
             StatusCode::OK,
         ))
     } else {
-        let response =
-            ResponseMessage::<Option<Vec<(uuid::Uuid, ConnectionStat, Tag, ConnectionStatus)>>> {
-                status: StatusCode::NOT_FOUND.as_u16(),
-                message: "Connections not found".to_string(),
-                response: None,
-            };
+        let response = ResponseMessage::<
+            Option<Vec<(uuid::Uuid, ConnectionStat, Tag, ConnectionStatus, i32, bool)>>,
+        > {
+            status: StatusCode::NOT_FOUND.as_u16(),
+            message: "Connections not found".to_string(),
+            response: Some(vec![]),
+        };
 
         Ok(warp::reply::with_status(
             warp::reply::json(&response),

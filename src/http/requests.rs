@@ -13,8 +13,6 @@ use crate::state::tag::Tag;
 use crate::state::user::User;
 use crate::zmq::message::Action;
 use crate::zmq::message::Message;
-use crate::Conn;
-use crate::ConnectionBaseOp;
 use crate::ConnectionStatus;
 
 fn default_format() -> String {
@@ -85,6 +83,18 @@ pub struct NodeIdParam {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct ConnQueryParam {
     pub conn_id: uuid::Uuid,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub enum NodeType {
+    Xray,
+    Wireguard,
+    All,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct NodeTypeParam {
+    pub node_type: Option<NodeType>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

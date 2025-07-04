@@ -64,6 +64,7 @@ where
             .and(warp::path::end())
             .and(auth.clone())
             .and(warp::body::json::<NodeRequest>())
+            .and(warp::query::<NodeTypeParam>())
             .and(with_state(self.state.clone()))
             .and(publisher(self.publisher.clone()))
             .and_then(post_node_handler);

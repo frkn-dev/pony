@@ -2,13 +2,12 @@ name: Release
 
 on:
   push:
-    tags: [ '*' ]
+    tags: ["*"]
 
 env:
   CARGO_TERM_COLOR: always
   REGISTRY: frknorg
   API_IMAGE_NAME: pony-api
-  BOT_IMAGE_NAME: pony-bot
   DOCKER_TAG: latest
 
 jobs:
@@ -30,7 +29,7 @@ jobs:
         run: sudo apt-get install -y protobuf-compiler
 
       - name: Build
-        run: cargo build --no-default-features --bin agent 
+        run: cargo build --no-default-features --bin agent
 
   build-api:
     runs-on: ubuntu-latest
@@ -51,36 +50,15 @@ jobs:
 
       - name: Build
         run: cargo build --no-default-features --bin api
-        
-  build-bot:
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v1
-
-      - name: Install latest rust toolchain
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: nightly
-          default: true
-          override: true
-
-      - name: Install protobuf-compiler
-        run: sudo apt-get install -y protobuf-compiler
-
-      - name: Build
-        run: cargo build --no-default-features --bin bot 
-
 
   release:
     name: Release
-    needs: [build-api, build-agent, build-bot]
+    needs: [build-api, build-agent]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v1
-  
+
       - name: Install latest rust toolchain
         uses: actions-rs/toolchain@v1
         with:
@@ -94,13 +72,13 @@ jobs:
 
       - name: Install zig
         run: pip3 install ziglang
-      
+
       - name: Install cargo-zigbuild
         run: cargo install --locked cargo-zigbuild
-      
+
       - name: Add target
         run: rustup target add x86_64-unknown-linux-gnu
-      
+
       - name: Build statically linked binary
         run: cargo zigbuild --release --target x86_64-unknown-linux-gnu
 
@@ -112,8 +90,7 @@ jobs:
         run: |
           mv target/x86_64-unknown-linux-gnu/release/api target/release/api-${{ env.ARCH }}
           mv target/x86_64-unknown-linux-gnu/release/agent target/release/agent-${{ env.ARCH }}
-          mv target/x86_64-unknown-linux-gnu/release/bot target/release/bot-${{ env.ARCH }}
-    
+
       - name: Release
         uses: softprops/action-gh-release@v1
         if: startsWith(github.ref, 'refs/tags/')
@@ -121,20 +98,18 @@ jobs:
           files: |
             target/release/api-${{ env.ARCH }}
             target/release/agent-${{ env.ARCH }}
-            target/release/bot-${{ env.ARCH }}
             deploy/init.sql
             deploy/install
             docs/*
             README.md
             config-agent-example.toml
             config-api-example.toml
-            config-bot-example.toml
 
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   publish-api:
-    name: Push Api Docker image 
+    name: Push Api Docker image
     needs: [release]
     runs-on: ubuntu-latest
     permissions:
@@ -163,42 +138,6 @@ jobs:
         with:
           context: .
           file: Dockerfile.api
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-
-  publish-bot:
-    name: Push Bot Docker image
-    needs: [release]
-    runs-on: ubuntu-latest
-    permissions:
-      packages: write
-      contents: read
-      attestations: write
-      id-token: write
-  
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-  
-      - name: Login to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ env.REGISTRY }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
-  
-      - name: Extract Docker metadata for bot
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: |
-            ${{ env.REGISTRY }}/${{ env.BOT_IMAGE_NAME }}
-  
-      - name: Build and push bot image
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: Dockerfile.bot
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}

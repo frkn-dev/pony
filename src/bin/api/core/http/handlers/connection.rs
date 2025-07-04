@@ -296,6 +296,12 @@ where
             }
         };
 
+        let base_ip = node
+            .inbounds
+            .get(&Tag::Wireguard)
+            .and_then(|inb| inb.wg.as_ref())
+            .map(|wg| wg.address);
+
         let max_ip = mem
             .connections
             .iter()
@@ -306,6 +312,7 @@ where
 
         let next_ip = match max_ip
             .and_then(utils::increment_ip)
+            .or_else(|| base_ip.and_then(utils::increment_ip))
             .map(std::net::IpAddr::V4)
         {
             Some(ip) => ip,

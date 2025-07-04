@@ -147,39 +147,6 @@ impl PgConn {
         Ok(conns)
     }
 
-    pub async fn by_env(&self, env: &str) -> Result<Vec<ConnRow>> {
-        let client = self.client.lock().await;
-
-        let query = "
-        SELECT 
-            id,
-            is_trial,
-            daily_limit_mb,
-            password,
-            env,
-            created_at,
-            modified_at,
-            user_id,
-            online, 
-            uplink,
-            downlink,
-            status,
-            proto,
-            node_id,
-            wg_privkey,
-            wg_pubkey,
-            wg_address,
-            is_deleted
-        FROM connections
-        WHERE env = $1
-    ";
-
-        let rows = client.query(query, &[&env]).await?;
-
-        let conns = self.map_rows_to_conns(rows);
-        Ok(conns)
-    }
-
     fn map_rows_to_conns(&self, rows: Vec<tokio_postgres::Row>) -> Vec<ConnRow> {
         rows.into_iter()
             .map(|row| {
@@ -234,23 +201,6 @@ impl PgConn {
                 }
             })
             .collect()
-    }
-
-    pub async fn is_exist(&self, conn_id: &str) -> Option<uuid::Uuid> {
-        let client = self.client.lock().await;
-
-        let query = "
-                        SELECT id 
-                        FROM connections 
-                        WHERE conn_id = $1";
-
-        match client.query(query, &[&conn_id]).await {
-            Ok(rows) => rows.first().map(|row| row.get(0)),
-            Err(err) => {
-                log::error!("Database query failed: {}", err);
-                None
-            }
-        }
     }
 
     pub async fn update_stat(&self, conn_id: &uuid::Uuid, stat: ConnectionStat) -> Result<()> {

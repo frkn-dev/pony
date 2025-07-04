@@ -1,9 +1,12 @@
 use pony::http::requests::NodeIdParam;
+use pony::http::requests::NodeTypeParam;
 use pony::http::IdResponse;
+use pony::Tag;
 use warp::http::StatusCode;
 
 use pony::http::requests::NodeRequest;
 use pony::http::requests::NodeResponse;
+use pony::http::requests::NodeType;
 use pony::http::requests::NodesQueryParams;
 use pony::http::ResponseMessage;
 use pony::state::node::Status as NodeStatus;
@@ -24,6 +27,7 @@ use crate::core::sync::SyncState;
 // POST /node
 pub async fn post_node_handler<N, C>(
     node_req: NodeRequest,
+    node_param: NodeTypeParam,
     state: SyncState<N, C>,
     publisher: ZmqPublisher,
 ) -> Result<impl warp::Reply, warp::Rejection>
@@ -44,6 +48,12 @@ where
     let node = node_req.clone().as_node();
     let node_id = node_req.uuid;
 
+    let node_type = if let Some(node_type) = node_param.node_type {
+        node_type
+    } else {
+        NodeType::All
+    };
+
     let status = SyncOp::add_node(&state, &node_id, node.clone()).await;
 
     let response = match status {
@@ -54,18 +64,36 @@ where
                 SyncOp::update_node_status(&state, &node_id, &node.env, NodeStatus::Online).await;
 
             let mem = state.memory.lock().await;
-            for (conn_id, conn) in mem.connections.iter().filter(|(_, conn)| {
-                !conn.get_deleted() && conn.get_status() == ConnectionStatus::Active
-            }) {
-                let msg = Message {
+
+            let connections_iter = mem.connections.iter().filter(|(_, conn)| {
+                !conn.get_deleted()
+                    && conn.get_status() == ConnectionStatus::Active
+                    && match node_type {
+                        NodeType::Wireguard => {
+                            conn.get_proto().proto() == Tag::Wireguard
+                                && Some(node_id) == conn.get_wireguard_node_id()
+                        }
+                        NodeType::Xray => conn.get_proto().proto() != Tag::Wireguard,
+                        NodeType::All => {
+                            if conn.get_proto().proto() == Tag::Wireguard {
+                                Some(node_id) == conn.get_wireguard_node_id()
+                            } else {
+                                true
+                            }
+                        }
+                    }
+            });
+
+            for (conn_id, conn) in connections_iter {
+                let message = Message {
                     conn_id: *conn_id,
                     action: Action::Create,
                     password: conn.get_password(),
                     tag: conn.get_proto().proto(),
-                    wg: None,
+                    wg: conn.get_wireguard().cloned(),
                 };
 
-                if let Err(e) = publisher.send(&node_req.uuid.to_string(), msg).await {
+                if let Err(e) = publisher.send(&node_req.uuid.to_string(), message).await {
                     log::error!("Failed to send message for connection {}: {}", conn_id, e);
                 }
             }
@@ -73,7 +101,7 @@ where
             ResponseMessage::<Option<IdResponse>> {
                 status: StatusCode::OK.as_u16(),
                 message: "Ok".to_string(),
-                response: Some(IdResponse { id: id }),
+                response: Some(IdResponse { id }),
             }
         }
 

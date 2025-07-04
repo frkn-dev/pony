@@ -12,8 +12,6 @@ use crate::state::connection::stat::Stat;
 
 use crate::state::connection::op::api::Operations as ApiOps;
 use crate::state::connection::op::base::Operations as BasOps;
-use crate::zmq::message::Action;
-use crate::zmq::message::Message;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Conn {

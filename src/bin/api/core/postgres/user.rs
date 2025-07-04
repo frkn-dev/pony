@@ -1,6 +1,5 @@
 use chrono::NaiveDateTime;
 use chrono::Utc;
-use pony::http::requests::UserUpdateReq;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio_postgres::error::SqlState;
@@ -182,30 +181,5 @@ impl PgUser {
             .collect();
 
         Ok(users)
-    }
-
-    pub async fn get(&self, username: &str) -> Option<UserRow> {
-        let client = self.client.lock().await;
-
-        let query = "SELECT id, username, telegram_id, env, daily_limit_mb, password, created_at, modified_at, is_deleted FROM users WHERE username = $1;";
-        let result = client.query(query, &[&username]).await;
-
-        if let Ok(rows) = result {
-            if let Some(row) = rows.first() {
-                return Some(UserRow {
-                    user_id: row.get("id"),
-                    username: row.get("username"),
-                    telegram_id: row.get("telegram_id"),
-                    env: row.get("env"),
-                    limit: row.get("daily_limit_mb"),
-                    password: row.get("password"),
-                    created_at: row.get("created_at"),
-                    modified_at: row.get("modified_at"),
-                    is_deleted: row.get("is_deleted"),
-                });
-            }
-        }
-
-        None
     }
 }

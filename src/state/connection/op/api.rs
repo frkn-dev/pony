@@ -3,7 +3,6 @@ use crate::state::connection::conn::Status;
 use crate::state::connection::op::base::Operations as BaseOp;
 use crate::zmq::message::Action;
 use crate::zmq::message::Message;
-use crate::ConnectionBaseOp;
 
 pub trait Operations {
     fn get_trial(&self) -> bool;

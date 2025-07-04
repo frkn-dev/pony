@@ -1,9 +1,10 @@
 use async_trait::async_trait;
+use pony::http::requests::NodeType;
+use pony::http::requests::NodeTypeParam;
 use reqwest::Client as HttpClient;
 use reqwest::StatusCode;
 use reqwest::Url;
 
-use pony::http::ResponseMessage;
 use pony::ConnectionBaseOp;
 use pony::NodeStorageOp;
 use pony::{PonyError, Result};
@@ -12,7 +13,12 @@ use super::Agent;
 
 #[async_trait]
 pub trait ApiRequests {
-    async fn register_node(&self, _endpoint: String, _token: String) -> Result<()>;
+    async fn register_node(
+        &self,
+        _endpoint: String,
+        _token: String,
+        node_type: NodeType,
+    ) -> Result<()>;
 }
 
 #[async_trait]
@@ -21,7 +27,12 @@ where
     T: NodeStorageOp + Send + Sync + Clone,
     C: ConnectionBaseOp + Send + Sync + Clone + 'static,
 {
-    async fn register_node(&self, endpoint: String, token: String) -> Result<()> {
+    async fn register_node(
+        &self,
+        endpoint: String,
+        token: String,
+        node_type: NodeType,
+    ) -> Result<()> {
         let node = {
             let state = self.state.lock().await;
             state
@@ -44,8 +55,13 @@ where
             Err(e) => log::error!("Error serializing node '{}': {}", node.hostname, e),
         }
 
+        let node_type_param = NodeTypeParam {
+            node_type: Some(node_type),
+        };
+
         let res = HttpClient::new()
             .post(&endpoint_str)
+            .query(&node_type_param)
             .header("Content-Type", "application/json")
             .header("Authorization", format!("Bearer {}", token))
             .json(&node)

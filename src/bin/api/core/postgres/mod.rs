@@ -14,7 +14,6 @@ use crate::Result;
 use pony::config::settings::PostgresConfig;
 
 pub mod connection;
-pub mod inbound;
 pub mod node;
 pub mod user;
 

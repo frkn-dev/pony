@@ -158,7 +158,7 @@ async fn main() -> Result<()> {
             async move {
                 loop {
                     sleep(Duration::from_secs(settings.api.metrics_interval)).await;
-                    let _ = api.send_metrics(settings.carbon.address.clone()).await;
+                    let _ = api.send_metrics(&settings.carbon.address).await;
                 }
             }
         });
@@ -173,7 +173,7 @@ async fn main() -> Result<()> {
             async move {
                 loop {
                     sleep(Duration::from_secs(settings.api.metrics_hb_interval)).await;
-                    let _ = api.send_hb_metric(settings.carbon.address.clone()).await;
+                    let _ = api.send_hb_metric(&settings.carbon.address).await;
                 }
             }
         });

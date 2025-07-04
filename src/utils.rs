@@ -170,12 +170,14 @@ pub fn wireguard_conn(
         let server_pubkey = wg.pubkey;
         let host = ipv4;
         let port = wg.port;
+        let dns: Vec<_> = wg.dns.iter().map(|d| d.to_string()).collect();
+        let dns = dns.join(",");
 
         let config = format!(
             "[Interface]\n\
          PrivateKey = {private_key}\n\
          Address    = {client_ip}\n\
-         DNS        = 1.1.1.1\n\
+         DNS        = {dns}\n\
          \n\
          [Peer]\n\
          PublicKey           = {server_pubkey}\n\

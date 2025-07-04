@@ -1,3 +1,5 @@
+use pony::config::settings;
+use pony::http::requests::NodeType;
 use std::net::Ipv4Addr;
 use std::sync::Arc;
 use tokio::signal;
@@ -72,11 +74,14 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
     let (wg_client, wg_config) = if settings.wg.enabled {
         let config = WireguardSettings::new(&settings.wg);
         log::debug!("WG CONFIG {:?}", config);
-        if let Ok(client) = WgApi::new(&settings.wg.interface) {
-            (Some(client), Some(config))
-        } else {
-            panic!("Cannot create WG client");
+        let client = match WgApi::new(&settings.wg.interface) {
+            Ok(c) => c,
+            Err(e) => panic!("Cannot create WG client: {}", e),
+        };
+        if let Err(e) = client.validate() {
+            panic!("Cannot validate WG client: {}", e);
         }
+        (Some(client), Some(config))
     } else {
         (None, None)
     };
@@ -99,17 +104,202 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
         wg_client.clone(),
     ));
 
+    if settings.xray.enabled {
+        if let Some(xray_handler_client) = xray_handler_client {
+            let conn_task = tokio::spawn({
+                let conn_id = uuid::Uuid::new_v4();
+                let agent = agent.clone();
+                let node = node.clone();
+                let mut shutdown = shutdown_tx.subscribe();
+                async move {
+                    tokio::select! {
+                        _ = async {
+                            let _ = {
+                                let mut state = agent.state.lock().await;
+                                for (tag, _) in node.inbounds {
+                                    let proto = Proto::new_xray(&tag);
+                                    let conn = Connection::new(proto);
+                                    let _ = state.connections.insert(conn_id, conn.into());
+                                    let _ = xray_handler_client.create(&conn_id, tag, None).await;
+                                }
+                            };
+
+                            let state = agent.state.lock().await;
+                            if let Some(node) = state.nodes.get_self() {
+                                println!(
+                                    r#"
+╔════════════════════════════════════╗
+║ 🚀 Xray Connection Details  🚀     ║ 
+╚════════════════════════════════════╝
+"#
+                                );
+                                for (tag, inbound) in node.inbounds {
+                                    if let Ok(conn) = create_conn_link(
+                                        tag,
+                                        &node.uuid,
+                                        inbound.as_inbound_response(),
+                                        &node.label,
+                                        node.address,
+                                    ) {
+                                        println!("🔒  {tag}  ➜ {:?}\n", conn);
+                                    }
+                                }
+                            } else {
+                                panic!("Node information is missing");
+                            }
+                        } => {},
+                        _ = shutdown.recv() => {},
+                    }
+                }
+            });
+            tasks.push(conn_task);
+        }
+    }
+
+    if settings.wg.enabled {
+        let conn_task = tokio::spawn({
+            let agent = agent.clone();
+            let settings = settings.clone();
+            let node = node.clone();
+            let mut shutdown = shutdown_tx.subscribe();
+            async move {
+                tokio::select! {
+                    _ = async {
+                        let mut state = agent.state.lock().await;
+                        for (tag, _inbound) in &node.inbounds {
+                            if tag.is_wireguard() {
+                                let conn_id = uuid::Uuid::new_v4();
+
+                                if let Some(wg_api) = &agent.wg_client {
+                                    if let Some(ref wg_config) = wg_config {
+                                    let next = match wg_api.next_available_ip_mask(&wg_config.network, &wg_config.address) {
+                                        Ok(ip) => ip,
+                                        Err(e) => {
+                                            log::error!("Failed to get next available WireGuard IP: {}; Check your Wireguard interface {}",
+                                                e, settings.wg.interface);
+                                            return Err(format!( "Failed to get next available WireGuard IP: {}; Check your Wireguard interface {}",
+                                                e, settings.wg.interface));
+                                        }
+                                    };
+                                    let wg_params = WgParam::new(next.clone());
+                                    let proto = Proto::new_wg(&wg_params, &node.uuid);
+                                    let conn = Connection::new(proto);
+                                    let _ = state.connections.insert(conn_id, conn.clone().into());
+
+                                    if let Err(e) = wg_api.create(&wg_params.keys.pubkey, next) {
+                                        log::error!(
+                                            "Failed to register WireGuard peer (tag: {} {}): {}",
+                                            tag,
+                                            wg_params.keys.pubkey,
+                                            e
+                                        );
+                                        return Err(format!(
+                                            "Failed to register WireGuard peer (tag: {} {}): {}",
+                                            tag,
+                                            wg_params.keys.pubkey,
+                                            e,));
+                                    }
+                                    if let Some(inbound) = node.inbounds.get(&Tag::Wireguard) {
+                                        log::debug!("Inbound {:?}", inbound);
+
+                                        if let Some(wg) = conn.get_wireguard() {
+
+                                                if let Ok(conn) = wireguard_conn(
+                                                    &conn_id,
+                                                    &node.address,
+                                                    inbound.as_inbound_response(),
+                                                    &node.label,
+                                                    &wg.keys.privkey,
+                                                    &wg.address,
+                                                ) {
+
+                                                   println!(
+                                    r#"
+╔════════════════════════════════════╗
+║ 🚀 Wireguard Connection  Details   ║
+╚════════════════════════════════════╝
+"#
+                                );
+                                                    println!("\u{1f512}  {tag}  \u{279e}\n\n {}\n", conn);
+                                                }
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    log::warn!("WG API client is not available");
+                                    return Err("WG API client is not available".into());
+                                }
+                            }
+                        }
+                        Ok(())
+                    } => {},
+                    _ = shutdown.recv() => {},
+                }
+            }
+        });
+
+        tasks.push(conn_task);
+    }
+
+    let _ = {
+        log::info!("ZMQ listener starting...");
+
+        let zmq_task = tokio::spawn({
+            let agent = agent.clone();
+            let mut shutdown = shutdown_tx.subscribe();
+            async move {
+                tokio::select! {
+                    _ = agent.run_subscriber() => {},
+                    _ = shutdown.recv() => {},
+                }
+            }
+        });
+        tasks.push(zmq_task);
+
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+        let node_type = if settings.wg.enabled && settings.xray.enabled {
+            NodeType::All
+        } else if settings.wg.enabled {
+            NodeType::Wireguard
+        } else if settings.xray.enabled {
+            NodeType::Xray
+        } else {
+            panic!("At least Wg or Xray should be enabled");
+        };
+
+        if !settings.agent.local {
+            let _ = {
+                let settings = settings.clone();
+                log::debug!("Register node task");
+                if let Err(e) = agent
+                    .register_node(
+                        settings.api.endpoint.clone(),
+                        settings.api.token.clone(),
+                        node_type,
+                    )
+                    .await
+                {
+                    panic!(
+                        "-->>Cannot register node, use setting local mode for running no deps\n {:?}",
+                        e
+                    );
+                }
+            };
+        }
+    };
+
     if settings.agent.metrics_enabled {
         log::info!("Running metrics send task");
-        let metrics_handle = tokio::spawn({
-            let settings = settings.clone();
+        let carbon_addr = settings.carbon.address.clone();
+        let metrics_handle: JoinHandle<()> = tokio::spawn({
             let agent = agent.clone();
             let mut shutdown = shutdown_tx.subscribe();
             async move {
                 loop {
                     tokio::select! {
                         _ = sleep(Duration::from_secs(settings.agent.metrics_interval)) => {
-                            let _ = agent.send_metrics(settings.carbon.address.clone()).await;
+                            let _ = agent.send_metrics(&carbon_addr).await;
 
                         },
                         _ = shutdown.recv() => break,
@@ -118,19 +308,17 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
             }
         });
         tasks.push(metrics_handle);
-    }
 
-    if settings.agent.metrics_enabled {
         log::info!("Running HB metrics send task");
+        let carbon_addr = settings.carbon.address.clone();
         let metrics_handle = tokio::spawn({
-            let settings = settings.clone();
             let agent = agent.clone();
             let mut shutdown = shutdown_tx.subscribe();
             async move {
                 loop {
                     tokio::select! {
                         _ = sleep(Duration::from_secs(settings.agent.metrics_hb_interval)) => {
-                            let _ = agent.send_hb_metric(settings.carbon.address.clone()).await;
+                            let _ = agent.send_hb_metric(&carbon_addr).await;
                         },
                         _ = shutdown.recv() => break,
                     }
@@ -140,7 +328,7 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
         tasks.push(metrics_handle);
     }
 
-    if settings.agent.stat_enabled && !settings.agent.local {
+    if settings.agent.stat_enabled {
         log::info!("Running Stat Task");
         let stats_task = tokio::spawn({
             let agent = Arc::new(agent.clone());
@@ -182,164 +370,7 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
         tasks.push(wg_stats_task);
     }
 
-    let _ = {
-        log::info!("ZMQ listener starting...");
-
-        let zmq_task = tokio::spawn({
-            let agent = agent.clone();
-            let mut shutdown = shutdown_tx.subscribe();
-            async move {
-                tokio::select! {
-                    _ = agent.run_subscriber() => {},
-                    _ = shutdown.recv() => {},
-                }
-            }
-        });
-        tasks.push(zmq_task);
-
-        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-
-        if !settings.agent.local {
-            let _ = {
-                let settings = settings.clone();
-                log::debug!("Register node task");
-                if let Err(e) = agent
-                    .register_node(settings.api.endpoint.clone(), settings.api.token.clone())
-                    .await
-                {
-                    panic!(
-                        "-->>Cannot register node, use setting local mode for running no deps\n {:?}",
-                        e
-                    );
-                }
-            };
-        }
-    };
-
-    if settings.wg.enabled {
-        let conn_task = tokio::spawn({
-            let agent = agent.clone();
-            let node = node.clone();
-            let mut shutdown = shutdown_tx.subscribe();
-            async move {
-                tokio::select! {
-                    _ = async {
-                        let mut state = agent.state.lock().await;
-                        for (tag, _inbound) in &node.inbounds {
-                            if tag.is_wireguard() {
-                                let conn_id = uuid::Uuid::new_v4();
-
-                                if let Some(wg_api) = &agent.wg_client {
-                                    if let Some(ref wg_config) = wg_config {
-                                    let next = match wg_api.next_available_ip_mask(&wg_config.network, &wg_config.address) {
-                                        Ok(ip) => ip,
-                                        Err(e) => {
-                                            log::error!("Failed to get next available WireGuard IP: {}", e);
-                                            return;
-                                        }
-                                    };
-                                    let wg_params = WgParam::new(next.clone());
-                                    let proto = Proto::new_wg(&wg_params, &node.uuid);
-                                    let conn = Connection::new(proto);
-                                    let _ = state.connections.insert(conn_id, conn.clone().into());
-
-                                    if let Err(e) = wg_api.create(&wg_params.keys.pubkey, next) {
-                                        log::error!(
-                                            "Failed to register WireGuard peer (tag: {} {}): {}",
-                                            tag,
-                                            wg_params.keys.pubkey,
-                                            e
-                                        );
-                                    }
-
-
-                                    if let Some(inbound) = node.inbounds.get(&Tag::Wireguard) {
-                                        log::debug!("Inbound {:?}", inbound);
-
-                                        if let Some(wg) = conn.get_wireguard() {
-
-                                                if let Ok(conn) = wireguard_conn(
-                                                    &conn_id,
-                                                    &node.address,
-                                                    inbound.as_inbound_response(),
-                                                    &node.label,
-                                                    &wg.keys.privkey,
-                                                    &wg.address,
-                                                ) {
-                                                    println!("\u{1f512}  {tag}  \u{279e}\n\n {}\n", conn);
-                                                }
-
-                                        }
-                                    }
-                                }
-
-                                } else {
-                                    log::warn!("WG API client is not available");
-                                }
-                            }
-                        }
-                    } => {},
-                    _ = shutdown.recv() => {},
-                }
-            }
-        });
-
-        tasks.push(conn_task);
-    }
-
-    if settings.xray.enabled {
-        if let Some(xray_handler_client) = xray_handler_client {
-            let conn_task = tokio::spawn({
-                let conn_id = uuid::Uuid::new_v4();
-                let agent = agent.clone();
-                let node = node.clone();
-                let mut shutdown = shutdown_tx.subscribe();
-                async move {
-                    tokio::select! {
-                        _ = async {
-                            let _ = {
-                                let mut state = agent.state.lock().await;
-                                for (tag, _) in node.inbounds {
-                                    let proto = Proto::new_xray(&tag);
-                                    let conn = Connection::new(proto);
-                                    let _ = state.connections.insert(conn_id, conn.into());
-                                    let _ = xray_handler_client.create(&conn_id, tag, None).await;
-                                }
-                            };
-
-                            let state = agent.state.lock().await;
-                            if let Some(node) = state.nodes.get_self() {
-                                println!(
-                                    r#"
-╔════════════════════════════════════╗
-║ 🚀 Connection Details Ready 🚀     ║
-╚════════════════════════════════════╝
-"#
-                                );
-                                for (tag, inbound) in node.inbounds {
-                                    if let Ok(conn) = create_conn_link(
-                                        tag,
-                                        &node.uuid,
-                                        inbound.as_inbound_response(),
-                                        &node.label,
-                                        node.address,
-                                    ) {
-                                        println!("🔒  {tag}  ➜ {:?}\n", conn);
-                                    }
-                                }
-                            } else {
-                                panic!("Node information is missing");
-                            }
-                        } => {},
-                        _ = shutdown.recv() => {},
-                    }
-                }
-            });
-            tasks.push(conn_task);
-        }
-    }
-
-    let token = Arc::new(settings.api.token);
+    let token = Arc::new(settings.api.token.clone());
     if settings.debug.enabled {
         log::debug!(
             "Running debug server: localhost:{}",
@@ -363,16 +394,33 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
         tasks.push(debug_handle);
     }
 
+    wait_all_tasks_or_ctrlc(tasks, shutdown_tx).await;
+    Ok(())
+}
+
+async fn wait_all_tasks_or_ctrlc(tasks: Vec<JoinHandle<()>>, shutdown_tx: broadcast::Sender<()>) {
     tokio::select! {
-        _ = futures::future::join_all(tasks) => {},
+        _ = async {
+            for (i, task) in tasks.into_iter().enumerate() {
+                match task.await {
+                    Ok(_) => {
+                        log::info!("Task {i} completed successfully");
+                    }
+
+                    Err(e) => {
+                        log::error!("Task {i} panicked: {:?}", e);
+                        let _ = shutdown_tx.send(());
+                        tokio::time::sleep(Duration::from_secs(5)).await;
+                        std::process::exit(1);
+                    }
+                }
+            }
+        } => {}
         _ = signal::ctrl_c() => {
             log::info!("🛑 Ctrl+C received. Shutting down...");
             let _ = shutdown_tx.send(());
-
             tokio::time::sleep(Duration::from_secs(5)).await;
-            log::warn!("⏱ Timeout waiting for graceful shutdown. Forcing exit.");
             std::process::exit(0);
         }
     }
-    Ok(())
 }

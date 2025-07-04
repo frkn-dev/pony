@@ -17,7 +17,6 @@ use pony::utils::to_ipv4;
 use pony::config::wireguard::WireguardSettings;
 use pony::config::xray::Inbound;
 
-use super::inbound::InboundDb;
 use crate::Result;
 
 pub struct PgNode {
@@ -61,12 +60,12 @@ impl PgNode {
         INSERT INTO inbounds (
             id, node_id, tag, port, stream_settings,
             uplink, downlink, conn_count,
-            wg_pubkey, wg_privkey, wg_interface, wg_network, wg_address
+            wg_pubkey, wg_privkey, wg_interface, wg_network, wg_address, dns
         )
         VALUES (
             $1, $2, $3, $4, $5,
             $6, $7, $8,
-            $9, $10, $11, $12, $13
+            $9, $10, $11, $12, $13, $14
         )
     ";
 
@@ -74,7 +73,7 @@ impl PgNode {
             let inbound_id = uuid::Uuid::new_v4();
             let stream_settings = serde_json::to_value(&inbound.stream_settings)?;
 
-            let (wg_pubkey, wg_privkey, wg_interface, wg_network, wg_address) = inbound
+            let (wg_pubkey, wg_privkey, wg_interface, wg_network, wg_address, dns) = inbound
                 .wg
                 .as_ref()
                 .map(|wg| {
@@ -84,9 +83,16 @@ impl PgNode {
                         Some(&wg.interface),
                         Some(wg.network.to_string()),
                         Some(wg.address.to_string()),
+                        Some(
+                            wg.dns
+                                .iter()
+                                .cloned()
+                                .map(IpAddr::V4)
+                                .collect::<Vec<IpAddr>>(),
+                        ),
                     )
                 })
-                .unwrap_or((None, None, None, None, None));
+                .unwrap_or((None, None, None, None, None, None));
 
             tx.execute(
                 inbound_query,
@@ -104,6 +110,7 @@ impl PgNode {
                     &wg_interface,
                     &wg_network,
                     &wg_address,
+                    &dns,
                 ],
             )
             .await?;
@@ -123,7 +130,7 @@ impl PgNode {
                 n.id AS node_id, n.uuid, n.env, n.hostname, n.address, n.status,
                 n.created_at, n.modified_at, n.label, n.interface,
                 i.id AS inbound_id, i.tag, i.port, i.stream_settings, i.uplink, i.downlink,
-                i.conn_count, i.wg_pubkey, i.wg_privkey, i.wg_interface, i.wg_network, i.wg_address
+                i.conn_count, i.wg_pubkey, i.wg_privkey, i.wg_interface, i.wg_network, i.wg_address, i.dns
              FROM nodes n
              LEFT JOIN inbounds i ON n.id = i.node_id",
                 &[],
@@ -152,6 +159,14 @@ impl PgNode {
                 .get::<_, Option<String>>("wg_address")
                 .and_then(|s| s.parse().ok());
 
+            let dns: Option<Vec<Ipv4Addr>> = row.get::<_, Option<Vec<IpAddr>>>("dns").map(|ips| {
+                ips.into_iter()
+                    .filter_map(|ip| match ip {
+                        IpAddr::V4(v4) => Some(v4),
+                        _ => None,
+                    })
+                    .collect()
+            });
             let inbound_id: Option<uuid::Uuid> = row.get("inbound_id");
 
             if let Some(ipv4_addr) = to_ipv4(address) {
@@ -175,6 +190,7 @@ impl PgNode {
                         row.get::<_, Option<String>>("wg_interface"),
                         wg_network.clone(),
                         wg_address,
+                        dns,
                     ) {
                         (
                             Some(pubkey),
@@ -182,6 +198,7 @@ impl PgNode {
                             Some(interface),
                             Some(network),
                             Some(address),
+                            Some(dns),
                         ) => Some(WireguardSettings {
                             pubkey,
                             privkey,
@@ -189,6 +206,7 @@ impl PgNode {
                             network,
                             address,
                             port: row.get::<_, i32>("port") as u16,
+                            dns: dns,
                         }),
                         _ => None,
                     };

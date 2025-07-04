@@ -23,10 +23,16 @@ pub struct WgApi {
 
 impl WgApi {
     pub fn new(iface: &str) -> Result<Self> {
-        let wg_api = WGApi::<Userspace>::new(iface.to_string())?;
-        Ok(Self {
-            client: Arc::new(wg_api),
-        })
+        WGApi::<Userspace>::new(iface.to_string())
+            .map(|wg_api| Self {
+                client: Arc::new(wg_api),
+            })
+            .map_err(|e| e.into())
+    }
+
+    pub fn validate(&self) -> Result<()> {
+        self.client.read_host()?;
+        Ok(())
     }
 
     fn decode_pubkey(pubkey: &str) -> Result<Key> {

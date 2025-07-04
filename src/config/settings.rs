@@ -10,107 +10,78 @@ use uuid::Uuid;
 fn default_enabled() -> bool {
     true
 }
-
 fn default_disabled() -> bool {
     false
 }
-
 fn default_env() -> String {
     "dev".to_string()
 }
-
-fn default_conn_daily_limit_mb() -> i32 {
-    1024
-}
-
 fn default_carbon_server() -> String {
     "localhost:2003".to_string()
 }
-
 fn default_clickhouse_server() -> String {
     "http://localhost:8123".to_string()
 }
-
 fn default_loglevel() -> String {
     "debug".to_string()
 }
-
 fn default_zmq_sub_endpoint() -> String {
     "tcp://localhost:3000".to_string()
 }
-
 fn default_zmq_pub_endpoint() -> String {
     "tcp://*:3000".to_string()
 }
-
 fn default_xray_config_path() -> String {
     "dev/xray-config.json".to_string()
 }
-
 fn default_wg_port() -> u16 {
     51820
 }
-
 fn default_wg_interface() -> String {
     "wg0".to_string()
 }
-
 fn default_pg_address() -> String {
     "localhost".to_string()
 }
-
 fn default_pg_port() -> u16 {
     5432
 }
-
 fn default_pg_db() -> String {
     "postgres".to_string()
 }
-
 fn default_pg_username() -> String {
     "postgres".to_string()
 }
-
 fn default_pg_password() -> String {
     "password".to_string()
 }
-
 fn default_api_endpoint_address() -> String {
     "http://localhost:3005".to_string()
 }
-
 fn default_uuid() -> Uuid {
     Uuid::parse_str("9658b391-01cb-4031-a3f5-6cbdd749bcff").unwrap()
 }
-
 fn default_debug_web_server() -> Option<Ipv4Addr> {
     Some(Ipv4Addr::new(127, 0, 0, 1))
 }
-
 fn default_debug_web_port() -> u16 {
     3001
 }
-
 fn default_api_web_listen() -> Option<Ipv4Addr> {
     Some(Ipv4Addr::new(127, 0, 0, 1))
 }
-
 fn default_api_web_port() -> u16 {
     3005
 }
-
 fn default_api_token() -> String {
     "supetsecrettoken".to_string()
 }
-
 fn default_label() -> String {
     "🏴‍☠️🏴‍☠️🏴‍☠️ dev".to_string()
 }
-
 fn default_node_healthcheck_timeout() -> i16 {
     60
 }
-
 fn default_conn_limit_check_interval() -> u64 {
     60
 }
@@ -130,23 +101,8 @@ fn default_metrics_hb_interval() -> u64 {
 fn default_healthcheck_interval() -> u64 {
     60
 }
-
 fn default_collect_conn_stat_interval() -> u64 {
     60
-}
-
-fn default_tg_token() -> String {
-    "".to_string()
-}
-
-fn default_shop_id() -> String {
-    "".to_string()
-}
-fn default_secret_key() -> String {
-    "".to_string()
-}
-fn default_price() -> String {
-    "5.00".to_string()
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]
@@ -308,24 +264,6 @@ pub struct PostgresConfig {
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]
-pub struct YookassaConfig {
-    #[serde(default = "default_disabled")]
-    pub enabled: bool,
-    #[serde(default = "default_shop_id")]
-    pub shop_id: String,
-    #[serde(default = "default_secret_key")]
-    pub secret_key: String,
-    #[serde(default = "default_price")]
-    pub price: String,
-}
-
-#[derive(Clone, Debug, Deserialize, Default)]
-pub struct PaymentConfig {
-    #[serde(default)]
-    pub yookassa: YookassaConfig,
-}
-
-#[derive(Clone, Debug, Deserialize, Default)]
 pub struct XrayConfig {
     #[serde(default = "default_enabled")]
     pub enabled: bool,
@@ -345,6 +283,7 @@ pub struct WgConfig {
     pub privkey: Option<String>,
     pub pubkey: Option<String>,
     pub address: Option<String>,
+    pub dns: Option<Vec<String>>,
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]
@@ -466,31 +405,5 @@ impl Settings for AgentSettings {
             .map_err(|e| format!("Zmq configuration validation error: {}", e))?;
 
         Ok(())
-    }
-}
-
-#[derive(Clone, Debug, Deserialize, Default)]
-pub struct BotConfig {
-    #[serde(default = "default_tg_token")]
-    pub token: String,
-    #[serde(default = "default_conn_daily_limit_mb")]
-    pub daily_limit_mb: i32,
-    #[serde(default = "default_env")]
-    pub env: String,
-}
-
-#[derive(Clone, Debug, Deserialize, Default)]
-pub struct BotSettings {
-    #[serde(default)]
-    pub logging: LoggingConfig,
-    #[serde(default)]
-    pub api: ApiAccessConfig,
-    #[serde(default)]
-    pub bot: BotConfig,
-}
-
-impl Settings for BotSettings {
-    fn validate(&mut self) -> Result<(), String> {
-        Ok(()) //ToDo implement validate
     }
 }

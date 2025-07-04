@@ -94,4 +94,6 @@ ALTER TABLE nodes DROP COLUMN inbounds;
 ALTER TABLE connections
 ALTER COLUMN password DROP NOT NULL;
 
+ALTER TABLE inbounds ADD COLUMN dns INET[];
+
 

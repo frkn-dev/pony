@@ -88,7 +88,7 @@ where
 
     fn update_stat(&mut self, conn_id: &uuid::Uuid, stat: ConnectionStat) -> Result<()> {
         let conn = self
-            .get_mut(&conn_id)
+            .get_mut(conn_id)
             .ok_or(PonyError::Custom("Conn not found".into()))?;
         conn.set_uplink(stat.uplink);
         conn.set_downlink(stat.downlink);
@@ -113,9 +113,7 @@ where
             conn.set_modified_at();
             Ok(())
         } else {
-            Err(PonyError::Custom(
-                format!("Conn not found: {}", conn_id).into(),
-            ))
+            Err(PonyError::Custom(format!("Conn not found: {}", conn_id)))
         }
     }
 
@@ -125,9 +123,7 @@ where
             conn.set_modified_at();
             Ok(())
         } else {
-            Err(PonyError::Custom(
-                format!("Conn not found: {}", conn_id).into(),
-            ))
+            Err(PonyError::Custom(format!("Conn not found: {}", conn_id)))
         }
     }
 
@@ -137,9 +133,7 @@ where
             conn.set_modified_at();
             Ok(())
         } else {
-            Err(PonyError::Custom(
-                format!("Conn not found: {}", conn_id).into(),
-            ))
+            Err(PonyError::Custom(format!("Conn not found: {}", conn_id)))
         }
     }
 }
@@ -178,7 +172,7 @@ where
                 let mut changed = false;
 
                 if let Some(deleted) = &conn_req.is_deleted {
-                    if conn.get_deleted() == false && *deleted == true {
+                    if !conn.get_deleted() && *deleted {
                         return OperationStatus::NotModified(*conn_id);
                     }
                     if conn.get_deleted() != *deleted {
@@ -188,7 +182,7 @@ where
                 }
                 if let Some(env) = &conn_req.env {
                     if conn.get_env() != *env {
-                        conn.set_env(&env);
+                        conn.set_env(env);
                         changed = true;
                     }
                 }
@@ -263,7 +257,7 @@ where
     }
 
     fn expire(&mut self, conn_id: &uuid::Uuid) -> Result<()> {
-        if let Some(conn) = self.get_mut(&conn_id) {
+        if let Some(conn) = self.get_mut(conn_id) {
             conn.set_status(ConnectionStatus::Expired);
             conn.set_modified_at();
             Ok(())

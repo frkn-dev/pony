@@ -26,25 +26,27 @@ impl WireguardSettings {
             }
         };
 
-        let network = if let Some(network) = &config.network {
-            network.parse::<IpAddrMask>().unwrap()
-        } else {
-            panic!("WG network not defined");
-        };
+        let network = config
+            .network
+            .as_ref()
+            .expect("WG network not defined")
+            .parse::<IpAddrMask>()
+            .unwrap();
 
-        let address = if let Some(address) = &config.address {
-            address.parse::<Ipv4Addr>().unwrap()
-        } else {
-            panic!("WG interface address not defined");
-        };
+        let address = config
+            .address
+            .as_ref()
+            .expect("WG interface address not defined")
+            .parse::<Ipv4Addr>()
+            .unwrap();
 
-        let dns: Vec<Ipv4Addr> = if let Some(dns) = &config.dns {
-            dns.iter()
-                .map(|addr| addr.parse::<Ipv4Addr>().unwrap())
-                .collect()
-        } else {
-            panic!("WG DNS servers are  not defined");
-        };
+        let dns: Vec<Ipv4Addr> = config
+            .dns
+            .as_ref()
+            .expect("WG DNS servers are  not defined")
+            .iter()
+            .map(|addr| addr.parse::<Ipv4Addr>().unwrap())
+            .collect();
 
         Self {
             pubkey: pubkey,

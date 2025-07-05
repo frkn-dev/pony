@@ -24,13 +24,13 @@ impl Operations for HashMap<uuid::Uuid, User> {
     fn all(&self) -> Result<Vec<(uuid::Uuid, User)>> {
         Ok(self
             .iter()
-            .map(|(user_id, user)| (user_id.clone(), user.clone()))
+            .map(|(user_id, user)| (*user_id, user.clone()))
             .collect())
     }
 
     fn delete(&mut self, user_id: &uuid::Uuid) -> OperationStatus {
         if let Some(user) = self.get_mut(user_id) {
-            if user.is_deleted == true {
+            if user.is_deleted {
                 return OperationStatus::NotFound(*user_id);
             }
             user.is_deleted = true;
@@ -50,7 +50,7 @@ impl Operations for HashMap<uuid::Uuid, User> {
                 let mut changed = false;
 
                 if let Some(deleted) = user_req.is_deleted {
-                    if user.is_deleted == false && deleted == true {
+                    if !user.is_deleted && deleted {
                         return OperationStatus::NotModified(*user_id);
                     }
                     if user.is_deleted != deleted {

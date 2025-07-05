@@ -91,7 +91,7 @@ impl Operations for Base {
         self.is_deleted = v;
     }
     fn get_deleted(&self) -> bool {
-        self.is_deleted.clone()
+        self.is_deleted
     }
 
     fn get_wireguard_node_id(&self) -> Option<uuid::Uuid> {
@@ -174,7 +174,7 @@ impl Operations for Conn {
         self.is_deleted = v;
     }
     fn get_deleted(&self) -> bool {
-        self.is_deleted.clone()
+        self.is_deleted
     }
 
     fn as_conn_stat(&self) -> Stat {

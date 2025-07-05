@@ -1,3 +1,4 @@
+use crate::http::requests::InboundResponse;
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
 use defguard_wireguard_rs::host::Peer;
@@ -158,5 +159,42 @@ impl WgApi {
         let key = Self::decode_pubkey(pubkey)?;
         self.client.remove_peer(&key)?;
         Ok(())
+    }
+}
+
+pub fn wireguard_conn(
+    conn_id: &uuid::Uuid,
+    ipv4: &Ipv4Addr,
+    inbound: InboundResponse,
+    label: &str,
+    private_key: &str,
+    client_ip: &IpAddrMask,
+) -> Result<String> {
+    if let Some(wg) = inbound.wg {
+        let server_pubkey = wg.pubkey;
+        let host = ipv4;
+        let port = wg.port;
+        let dns: Vec<_> = wg.dns.iter().map(|d| d.to_string()).collect();
+        let dns = dns.join(",");
+
+        let config = format!(
+            r#"
+[Interface]
+PrivateKey = {private_key}
+Address    = {client_ip}
+DNS        = {dns}
+
+[Peer]
+PublicKey           = {server_pubkey}
+Endpoint            = {host}:{port}
+AllowedIPs          = 0.0.0.0/0, ::/0
+PersistentKeepalive = 25
+         
+# {label} — conn_id: {conn_id}"#
+        );
+
+        Ok(config)
+    } else {
+        Err(PonyError::Custom("WG is not configured".into()))
     }
 }

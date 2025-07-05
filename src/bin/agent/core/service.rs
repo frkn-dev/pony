@@ -1,5 +1,6 @@
-use pony::config::settings;
-use pony::http::requests::NodeType;
+use pony::config::settings::NodeConfig;
+use qrcode::render::unicode;
+use qrcode::QrCode;
 use std::net::Ipv4Addr;
 use std::sync::Arc;
 use tokio::signal;
@@ -15,7 +16,9 @@ use pony::config::xray::Config as XrayConfig;
 use pony::http::debug;
 use pony::metrics::Metrics;
 use pony::state::connection::wireguard::Param as WgParam;
+use pony::wireguard_op::wireguard_conn;
 
+use pony::http::requests::NodeType;
 use pony::state::node::Node;
 use pony::utils::*;
 use pony::wireguard_op::WgApi;
@@ -92,7 +95,8 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
         &settings.node.env,
     );
 
-    let node = Node::new(settings.node.clone(), xray_config, wg_config.clone());
+    let node_config = NodeConfig::from_raw(settings.node.clone());
+    let node = Node::new(node_config?, xray_config, wg_config.clone());
 
     let state: Arc<Mutex<AgentState>> = Arc::new(Mutex::new(State::with_node(node.clone())));
 
@@ -129,7 +133,7 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
                                 println!(
                                     r#"
 ╔════════════════════════════════════╗
-║ 🚀 Xray Connection Details  🚀     ║ 
+║       Xray Connection Details      ║ 
 ╚════════════════════════════════════╝
 "#
                                 );
@@ -141,7 +145,17 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
                                         &node.label,
                                         node.address,
                                     ) {
-                                        println!("🔒  {tag}  ➜ {:?}\n", conn);
+                                        println!("->>  {tag}  ➜ {:?}\n", conn);
+                                        let qrcode = QrCode::new(conn).unwrap();
+
+                                        let image = qrcode
+                                                .render::<unicode::Dense1x2>()
+                                                .quiet_zone(true)
+                                                .min_dimensions(1, 1)
+                                                .build();
+
+
+                                        println!("{}\n", image);
                                     }
                                 }
                             } else {
@@ -216,11 +230,18 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
                                                    println!(
                                     r#"
 ╔════════════════════════════════════╗
-║ 🚀 Wireguard Connection  Details   ║
+║    Wireguard Connection  Details   ║
 ╚════════════════════════════════════╝
-"#
-                                );
-                                                    println!("\u{1f512}  {tag}  \u{279e}\n\n {}\n", conn);
+"#);
+                                                    println!("{}", conn);
+                                                    let qrcode = QrCode::new(conn).unwrap();
+
+                                                    let image = qrcode
+                                                         .render::<unicode::Dense1x2>()
+                                                        .quiet_zone(true)
+                                                       // .module_dimensions(100, 100)
+                                                        .build();
+                                                    println!("{}\n", image);
                                                 }
                                             }
                                         }

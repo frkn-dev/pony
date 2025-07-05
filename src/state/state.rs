@@ -53,6 +53,7 @@ where
     pub nodes: T,
 }
 
+// COMMENT(qezz): This is basically `impl Default for State`
 impl<T: Default, C> State<T, C>
 where
     T: NodeStorageOp + Sync + Send + Clone + 'static,

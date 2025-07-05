@@ -1,10 +1,12 @@
 use serde::{Deserialize, Serialize};
-use std::{error::Error, fs::File, io::Read};
+use std::{fs::File, io::Read};
 
 use crate::config::wireguard::WireguardSettings;
 use crate::http::requests::InboundResponse;
 use crate::state::node::Stat as InboundStat;
 use crate::state::tag::Tag;
+
+use crate::Result;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct StreamSettings {
@@ -107,12 +109,12 @@ pub struct Config {
 }
 
 impl Config {
-    pub fn validate(&self) -> Result<(), Box<dyn Error>> {
+    pub fn validate(&self) -> Result<()> {
         // ToDo validate xray config
         Ok(())
     }
 
-    pub fn new(file_path: &str) -> Result<Config, Box<dyn std::error::Error>> {
+    pub fn new(file_path: &str) -> Result<Config> {
         let mut file = File::open(file_path)?;
         let mut contents = String::new();
 

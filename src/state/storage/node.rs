@@ -161,7 +161,7 @@ impl Operations for HashMap<String, Vec<Node>> {
     }
     fn get_by_env(&self, env: &str) -> Option<Vec<Node>> {
         self.get(env)
-            .map(|nodes| nodes.iter().cloned().collect::<Vec<_>>())
+            .map(|nodes| nodes.to_vec())
             .filter(|v| !v.is_empty())
     }
     fn get_by_id(&self, node_id: &uuid::Uuid) -> Option<Node> {
@@ -192,9 +192,10 @@ impl Operations for HashMap<String, Vec<Node>> {
                 return Ok(());
             }
         }
-        Err(PonyError::Custom(
-            format!("Node not found in env {} with id {}", env, node_id).into(),
-        ))
+        Err(PonyError::Custom(format!(
+            "Node not found in env {} with id {}",
+            env, node_id
+        )))
     }
     fn update_node_downlink(
         &mut self,
@@ -209,9 +210,10 @@ impl Operations for HashMap<String, Vec<Node>> {
                 return Ok(());
             }
         }
-        Err(PonyError::Custom(
-            format!("Node not found in env {} with id {}", env, node_id).into(),
-        ))
+        Err(PonyError::Custom(format!(
+            "Node not found in env {} with id {}",
+            env, node_id
+        )))
     }
     fn update_node_conn_count(
         &mut self,
@@ -225,13 +227,15 @@ impl Operations for HashMap<String, Vec<Node>> {
                 node.update_conn_count(tag, conn_count)?;
                 return Ok(());
             } else {
-                return Err(PonyError::Custom(
-                    format!("Node with ID {} not found", node_id).into(),
-                ));
+                return Err(PonyError::Custom(format!(
+                    "Node with ID {} not found",
+                    node_id
+                )));
             }
         }
-        Err(PonyError::Custom(
-            format!("Environment '{}' not found", env).into(),
-        ))
+        Err(PonyError::Custom(format!(
+            "Environment '{}' not found",
+            env
+        )))
     }
 }

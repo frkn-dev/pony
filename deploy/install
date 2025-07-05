@@ -97,7 +97,7 @@ Requires=xray.service
 
 [Service]
 Type=simple
-ExecStart=$INSTALL_DIR/agent -c $PONY_CONFIG_PATH
+ExecStart=$INSTALL_DIR/agent $PONY_CONFIG_PATH
 Restart=on-failure
 RestartSec=5
 
@@ -348,9 +348,24 @@ metrics_enabled = true
 metrics_interval = 60
 stat_enabled = true
 stat_job_interval = 60
+metrics_hb_interval = 1
+stat_enabled = true
+stat_job_interval = 60
 
 [xray]
+enabled = true
 xray_config_path = "$XRAY_CONFIG_PATH"
+
+[wg]
+enabled = false
+port = 51280
+network= "10.10.0.0/16"
+address = "10.10.0.1"
+interface = "utun7"
+privkey = "6KVWBZmCBNt1t5hI6KXXf4Eo4mlGNKAxETeRgcXNK0Q="
+pubkey = "Yhg+gj8TqQ3/10a/Ae+Tv1iPin/HigmOnhRkMj7k/hw="
+dns = ["1.1.1.1", "8.8.8.8"]
+
 
 [zmq]
 endpoint = "$ZMQ_ENDPOINT"

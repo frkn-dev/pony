@@ -45,6 +45,9 @@ pub enum PonyError {
     #[error(transparent)]
     IpParseError(#[from] IpAddrParseError),
 
+    #[error(transparent)]
+    TomlDeError(#[from] toml::de::Error),
+
     #[error("Custom error: {0}")]
     Custom(String),
 }

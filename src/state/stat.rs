@@ -15,6 +15,8 @@ impl fmt::Display for Stat {
             Stat::Conn(Kind::Online) => write!(f, "online"),
             Stat::Inbound(Kind::Uplink) => write!(f, "uplink"),
             Stat::Inbound(Kind::Downlink) => write!(f, "downlink"),
+            // COMMENT(qezz): The "not implemented" cases hint that
+            // this state should not be representable.
             Stat::Inbound(Kind::Online) => write!(f, "Not implemented"),
             Stat::Outbound(Kind::Uplink) => write!(f, "uplink"),
             Stat::Outbound(Kind::Downlink) => write!(f, "downlink"),
@@ -37,7 +39,7 @@ pub enum Kind {
 
 impl Kind {
     pub fn from_path(path: &str) -> Kind {
-        if let Some(last) = path.split('.').last() {
+        if let Some(last) = path.split('.').next_back() {
             match last {
                 "uplink" => Kind::Uplink,
                 "downlink" => Kind::Downlink,

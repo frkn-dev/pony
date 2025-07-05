@@ -42,7 +42,13 @@ impl PartialEq for Conn {
 }
 
 impl fmt::Display for Conn {
+    // COMMENT(qezz): This feels like a Debug implementation. That can be either derived,
+    // or the helper functions can be used, so one doesn't need to manually match the
+    // indentation
+    //
+    // More details for manual implementation: https://doc.rust-lang.org/std/fmt/trait.Debug.html
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        // COMMENT(qezz): there's `writeln!()`
         write!(f, "Connection {{\n")?;
 
         if let Some(user_id) = self.user_id {

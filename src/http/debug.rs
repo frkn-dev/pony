@@ -121,6 +121,7 @@ pub async fn handle_debug_connection<N, C>(
             }
         };
 
+        // COMMENT(@qezz): A `match` would probably work better here.
         if req.kind == "get_connections" {
             let state = state.lock().await;
             let conns: Vec<_> = state.connections.keys().collect();

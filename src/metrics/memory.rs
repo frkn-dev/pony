@@ -18,25 +18,25 @@ impl AsMetric for MemUsage {
         vec![
             Metric {
                 //dev.localhost.mem.total
-                path: format!("{env}.{hostname}.{name}.total"),
+                metric: format!("{env}.{hostname}.{name}.total"),
                 value: self.total,
                 timestamp: timestamp,
             },
             Metric {
                 //dev.localhost.mem.free
-                path: format!("{env}.{hostname}.{name}.free"),
+                metric: format!("{env}.{hostname}.{name}.free"),
                 value: self.free,
                 timestamp: timestamp,
             },
             Metric {
                 //dev.localhost.mem.used
-                path: format!("{env}.{hostname}.{name}.used"),
+                metric: format!("{env}.{hostname}.{name}.used"),
                 value: self.used,
                 timestamp: timestamp,
             },
             Metric {
                 //dev.localhost.mem.available
-                path: format!("{env}.{hostname}.{name}.available"),
+                metric: format!("{env}.{hostname}.{name}.available"),
                 value: self.available,
                 timestamp: timestamp,
             },

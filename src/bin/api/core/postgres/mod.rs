@@ -4,14 +4,14 @@ use tokio::sync::Mutex;
 use tokio_postgres::Client as PgClient;
 use tokio_postgres::NoTls;
 
-use crate::config::settings::PostgresConfig;
-use crate::state::postgres::connection::PgConn;
-use crate::state::postgres::node::PgNode;
-use crate::state::postgres::user::PgUser;
-use crate::state::ConnRow;
-use crate::state::SyncTask;
-use crate::state::UserRow;
+use crate::core::postgres::connection::ConnRow;
+use crate::core::postgres::connection::PgConn;
+use crate::core::postgres::node::PgNode;
+use crate::core::postgres::user::PgUser;
+use crate::core::postgres::user::UserRow;
+use crate::core::sync::SyncTask;
 use crate::Result;
+use pony::config::settings::PostgresConfig;
 
 pub mod connection;
 pub mod node;
@@ -65,8 +65,7 @@ pub async fn run_shadow_sync(mut rx: mpsc::Receiver<SyncTask>, db: PgContext) {
                 }
             }
             SyncTask::UpdateUser { user_id, user } => {
-                let user_row: UserRow = (user_id, user).into();
-                if let Err(err) = db.user().update(user_row).await {
+                if let Err(err) = db.user().update(&user_id, user).await {
                     log::error!("Failed to sync UpdateUser: {err}");
                 }
             }

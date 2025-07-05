@@ -1,15 +1,16 @@
 use chrono::NaiveDateTime;
+use chrono::Utc;
+use std::sync::Arc;
+use tokio::sync::Mutex;
 use tokio_postgres::error::SqlState;
 use tokio_postgres::Client as PgClient;
 
-use std::sync::Arc;
-use tokio::sync::Mutex;
+use pony::state::user::User;
+use pony::utils::from_pg_bigint;
+use pony::utils::to_pg_bigint;
+use pony::{PonyError, Result};
 
-use crate::{PonyError, Result};
-
-use super::super::user::User;
-use crate::utils::to_pg_bigint;
-
+#[derive(Clone)]
 pub struct UserRow {
     pub user_id: uuid::Uuid,
     pub telegram_id: Option<i64>,
@@ -40,6 +41,23 @@ impl From<(uuid::Uuid, User)> for UserRow {
             password: user.password,
             is_deleted: user.is_deleted,
         }
+    }
+}
+
+impl TryFrom<UserRow> for User {
+    type Error = PonyError;
+
+    fn try_from(row: UserRow) -> Result<Self> {
+        Ok(User {
+            username: row.username,
+            telegram_id: row.telegram_id.map(from_pg_bigint),
+            env: row.env,
+            limit: row.limit,
+            password: row.password,
+            created_at: row.created_at,
+            modified_at: row.modified_at,
+            is_deleted: row.is_deleted,
+        })
     }
 }
 
@@ -96,24 +114,23 @@ impl PgUser {
 
         Ok(())
     }
-    pub async fn update(&self, user: UserRow) -> Result<()> {
+    pub async fn update(&self, user_id: &uuid::Uuid, user: User) -> Result<()> {
         let client = self.client.lock().await;
 
         let query = "
-                    UPDATE users SET telegram_id = $2, env = $3, daily_limit_mb = $4, password = $5,  modified_at = $6, is_deleted = $7
-                    WHERE username = $1
+                    UPDATE users SET env = $2, daily_limit_mb = $3, password = $4,  modified_at = $5, is_deleted = $6
+                    WHERE id = $1
                    ";
 
         let rows = client
             .execute(
                 query,
                 &[
-                    &user.username,
-                    &user.telegram_id,
+                    &user_id,
                     &user.env,
                     &user.limit,
                     &user.password,
-                    &user.modified_at,
+                    &Utc::now().naive_utc(),
                     &user.is_deleted,
                 ],
             )
@@ -164,30 +181,5 @@ impl PgUser {
             .collect();
 
         Ok(users)
-    }
-
-    pub async fn get(&self, username: &str) -> Option<UserRow> {
-        let client = self.client.lock().await;
-
-        let query = "SELECT id, username, telegram_id, env, daily_limit_mb, password, created_at, modified_at, is_deleted FROM users WHERE username = $1;";
-        let result = client.query(query, &[&username]).await;
-
-        if let Ok(rows) = result {
-            if let Some(row) = rows.first() {
-                return Some(UserRow {
-                    user_id: row.get("id"),
-                    username: row.get("username"),
-                    telegram_id: row.get("telegram_id"),
-                    env: row.get("env"),
-                    limit: row.get("daily_limit_mb"),
-                    password: row.get("password"),
-                    created_at: row.get("created_at"),
-                    modified_at: row.get("modified_at"),
-                    is_deleted: row.get("is_deleted"),
-                });
-            }
-        }
-
-        None
     }
 }

@@ -1,4 +1,4 @@
-use crate::state::SyncTask;
+use defguard_wireguard_rs::{error::WireguardInterfaceError, net::IpAddrParseError};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -11,9 +11,6 @@ pub enum PonyError {
 
     #[error(transparent)]
     Io(#[from] std::io::Error),
-
-    #[error(transparent)]
-    Telegram(#[from] teloxide::RequestError),
 
     #[error(transparent)]
     UrlParse(#[from] url::ParseError),
@@ -40,10 +37,16 @@ pub enum PonyError {
     SerdeUrlEnc(#[from] serde_urlencoded::ser::Error),
 
     #[error(transparent)]
-    SyncTask(#[from] tokio::sync::mpsc::error::SendError<SyncTask>),
+    Zmq(#[from] zmq::Error),
 
     #[error(transparent)]
-    Zmq(#[from] zmq::Error),
+    Wireguard(#[from] WireguardInterfaceError),
+
+    #[error(transparent)]
+    IpParseError(#[from] IpAddrParseError),
+
+    #[error(transparent)]
+    TomlDeError(#[from] toml::de::Error),
 
     #[error("Custom error: {0}")]
     Custom(String),
@@ -54,5 +57,11 @@ pub type Result<T> = std::result::Result<T, PonyError>;
 impl From<String> for PonyError {
     fn from(err: String) -> Self {
         PonyError::Custom(err)
+    }
+}
+
+impl<T: std::fmt::Debug> From<tokio::sync::mpsc::error::SendError<T>> for PonyError {
+    fn from(err: tokio::sync::mpsc::error::SendError<T>) -> Self {
+        PonyError::Custom(format!("SendError: {:?}", err))
     }
 }

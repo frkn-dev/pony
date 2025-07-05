@@ -2,19 +2,20 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio::sync::Mutex;
 
-use crate::state::connection::Conn;
-use crate::state::connection::{ConnApiOp, ConnBaseOp};
-use crate::state::node::Node;
-use crate::state::node::NodeStatus;
-use crate::state::storage::node::NodeStorage;
-use crate::state::user::User;
-use crate::state::ConnStat;
-use crate::state::ConnStatus;
-use crate::state::State;
+use pony::state::node::Node;
+use pony::state::user::User;
+use pony::Conn;
+use pony::State;
 
-mod tasks;
+use pony::state::node::Status as NodeStatus;
+use pony::ConnectionStat;
+use pony::ConnectionStatus;
 
-pub use tasks::SyncOp;
+use pony::ConnectionApiOp;
+use pony::ConnectionBaseOp;
+use pony::NodeStorageOp;
+
+pub(crate) mod tasks;
 
 #[derive(Debug)]
 pub enum SyncTask {
@@ -51,11 +52,11 @@ pub enum SyncTask {
     },
     UpdateConnStat {
         conn_id: uuid::Uuid,
-        stat: ConnStat,
+        stat: ConnectionStat,
     },
     UpdateConnStatus {
         conn_id: uuid::Uuid,
-        status: ConnStatus,
+        status: ConnectionStatus,
     },
 }
 
@@ -71,8 +72,8 @@ where
 
 impl<N, C> SyncState<N, C>
 where
-    N: NodeStorage + Send + Sync + Clone + 'static,
-    C: ConnBaseOp + ConnApiOp + Send + Sync + Clone + 'static + From<Conn>,
+    N: NodeStorageOp + Send + Sync + Clone + 'static,
+    C: ConnectionBaseOp + ConnectionApiOp + Send + Sync + Clone + 'static + From<Conn> + PartialEq,
 {
     pub fn new(memory: Arc<Mutex<State<N, C>>>, sync_tx: mpsc::Sender<SyncTask>) -> Self {
         Self { memory, sync_tx }

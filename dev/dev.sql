@@ -43,6 +43,8 @@ CREATE TABLE nodes (
 );
 
 
+
+
 ALTER TABLE users
     ADD COLUMN telegram_id BIGINT;
 
@@ -61,5 +63,37 @@ ALTER TABLE users
 ALTER TABLE connections
     ADD COLUMN is_deleted BOOL NOT NULL DEFAULT false;
 
+
+CREATE TABLE inbounds (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    node_id UUID NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
+    tag PROTO NOT NULL,
+    port INTEGER NOT NULL,
+    stream_settings JSONB,
+    uplink BIGINT,
+    downlink BIGINT,
+    conn_count BIGINT,
+    wg_pubkey TEXT,
+    wg_privkey TEXT,
+    wg_interface TEXT,
+    wg_network TEXT, 
+    wg_address TEXT
+);
+
+
+ALTER TYPE proto ADD VALUE 'wireguard';
+
+ALTER TABLE connections
+ADD COLUMN wg_privkey TEXT,
+ADD COLUMN wg_pubkey TEXT
+ADD COLUMN wg_address TEXT
+ADD COLUMN node_id UUID
+
+ALTER TABLE nodes DROP COLUMN inbounds;
+
+ALTER TABLE connections
+ALTER COLUMN password DROP NOT NULL;
+
+ALTER TABLE inbounds ADD COLUMN dns INET[];
 
 

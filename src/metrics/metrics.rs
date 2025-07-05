@@ -1,28 +1,34 @@
+use clickhouse::Row;
 use std::fmt;
 use std::io;
 
 use serde::{Deserialize, Serialize};
 use tokio::{io::AsyncWriteExt, net::TcpStream};
 
+use crate::state::stat::Kind as StatKind;
+
 pub trait AsMetric {
     type Output;
     fn as_metric(&self, name: &str, env: &str, hostname: &str) -> Vec<Metric<Self::Output>>;
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Row, Clone, Debug)]
 pub struct Metric<T> {
-    pub path: String,
+    pub metric: String,
     pub value: T,
-    pub timestamp: u64,
+    pub timestamp: i64,
 }
 
 impl<T> Metric<T> {
-    pub fn new(path: String, value: T, timestamp: u64) -> Self {
+    pub fn new(metric: String, value: T, timestamp: i64) -> Self {
         Metric {
-            path,
+            metric,
             value,
             timestamp,
         }
+    }
+    pub fn stat_type(&self) -> StatKind {
+        StatKind::from_path(&self.metric)
     }
 }
 
@@ -30,7 +36,7 @@ impl<T: Default> Default for Metric<T> {
     fn default() -> Self {
         Metric {
             value: T::default(),
-            path: String::from(""),
+            metric: String::from(""),
             timestamp: 0,
         }
     }
@@ -41,23 +47,12 @@ impl<T: fmt::Display> fmt::Display for Metric<T> {
         write!(
             f,
             "Metric {{ path: {}, value: {},  timestamp: {} }}",
-            self.path, self.value, self.timestamp
+            self.metric, self.value, self.timestamp
         )
     }
 }
 
-impl<T: ToString> Metric<T> {
-    pub fn to_string(&self) -> String {
-        format!(
-            "{} {} {}\n",
-            self.path,
-            self.value.to_string(),
-            self.timestamp
-        )
-    }
-}
-
-impl<T: ToString + std::fmt::Debug> Metric<T> {
+impl<T: std::fmt::Display + std::fmt::Debug> Metric<T> {
     pub async fn send(&self, server: &str) -> Result<(), io::Error> {
         let metric_string = self.to_string();
 

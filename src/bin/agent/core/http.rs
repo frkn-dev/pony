@@ -1,27 +1,38 @@
 use async_trait::async_trait;
+use pony::http::requests::NodeType;
+use pony::http::requests::NodeTypeParam;
 use reqwest::Client as HttpClient;
 use reqwest::StatusCode;
 use reqwest::Url;
 
-use pony::http::ResponseMessage;
-use pony::state::ConnBaseOp;
-use pony::state::NodeStorage;
+use pony::ConnectionBaseOp;
+use pony::NodeStorageOp;
 use pony::{PonyError, Result};
 
 use super::Agent;
 
 #[async_trait]
 pub trait ApiRequests {
-    async fn register_node(&self, _endpoint: String, _token: String) -> Result<()>;
+    async fn register_node(
+        &self,
+        _endpoint: String,
+        _token: String,
+        node_type: NodeType,
+    ) -> Result<()>;
 }
 
 #[async_trait]
 impl<T, C> ApiRequests for Agent<T, C>
 where
-    T: NodeStorage + Send + Sync + Clone,
-    C: ConnBaseOp + Send + Sync + Clone + 'static,
+    T: NodeStorageOp + Send + Sync + Clone,
+    C: ConnectionBaseOp + Send + Sync + Clone + 'static,
 {
-    async fn register_node(&self, endpoint: String, token: String) -> Result<()> {
+    async fn register_node(
+        &self,
+        endpoint: String,
+        token: String,
+        node_type: NodeType,
+    ) -> Result<()> {
         let node = {
             let state = self.state.lock().await;
             state
@@ -35,8 +46,7 @@ where
         endpoint_url
             .path_segments_mut()
             .map_err(|_| PonyError::Custom("Invalid API endpoint".to_string()))?
-            .push("node")
-            .push("register");
+            .push("node");
 
         let endpoint_str = endpoint_url.to_string();
 
@@ -45,8 +55,13 @@ where
             Err(e) => log::error!("Error serializing node '{}': {}", node.hostname, e),
         }
 
+        let node_type_param = NodeTypeParam {
+            node_type: Some(node_type),
+        };
+
         let res = HttpClient::new()
             .post(&endpoint_str)
+            .query(&node_type_param)
             .header("Content-Type", "application/json")
             .header("Authorization", format!("Bearer {}", token))
             .json(&node)
@@ -57,14 +72,8 @@ where
         let body = res.text().await?;
 
         if status.is_success() || status == StatusCode::NOT_MODIFIED {
-            if body.trim().is_empty() {
-                log::debug!("Node is already registered");
-                Ok(())
-            } else {
-                let parsed: ResponseMessage<String> = serde_json::from_str(&body)?;
-                log::debug!("Node is already registered: {:?}", parsed);
-                Ok(())
-            }
+            log::debug!("Node is already registered: {:?}", status);
+            Ok(())
         } else {
             log::error!("Registration failed: {} - {}", status, body);
             Err(PonyError::Custom(

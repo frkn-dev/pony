@@ -1,19 +1,18 @@
 use async_trait::async_trait;
-use futures::future::join_all;
-use std::sync::Arc;
-use tokio::task::JoinHandle;
+use pony::Proto;
 
-use pony::state::ConnBase;
-use pony::state::ConnBaseOp;
-use pony::state::ConnStorageBase;
-use pony::state::NodeStorage;
-use pony::state::Tag;
+use tonic::Status;
+
+use pony::state::storage::connection::BaseOp;
+use pony::state::tag::Tag;
 use pony::xray_op::client::HandlerActions;
-use pony::xray_op::stats::Prefix;
 use pony::xray_op::stats::StatOp;
 use pony::zmq::message::Action;
 use pony::zmq::message::Message;
 use pony::zmq::Topic;
+use pony::Base as Connection;
+use pony::ConnectionBaseOp;
+use pony::NodeStorageOp;
 use pony::{PonyError, Result};
 
 use super::Agent;
@@ -27,8 +26,8 @@ pub trait Tasks {
 #[async_trait]
 impl<T, C> Tasks for Agent<T, C>
 where
-    T: NodeStorage + Send + Sync + Clone,
-    C: ConnBaseOp + Send + Sync + Clone + 'static + From<ConnBase>,
+    T: NodeStorageOp + Send + Sync + Clone,
+    C: ConnectionBaseOp + Send + Sync + Clone + 'static + From<Connection>,
 {
     async fn run_subscriber(&self) -> Result<()> {
         let sub = self.subscriber.clone();
@@ -64,12 +63,19 @@ where
                     _ => {}
                 }
 
-                if let Ok(message) = serde_json::from_str::<Message>(payload) {
-                    if let Err(err) = self.handle_message(message).await {
-                        log::error!("ZMQ SUB: Failed to handle message: {}", err);
+                match serde_json::from_str::<Message>(payload) {
+                    Ok(message) => {
+                        if let Err(err) = self.handle_message(message).await {
+                            log::error!("ZMQ SUB: Failed to handle message: {}", err);
+                        }
                     }
-                } else {
-                    log::error!("ZMQ SUB: Failed to parse payload: {}", payload);
+                    Err(err) => {
+                        log::error!(
+                            "ZMQ SUB: Failed to parse payload: {}\nError: {}",
+                            payload,
+                            err
+                        );
+                    }
                 }
             }
         }
@@ -77,154 +83,169 @@ where
 
     async fn handle_message(&self, msg: Message) -> Result<()> {
         match msg.action {
-            Action::Create => {
+            Action::Create | Action::Update => {
                 let conn_id = msg.conn_id;
-                let conn = ConnBase::new(msg.tag, msg.password.clone());
 
-                match self
-                    .xray_handler_client
-                    .create(&msg.conn_id, msg.tag, conn.password.clone())
-                    .await
-                {
-                    Ok(_) => {
-                        let mut mem = self.state.lock().await;
+                match msg.tag {
+                    Tag::Wireguard => {
+                        let wg = msg
+                            .wg
+                            .clone()
+                            .ok_or_else(|| PonyError::Custom("Missing WireGuard keys".into()))?;
 
-                        mem.connections
-                            .add(&conn_id, conn.into())
-                            .map(|_| ())
+                        let node_id = {
+                            let mem = self.state.lock().await;
+                            let node = mem.nodes.get_self();
+                            node.map(|n| n.uuid).ok_or_else(|| {
+                                PonyError::Custom("Current node UUID not found".to_string())
+                            })?
+                        };
+                        let proto = Proto::new_wg(&wg, &node_id);
+
+                        let conn = Connection::new(proto);
+
+                        {
+                            let mut mem = self.state.lock().await;
+                            mem.connections
+                                .add(&conn_id, conn.clone().into())
+                                .map_err(|err| {
+                                    PonyError::Custom(format!(
+                                        "Failed to add WireGuard conn {}: {}",
+                                        conn_id, err
+                                    ))
+                                })?;
+                        }
+
+                        let wg_api = self.wg_client.as_ref().ok_or_else(|| {
+                            PonyError::Custom("WireGuard API is unavailable".into())
+                        })?;
+
+                        let exist = wg_api.is_exist(wg.keys.pubkey.clone());
+
+                        if exist {
+                            return Err(PonyError::Custom("WG User already exist".into()));
+                        }
+
+                        wg_api.create(&wg.keys.pubkey, wg.address).map_err(|e| {
+                            PonyError::Custom(format!("Failed to create WireGuard peer: {}", e))
+                        })?;
+
+                        log::debug!("Created {}", conn);
+
+                        Ok(())
+                    }
+
+                    Tag::VlessXtls | Tag::VlessGrpc | Tag::Vmess => {
+                        let proto = Proto::new_xray(&msg.tag);
+                        let conn = Connection::new(proto);
+
+                        let client = self.xray_handler_client.as_ref().ok_or_else(|| {
+                            PonyError::Grpc(Status::unavailable("Xray handler unavailable"))
+                        })?;
+
+                        client
+                            .create(&msg.conn_id, msg.tag, None)
+                            .await
                             .map_err(|err| {
-                                log::error!("Failed to add conn {}: {:?}", msg.conn_id, err);
-                                format!("Failed to add conn {}", msg.conn_id).into()
-                            })
+                                PonyError::Custom(format!(
+                                    "Failed to create conn {}: {}",
+                                    msg.conn_id, err
+                                ))
+                            })?;
+
+                        let mut mem = self.state.lock().await;
+                        mem.connections.add(&conn_id, conn.into()).map_err(|err| {
+                            PonyError::Custom(format!("Failed to add conn {}: {}", conn_id, err))
+                        })?;
+
+                        Ok(())
                     }
-                    Err(err) => {
-                        log::error!("Failed to create conn {}: {:?}", msg.conn_id, err);
-                        Err(
-                            PonyError::Custom(format!("Failed to create conn {}", msg.conn_id))
-                                .into(),
-                        )
+                    Tag::Shadowsocks => {
+                        if let Some(password) = msg.password {
+                            let proto = Proto::new_ss(&password);
+                            let conn = Connection::new(proto);
+
+                            let client = self.xray_handler_client.as_ref().ok_or_else(|| {
+                                PonyError::Grpc(Status::unavailable("Xray handler unavailable"))
+                            })?;
+
+                            client
+                                .create(&msg.conn_id, msg.tag, Some(password))
+                                .await
+                                .map_err(|err| {
+                                    PonyError::Custom(format!(
+                                        "Failed to create conn {}: {}",
+                                        msg.conn_id, err
+                                    ))
+                                })?;
+
+                            let mut mem = self.state.lock().await;
+                            mem.connections.add(&conn_id, conn.into()).map_err(|err| {
+                                PonyError::Custom(format!(
+                                    "Failed to add conn {}: {}",
+                                    conn_id, err
+                                ))
+                            })?;
+
+                            Ok(())
+                        } else {
+                            Err(PonyError::Custom(
+                                "Password not provided for Shadowsocks user".into(),
+                            ))
+                        }
                     }
                 }
             }
 
-            Action::Delete => {
-                if let Err(e) = self
-                    .xray_handler_client
-                    .remove(&msg.conn_id, msg.tag, msg.password)
-                    .await
-                {
-                    return Err(PonyError::Custom(format!(
-                        "Couldn't remove connections from Xray: {}",
-                        e
-                    ))
-                    .into());
-                } else {
+            Action::Delete => match msg.tag {
+                Tag::Wireguard => {
+                    let wg_api = self
+                        .wg_client
+                        .as_ref()
+                        .ok_or_else(|| PonyError::Custom("WireGuard API is unavailable".into()))?;
+
+                    let wg = msg.wg.clone().ok_or_else(|| {
+                        PonyError::Custom("Missing WireGuard keys in message".into())
+                    })?;
+
+                    wg_api.delete(&wg.keys.pubkey).map_err(|e| {
+                        PonyError::Custom(format!("Failed to delete WireGuard peer: {}", e))
+                    })?;
+
                     let mut state = self.state.lock().await;
-
                     let _ = state.connections.remove(&msg.conn_id);
-                }
 
-                Ok(())
-            }
-            Action::ResetStat => {
-                if let Err(e) = self.reset_stat(&msg.conn_id).await {
-                    return Err(PonyError::Custom(format!(
-                        "Couldn't reset stat for connection: {}",
-                        e
-                    ))
-                    .into());
-                } else {
-                    log::debug!("Reset stat for {}", &msg.conn_id);
                     Ok(())
                 }
-            }
-        }
-    }
-}
+                Tag::VlessXtls | Tag::VlessGrpc | Tag::Vmess | Tag::Shadowsocks => {
+                    let client = self.xray_handler_client.as_ref().ok_or_else(|| {
+                        PonyError::Grpc(Status::unavailable("Xray handler unavailable"))
+                    })?;
 
-impl<T, C> Agent<T, C>
-where
-    T: NodeStorage + Send + Sync + Clone,
-    C: ConnBaseOp + Send + Sync + Clone + 'static,
-{
-    async fn collect_conn_stats(self: Arc<Self>, conn_id: uuid::Uuid) -> Result<()> {
-        let conn_stat = self.conn_stats(Prefix::ConnPrefix(conn_id)).await?;
-        let mut state = self.state.lock().await;
-        let _ = state
-            .connections
-            .update_downlink(&conn_id, conn_stat.downlink);
-        let _ = state.connections.update_uplink(&conn_id, conn_stat.uplink);
-        let _ = state.connections.update_online(&conn_id, conn_stat.online);
-        Ok(())
-    }
-
-    async fn collect_inbound_stats(
-        self: Arc<Self>,
-        tag: Tag,
-        env: String,
-        node_uuid: uuid::Uuid,
-    ) -> Result<()> {
-        let inbound_stat = self
-            .inbound_stats(Prefix::InboundPrefix(tag.clone()))
-            .await?;
-        let mut state = self.state.lock().await;
-        let _ = state
-            .nodes
-            .update_node_downlink(&tag, inbound_stat.downlink, &env, &node_uuid);
-        let _ = state
-            .nodes
-            .update_node_uplink(&tag, inbound_stat.uplink, &env, &node_uuid);
-        let _ = state
-            .nodes
-            .update_node_conn_count(&tag, inbound_stat.conn_count, &env, &node_uuid);
-        Ok(())
-    }
-
-    pub async fn collect_stats(self: Arc<Self>) -> Result<()> {
-        log::debug!("Running xray stat job");
-        let mut tasks: Vec<JoinHandle<()>> = Vec::new();
-
-        let conn_ids = {
-            let state = self.state.lock().await;
-            state.connections.keys().cloned().collect::<Vec<_>>()
-        };
-
-        for conn_id in conn_ids {
-            let agent = self.clone();
-            tasks.push(tokio::spawn(async move {
-                if let Err(e) = agent.collect_conn_stats(conn_id).await {
-                    log::error!("Failed to collect stats for connection {}: {}", conn_id, e);
-                }
-            }));
-        }
-
-        if let Some(node) = {
-            let state = self.state.lock().await;
-            state.nodes.get_self()
-        } {
-            let node_tags = node.inbounds.keys().cloned().collect::<Vec<_>>();
-            for tag in node_tags {
-                let agent = self.clone();
-                let env = node.env.clone();
-                let node_uuid = node.uuid;
-                tasks.push(tokio::spawn(async move {
-                    if let Err(e) = agent
-                        .collect_inbound_stats(tag.clone(), env, node_uuid)
+                    client
+                        .remove(&msg.conn_id, msg.tag, msg.password)
                         .await
-                    {
-                        log::error!("Failed to collect stats for inbound {}: {}", tag.clone(), e);
-                    }
-                }));
+                        .map_err(|e| {
+                            PonyError::Custom(format!(
+                                "Couldn't remove connection from Xray: {}",
+                                e
+                            ))
+                        })?;
+
+                    let mut state = self.state.lock().await;
+                    let _ = state.connections.remove(&msg.conn_id);
+
+                    Ok(())
+                }
+            },
+
+            Action::ResetStat => {
+                self.reset_stat(&msg.conn_id)
+                    .await
+                    .map_err(|e| PonyError::Custom(format!("Couldn't reset stat: {}", e)))?;
+                log::debug!("Reset stat for {}", msg.conn_id);
+                Ok(())
             }
         }
-
-        let results = join_all(tasks).await;
-        for result in results {
-            if let Err(e) = result {
-                log::error!("Task panicked: {:?}", e);
-            }
-        }
-
-        Ok(())
     }
 }

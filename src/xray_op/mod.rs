@@ -1,3 +1,4 @@
+pub mod clash;
 pub mod client;
 pub mod connections;
 pub mod shadowsocks;
@@ -9,7 +10,8 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use tonic::Request;
 
-use crate::state::Tag;
+use crate::state::tag::Tag;
+
 use crate::xray_api::xray::{
     app::proxyman::command::{AddUserOperation, AlterInboundRequest, RemoveUserOperation},
     common::protocol::User,

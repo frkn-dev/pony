@@ -1,9 +1,12 @@
-use crate::http::requests::InboundResponse;
 use serde::{Deserialize, Serialize};
-use std::{error::Error, fs::File, io::Read};
+use std::{fs::File, io::Read};
 
-use crate::state::InboundStat;
-use crate::state::Tag;
+use crate::config::wireguard::WireguardSettings;
+use crate::http::requests::InboundResponse;
+use crate::state::node::Stat as InboundStat;
+use crate::state::tag::Tag;
+
+use crate::Result;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct StreamSettings {
@@ -58,9 +61,10 @@ pub struct Inbound {
     pub port: u16,
     #[serde(rename = "streamSettings")]
     pub stream_settings: Option<StreamSettings>,
-    uplink: Option<i64>,
-    downlink: Option<i64>,
-    conn_count: Option<i64>,
+    pub uplink: Option<i64>,
+    pub downlink: Option<i64>,
+    pub conn_count: Option<i64>,
+    pub wg: Option<WireguardSettings>,
 }
 
 impl Inbound {
@@ -69,6 +73,7 @@ impl Inbound {
             port: self.port,
             stream_settings: self.stream_settings.clone(),
             tag: self.tag,
+            wg: self.wg.clone(),
         }
     }
 
@@ -104,12 +109,12 @@ pub struct Config {
 }
 
 impl Config {
-    pub fn validate(&self) -> Result<(), Box<dyn Error>> {
+    pub fn validate(&self) -> Result<()> {
         // ToDo validate xray config
         Ok(())
     }
 
-    pub fn new(file_path: &str) -> Result<Config, Box<dyn std::error::Error>> {
+    pub fn new(file_path: &str) -> Result<Config> {
         let mut file = File::open(file_path)?;
         let mut contents = String::new();
 

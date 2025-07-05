@@ -1,8 +1,9 @@
+use crate::PonyError;
+use crate::Result;
 use default_net::{get_default_interface, get_interfaces};
 use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use std::env;
-use std::error::Error;
 use std::fs;
 use std::net::Ipv4Addr;
 use uuid::Uuid;
@@ -10,99 +11,78 @@ use uuid::Uuid;
 fn default_enabled() -> bool {
     true
 }
-
 fn default_disabled() -> bool {
     false
 }
-
 fn default_env() -> String {
     "dev".to_string()
 }
-
-fn default_conn_daily_limit_mb() -> i32 {
-    1024
-}
-
 fn default_carbon_server() -> String {
     "localhost:2003".to_string()
 }
-
 fn default_clickhouse_server() -> String {
     "http://localhost:8123".to_string()
 }
-
 fn default_loglevel() -> String {
     "debug".to_string()
 }
-
 fn default_zmq_sub_endpoint() -> String {
     "tcp://localhost:3000".to_string()
 }
-
 fn default_zmq_pub_endpoint() -> String {
     "tcp://*:3000".to_string()
 }
-
 fn default_xray_config_path() -> String {
     "dev/xray-config.json".to_string()
 }
-
+fn default_wg_port() -> u16 {
+    51820
+}
+fn default_wg_interface() -> String {
+    "wg0".to_string()
+}
 fn default_pg_address() -> String {
     "localhost".to_string()
 }
-
 fn default_pg_port() -> u16 {
     5432
 }
-
 fn default_pg_db() -> String {
     "postgres".to_string()
 }
-
 fn default_pg_username() -> String {
     "postgres".to_string()
 }
-
 fn default_pg_password() -> String {
     "password".to_string()
 }
-
 fn default_api_endpoint_address() -> String {
     "http://localhost:3005".to_string()
 }
-
 fn default_uuid() -> Uuid {
     Uuid::parse_str("9658b391-01cb-4031-a3f5-6cbdd749bcff").unwrap()
 }
-
 fn default_debug_web_server() -> Option<Ipv4Addr> {
     Some(Ipv4Addr::new(127, 0, 0, 1))
 }
-
 fn default_debug_web_port() -> u16 {
     3001
 }
-
 fn default_api_web_listen() -> Option<Ipv4Addr> {
     Some(Ipv4Addr::new(127, 0, 0, 1))
 }
-
 fn default_api_web_port() -> u16 {
     3005
 }
-
 fn default_api_token() -> String {
     "supetsecrettoken".to_string()
 }
-
 fn default_label() -> String {
     "🏴‍☠️🏴‍☠️🏴‍☠️ dev".to_string()
 }
-
 fn default_node_healthcheck_timeout() -> i16 {
     60
 }
-
 fn default_conn_limit_check_interval() -> u64 {
     60
 }
@@ -122,23 +102,8 @@ fn default_metrics_hb_interval() -> u64 {
 fn default_healthcheck_interval() -> u64 {
     60
 }
-
 fn default_collect_conn_stat_interval() -> u64 {
     60
-}
-
-fn default_tg_token() -> String {
-    "".to_string()
-}
-
-fn default_shop_id() -> String {
-    "".to_string()
-}
-fn default_secret_key() -> String {
-    "".to_string()
-}
-fn default_price() -> String {
-    "5.00".to_string()
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]
@@ -217,8 +182,18 @@ pub struct LoggingConfig {
     pub level: String,
 }
 
-#[derive(Clone, Debug, Deserialize, Default)]
+#[derive(Clone, Debug, Deserialize)]
 pub struct NodeConfig {
+    pub env: String,
+    pub hostname: String,
+    pub default_interface: String,
+    pub address: Ipv4Addr,
+    pub uuid: Uuid,
+    pub label: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Default)]
+pub struct NodeConfigRaw {
     #[serde(default = "default_env")]
     pub env: String,
     pub hostname: Option<String>,
@@ -231,28 +206,44 @@ pub struct NodeConfig {
 }
 
 impl NodeConfig {
-    pub fn validate(&mut self) -> Result<(), Box<dyn Error>> {
-        if self.hostname.is_none() {
+    pub fn from_raw(raw: NodeConfigRaw) -> Result<NodeConfig> {
+        let hostname = if raw.hostname.is_none() {
             match env::var("HOSTNAME") {
-                Ok(hostname) => {
-                    self.hostname = Some(hostname);
-                }
+                Ok(hostname) => hostname,
                 Err(_) => {
-                    return Err("Validation error: missing hostname (set $HOSTNAME env or specify in config)".into());
+                    return Err(PonyError::Custom("Validation error: missing hostname (set $HOSTNAME env or specify in config)".into()));
                 }
             }
-        }
+        } else {
+            raw.hostname.unwrap()
+        };
 
-        if self.default_interface.is_none() {
+        let (address, interface) = if let Some(ref interface_name) = raw.default_interface {
+            let interfaces = get_interfaces();
+            if let Some(interface) = interfaces.iter().find(|i| &i.name == interface_name) {
+                match interface.ipv4.first() {
+                    Some(network) => (network.addr, interface_name.to_string()),
+                    None => {
+                        return Err(PonyError::Custom(
+                            "Validation error: Cannot get IPv4 address for the specified interface"
+                                .into(),
+                        ));
+                    }
+                }
+            } else {
+                return Err(PonyError::Custom(
+                    format!("Validation error: Interface {} not found", interface_name).into(),
+                ));
+            }
+        } else {
             match get_default_interface() {
                 Ok(interface) => {
-                    self.default_interface = Some(interface.name);
                     if interface.ipv4.is_empty() {
-                        return Err(
+                        return Err(PonyError::Custom(
                             "Validation error: Cannot get IPv4 address of default interface".into(),
-                        );
+                        ));
                     } else {
-                        self.address = Some(interface.ipv4[0].addr);
+                        (interface.ipv4[0].addr, interface.name)
                     }
                 }
                 Err(e) => {
@@ -261,27 +252,16 @@ impl NodeConfig {
                     )
                 }
             }
-        } else {
-            let interface_name = self.default_interface.as_ref().expect("interface");
-            let interfaces = get_interfaces();
-            if let Some(interface) = interfaces.iter().find(|i| &i.name == interface_name) {
-                match interface.ipv4.first() {
-                    Some(network) => self.address = Some(network.addr),
-                    None => {
-                        return Err(
-                            "Validation error: Cannot get IPv4 address for the specified interface"
-                                .into(),
-                        )
-                    }
-                }
-            } else {
-                return Err(
-                    format!("Validation error: Interface {} not found", interface_name).into(),
-                );
-            }
-        }
+        };
 
-        Ok(())
+        Ok(NodeConfig {
+            env: raw.env,
+            hostname: hostname,
+            default_interface: interface,
+            address: address,
+            uuid: raw.uuid,
+            label: raw.label,
+        })
     }
 }
 
@@ -300,27 +280,26 @@ pub struct PostgresConfig {
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]
-pub struct YookassaConfig {
-    #[serde(default = "default_disabled")]
-    pub enabled: bool,
-    #[serde(default = "default_shop_id")]
-    pub shop_id: String,
-    #[serde(default = "default_secret_key")]
-    pub secret_key: String,
-    #[serde(default = "default_price")]
-    pub price: String,
-}
-
-#[derive(Clone, Debug, Deserialize, Default)]
-pub struct PaymentConfig {
-    #[serde(default)]
-    pub yookassa: YookassaConfig,
-}
-
-#[derive(Clone, Debug, Deserialize, Default)]
 pub struct XrayConfig {
+    #[serde(default = "default_enabled")]
+    pub enabled: bool,
     #[serde(default = "default_xray_config_path")]
     pub xray_config_path: String,
+}
+
+#[derive(Clone, Default, Debug, Deserialize)]
+pub struct WgConfig {
+    #[serde(default = "default_enabled")]
+    pub enabled: bool,
+    #[serde(default = "default_wg_port")]
+    pub port: u16,
+    #[serde(default = "default_wg_interface")]
+    pub interface: String,
+    pub network: Option<String>,
+    pub privkey: Option<String>,
+    pub pubkey: Option<String>,
+    pub address: Option<String>,
+    pub dns: Option<Vec<String>>,
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]
@@ -330,9 +309,11 @@ pub struct ZmqSubscriberConfig {
 }
 
 impl ZmqSubscriberConfig {
-    pub fn validate(self) -> Result<(), Box<dyn Error>> {
+    pub fn validate(self) -> Result<()> {
         if !self.endpoint.starts_with("tcp://") {
-            return Err("ZMQ endpoint should start with tcp://".into());
+            return Err(PonyError::Custom(
+                "ZMQ endpoint should start with tcp://".into(),
+            ));
         }
         Ok(())
     }
@@ -345,16 +326,18 @@ pub struct ZmqPublisherConfig {
 }
 
 impl ZmqPublisherConfig {
-    pub fn validate(self) -> Result<(), Box<dyn Error>> {
+    pub fn validate(self) -> Result<()> {
         if !self.endpoint.starts_with("tcp://") {
-            return Err("ZMQ endpoint should start with tcp://".into());
+            return Err(PonyError::Custom(
+                "ZMQ endpoint should start with tcp://".into(),
+            ));
         }
         Ok(())
     }
 }
 
 pub trait Settings: Sized {
-    fn read_config<T: DeserializeOwned>(config_file: &str) -> Result<T, Box<dyn Error>> {
+    fn read_config<T: DeserializeOwned>(config_file: &str) -> Result<T> {
         let config_str = fs::read_to_string(config_file)?;
         let settings: T = toml::from_str(&config_str)?;
         Ok(settings)
@@ -370,7 +353,7 @@ pub trait Settings: Sized {
         }
     }
 
-    fn validate(&mut self) -> Result<(), String>;
+    fn validate(&self) -> Result<()>;
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]
@@ -380,7 +363,7 @@ pub struct ApiSettings {
     #[serde(default)]
     pub debug: DebugConfig,
     #[serde(default)]
-    pub node: NodeConfig,
+    pub node: NodeConfigRaw,
     #[serde(default)]
     pub logging: LoggingConfig,
     #[serde(default)]
@@ -393,22 +376,7 @@ pub struct ApiSettings {
     pub carbon: CarbonConfig,
 }
 
-impl Settings for ApiSettings {
-    fn validate(&mut self) -> Result<(), std::string::String> {
-        self.node
-            .validate()
-            .map_err(|e| format!("Node configuration validation error: {}", e))?;
-
-        self.zmq
-            .clone()
-            .validate()
-            .map_err(|e| format!("Zmq configuration validation error: {}", e))?;
-
-        Ok(())
-    }
-}
-
-#[derive(Clone, Debug, Deserialize, Default)]
+#[derive(Clone, Debug, Deserialize)]
 pub struct AgentSettings {
     #[serde(default)]
     pub debug: DebugConfig,
@@ -421,50 +389,25 @@ pub struct AgentSettings {
     #[serde(default)]
     pub xray: XrayConfig,
     #[serde(default)]
+    pub wg: WgConfig,
+    #[serde(default)]
     pub zmq: ZmqSubscriberConfig,
     #[serde(default)]
-    pub node: NodeConfig,
+    pub node: NodeConfigRaw,
     #[serde(default)]
     pub api: ApiAccessConfig,
 }
 
 impl Settings for AgentSettings {
-    fn validate(&mut self) -> Result<(), String> {
-        self.node
-            .validate()
-            .map_err(|e| format!("Node configuration validation error: {}", e))?;
-
-        self.zmq
-            .clone()
-            .validate()
-            .map_err(|e| format!("Zmq configuration validation error: {}", e))?;
-
+    fn validate(&self) -> Result<()> {
+        self.zmq.clone().validate()?;
         Ok(())
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Default)]
-pub struct BotConfig {
-    #[serde(default = "default_tg_token")]
-    pub token: String,
-    #[serde(default = "default_conn_daily_limit_mb")]
-    pub daily_limit_mb: i32,
-    #[serde(default = "default_env")]
-    pub env: String,
-}
-
-#[derive(Clone, Debug, Deserialize, Default)]
-pub struct BotSettings {
-    #[serde(default)]
-    pub logging: LoggingConfig,
-    #[serde(default)]
-    pub api: ApiAccessConfig,
-    #[serde(default)]
-    pub bot: BotConfig,
-}
-
-impl Settings for BotSettings {
-    fn validate(&mut self) -> Result<(), String> {
-        Ok(()) //ToDo implement validate
+impl Settings for ApiSettings {
+    fn validate(&self) -> Result<()> {
+        self.zmq.clone().validate()?;
+        Ok(())
     }
 }

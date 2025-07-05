@@ -9,43 +9,44 @@ use serde::{Deserialize, Serialize};
 
 use super::tag::Tag;
 use crate::config::settings::NodeConfig;
+use crate::config::wireguard::WireguardSettings;
 use crate::config::xray::{Config as XrayConfig, Inbound};
 use crate::http::requests::NodeResponse;
 
 #[derive(Clone, Debug, Deserialize, Serialize, Copy, ToSql, FromSql)]
 #[postgres(name = "node_status", rename_all = "snake_case")]
-pub enum NodeStatus {
+pub enum Status {
     Online,
     Offline,
 }
 
-impl PartialEq for NodeStatus {
+impl PartialEq for Status {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
-            (NodeStatus::Online, NodeStatus::Online) => true,
-            (NodeStatus::Offline, NodeStatus::Offline) => true,
+            (Status::Online, Status::Online) => true,
+            (Status::Offline, Status::Offline) => true,
             _ => false,
         }
     }
 }
 
-impl fmt::Display for NodeStatus {
+impl fmt::Display for Status {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            NodeStatus::Online => write!(f, "Online"),
-            NodeStatus::Offline => write!(f, "Offline"),
+            Status::Online => write!(f, "Online"),
+            Status::Offline => write!(f, "Offline"),
         }
     }
 }
 
-impl FromStr for NodeStatus {
+impl FromStr for Status {
     type Err = ();
 
     fn from_str(input: &str) -> Result<Self, Self::Err> {
         match input {
-            "Online" => Ok(NodeStatus::Online),
-            "Offline" => Ok(NodeStatus::Offline),
-            _ => Ok(NodeStatus::Offline),
+            "Online" => Ok(Status::Online),
+            "Offline" => Ok(Status::Offline),
+            _ => Ok(Status::Offline),
         }
     }
 }
@@ -56,7 +57,7 @@ pub struct Node {
     pub env: String,
     pub hostname: String,
     pub address: Ipv4Addr,
-    pub status: NodeStatus,
+    pub status: Status,
     pub label: String,
     pub interface: String,
     pub created_at: DateTime<Utc>,
@@ -65,23 +66,50 @@ pub struct Node {
 }
 
 impl Node {
-    pub fn new(settings: NodeConfig, config: XrayConfig) -> Self {
+    pub fn new(
+        settings: NodeConfig,
+        xray_config: Option<XrayConfig>,
+        wg_config: Option<WireguardSettings>,
+    ) -> Self {
         let now = Utc::now();
-        let inbounds = config
-            .inbounds
-            .into_iter()
-            .map(|inbound| (inbound.tag.clone(), inbound))
-            .collect::<HashMap<Tag, Inbound>>();
+        let mut inbounds: HashMap<Tag, Inbound> = HashMap::new();
+
+        {
+            if let Some(config) = xray_config {
+                let xray_inbounds = config
+                    .inbounds
+                    .into_iter()
+                    .map(|inbound| (inbound.tag, inbound))
+                    .collect::<HashMap<Tag, Inbound>>();
+
+                inbounds.extend(xray_inbounds);
+            }
+
+            if let Some(ref config) = wg_config {
+                inbounds.insert(
+                    Tag::Wireguard,
+                    Inbound {
+                        port: config.port,
+                        tag: Tag::Wireguard,
+                        stream_settings: None,
+                        uplink: None,
+                        downlink: None,
+                        conn_count: None,
+                        wg: wg_config,
+                    },
+                );
+            }
+        };
 
         Self {
             uuid: settings.uuid,
             env: settings.env,
-            hostname: settings.hostname.expect("hostname"),
-            status: NodeStatus::Online,
-            address: settings.address.expect("address"),
+            hostname: settings.hostname,
+            status: Status::Online,
+            address: settings.address,
             created_at: now,
             label: settings.label,
-            interface: settings.default_interface.expect("default_interface"),
+            interface: settings.default_interface,
             modified_at: now,
             inbounds: inbounds,
         }
@@ -99,11 +127,16 @@ impl Node {
             env: self.env.clone(),
             hostname: self.hostname.clone(),
             address: self.address,
-            uuid: self.uuid.clone(),
+            uuid: self.uuid,
             inbounds: inbound_response,
             status: self.status,
             label: self.label.clone(),
         }
+    }
+
+    pub fn update_status(&mut self, new_status: Status) -> Result<(), String> {
+        self.status = new_status;
+        Ok(())
     }
 
     pub fn update_uplink(&mut self, tag: &Tag, new_uplink: i64) -> Result<(), String> {
@@ -113,11 +146,6 @@ impl Node {
         } else {
             Err(format!("Inbound {}  not found", tag))
         }
-    }
-
-    pub fn update_status(&mut self, new_status: NodeStatus) -> Result<(), String> {
-        self.status = new_status;
-        Ok(())
     }
 
     pub fn update_downlink(&mut self, tag: &Tag, new_downlink: i64) -> Result<(), String> {
@@ -137,4 +165,10 @@ impl Node {
             Err(format!("Inbound {}  not found", tag))
         }
     }
+}
+
+pub struct Stat {
+    pub downlink: i64,
+    pub uplink: i64,
+    pub conn_count: i64,
 }

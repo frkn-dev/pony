@@ -12,10 +12,10 @@ use warp::Rejection;
 
 use crate::http::Unauthorized;
 
-use crate::state::ConnBaseOp;
-use crate::state::ConnStorageBase;
-use crate::state::NodeStorage;
-use crate::state::State;
+use crate::state::connection::op::base::Operations as ConnectionBaseOp;
+use crate::state::state::State;
+use crate::state::storage::connection::BaseOp as ConnectionStorageBaseOp;
+use crate::state::storage::node::Operations as NodeStorageOp;
 
 enum Kind {
     Conn,
@@ -55,8 +55,8 @@ pub async fn start_ws_server<N, C>(
     port: u16,
     expected_token: Arc<String>,
 ) where
-    N: NodeStorage + Sync + Send + Clone + 'static,
-    C: ConnBaseOp + Sync + Send + Clone + 'static + std::fmt::Display,
+    N: NodeStorageOp + Sync + Send + Clone + 'static,
+    C: ConnectionBaseOp + Sync + Send + Clone + 'static + std::fmt::Display,
 {
     let health_check = warp::path("health-check").map(|| "Server OK");
 
@@ -102,8 +102,8 @@ pub async fn handle_debug_connection<N, C>(
     socket: warp::ws::WebSocket,
     state: Arc<Mutex<State<N, C>>>,
 ) where
-    N: NodeStorage + Sync + Send + Clone + 'static,
-    C: ConnBaseOp + Sync + Send + Clone + 'static + std::fmt::Display,
+    N: NodeStorageOp + Sync + Send + Clone + 'static,
+    C: ConnectionBaseOp + Sync + Send + Clone + 'static + std::fmt::Display,
 {
     let (mut sender, mut receiver) = socket.split();
 
@@ -121,6 +121,7 @@ pub async fn handle_debug_connection<N, C>(
             }
         };
 
+        // COMMENT(@qezz): A `match` would probably work better here.
         if req.kind == "get_connections" {
             let state = state.lock().await;
             let conns: Vec<_> = state.connections.keys().collect();

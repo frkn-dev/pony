@@ -1,7 +1,4 @@
-use crate::state::StatType;
 use clickhouse::Client as ChClient;
-use clickhouse::Row;
-use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
@@ -23,18 +20,5 @@ impl ChContext {
 
     pub fn client(&self) -> Arc<Mutex<ChClient>> {
         self.inner.clone()
-    }
-}
-
-#[derive(Clone, Debug, Row, Serialize, Deserialize)]
-pub struct MetricValue<T> {
-    pub latest: i64,
-    pub metric: String,
-    pub value: T,
-}
-
-impl<T> MetricValue<T> {
-    pub fn stat_type(&self) -> StatType {
-        StatType::from_path(&self.metric)
     }
 }

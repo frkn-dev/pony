@@ -1,9 +1,9 @@
 use async_trait::async_trait;
 use tonic::Status;
 
-use crate::state::ConnStat;
-use crate::state::InboundStat;
-use crate::state::Stat;
+use crate::state::connection::stat::Stat as ConnectionStat;
+use crate::state::node::Stat as InboundStat;
+use crate::state::stat::Stat;
 use crate::xray_api::xray::app::stats::command::GetStatsResponse;
 use crate::xray_op::Tag;
 
@@ -28,10 +28,10 @@ pub trait StatOp {
     async fn stat(
         &self,
         prefix: Prefix,
-        stat_type: Stat,
+        stat_kind: Stat,
         reset: bool,
     ) -> Result<GetStatsResponse, Status>;
-    async fn conn_stats(&self, conn_id: Prefix) -> Result<ConnStat, Status>;
+    async fn conn_stats(&self, conn_id: Prefix) -> Result<ConnectionStat, Status>;
     async fn inbound_stats(&self, inbound: Prefix) -> Result<InboundStat, Status>;
     async fn conn_count(&self, inbound: Tag) -> Result<Option<i64>, Status>;
     async fn reset_stat(&self, conn_id: &uuid::Uuid) -> Result<(), Status>;

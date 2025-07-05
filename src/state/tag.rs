@@ -14,6 +14,8 @@ pub enum Tag {
     Vmess,
     #[serde(rename = "Shadowsocks")]
     Shadowsocks,
+    #[serde(rename = "Wireguard")]
+    Wireguard,
 }
 
 impl fmt::Display for Tag {
@@ -23,7 +25,23 @@ impl fmt::Display for Tag {
             Tag::VlessGrpc => write!(f, "VlessGrpc"),
             Tag::Vmess => write!(f, "Vmess"),
             Tag::Shadowsocks => write!(f, "Shadowsocks"),
+            Tag::Wireguard => write!(f, "Wireguard"),
         }
+    }
+}
+
+impl Tag {
+    pub fn is_wireguard(&self) -> bool {
+        // COMMENT(qezz): I'm sure it's possible to just use
+        //
+        // `*self == Tag::Wireguard`
+        //
+        // The `matches!()` is only needed when there's multiple entries
+        matches!(self, Tag::Wireguard)
+    }
+
+    pub fn is_shadowsocks(&self) -> bool {
+        matches!(self, Tag::Shadowsocks)
     }
 }
 
@@ -36,6 +54,7 @@ impl std::str::FromStr for Tag {
             "VlessGrpc" => Ok(Tag::VlessGrpc),
             "Vmess" => Ok(Tag::Vmess),
             "Shadowsocks" => Ok(Tag::Shadowsocks),
+            "Wireguard" => Ok(Tag::Wireguard),
             _ => Err(()),
         }
     }

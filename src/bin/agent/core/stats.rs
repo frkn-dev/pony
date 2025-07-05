@@ -1,25 +1,32 @@
 use async_trait::async_trait;
+use futures::future::join_all;
+
+use std::sync::Arc;
+use tokio::task::JoinHandle;
+use tonic::Code;
 use tonic::{Request, Status};
 
-use pony::state::ConnBaseOp;
-use pony::state::ConnStat;
-use pony::state::InboundStat;
-use pony::state::NodeStorage;
-use pony::state::Stat;
-use pony::state::StatType;
-use pony::state::Tag;
+use pony::state::connection::stat::Stat as ConnectionStat;
+use pony::state::node::Stat as InboundStat;
+use pony::state::stat::Kind as StatKind;
+use pony::state::stat::Stat;
+use pony::state::storage::connection::BaseOp;
+use pony::state::tag::Tag;
 use pony::xray_api::xray::app::stats::command::{GetStatsRequest, GetStatsResponse};
 use pony::xray_op::connections::ConnOp;
 use pony::xray_op::stats::Prefix;
 use pony::xray_op::stats::StatOp;
+use pony::ConnectionBaseOp;
+use pony::NodeStorageOp;
+use pony::Result as PonyResult;
 
 use super::Agent;
 
 #[async_trait]
 impl<T, C> StatOp for Agent<T, C>
 where
-    T: NodeStorage + Send + Sync + Clone,
-    C: ConnBaseOp + Send + Sync + Clone + 'static,
+    T: NodeStorageOp + Send + Sync + Clone,
+    C: ConnectionBaseOp + Send + Sync + Clone + 'static,
 {
     async fn stat(
         &self,
@@ -27,59 +34,66 @@ where
         stat_type: Stat,
         reset: bool,
     ) -> Result<GetStatsResponse, Status> {
-        let mut stats_client = self.xray_stats_client.lock().await;
+        if let Some(client) = &self.xray_stats_client {
+            let mut stats_client = client.lock().await;
 
-        let base_name = match prefix {
-            Prefix::InboundPrefix(tag) => format!("inbound>>>{}", tag),
-            Prefix::ConnPrefix(uuid) => format!("user>>>{}@pony", uuid),
-        };
+            let base_name = match prefix {
+                Prefix::InboundPrefix(tag) => format!("inbound>>>{}", tag),
+                Prefix::ConnPrefix(uuid) => format!("user>>>{}@pony", uuid),
+            };
 
-        let stat_name = match &stat_type {
-            Stat::Conn(StatType::Downlink)
-            | Stat::Conn(StatType::Uplink)
-            | Stat::Inbound(StatType::Downlink)
-            | Stat::Inbound(StatType::Uplink) => {
-                format!("{}>>>traffic>>>{}", base_name, stat_type)
-            }
-            Stat::Conn(StatType::Online) => {
-                format!("{}>>>{}", base_name, stat_type)
-            }
-            Stat::Inbound(StatType::Online) => {
-                return Err(Status::internal("Online is not supported for inbound"));
-            }
-            Stat::Outbound(_) => {
-                return Err(Status::internal("Outbound stat type is not implemented"));
-            }
-            Stat::Conn(StatType::Unknown) | Stat::Inbound(StatType::Unknown) => {
-                return Err(Status::internal("Unknown stat type is not implemented"));
-            }
-        };
+            let stat_name = match &stat_type {
+                Stat::Conn(StatKind::Downlink)
+                | Stat::Conn(StatKind::Uplink)
+                | Stat::Inbound(StatKind::Downlink)
+                | Stat::Inbound(StatKind::Uplink) => {
+                    format!("{}>>>traffic>>>{}", base_name, stat_type)
+                }
+                Stat::Conn(StatKind::Online) => {
+                    format!("{}>>>{}", base_name, stat_type)
+                }
+                Stat::Inbound(StatKind::Online) => {
+                    return Err(Status::internal("Online is not supported for inbound"));
+                }
+                Stat::Outbound(_) => {
+                    return Err(Status::internal("Outbound stat type is not implemented"));
+                }
+                Stat::Conn(StatKind::Unknown) | Stat::Inbound(StatKind::Unknown) => {
+                    return Err(Status::internal("Unknown stat type is not implemented"));
+                }
+            };
 
-        let request = Request::new(GetStatsRequest {
-            name: stat_name,
-            reset,
-        });
+            let request = Request::new(GetStatsRequest {
+                name: stat_name,
+                reset,
+            });
 
-        let response = match stat_type {
-            Stat::Conn(StatType::Online) => stats_client.client.get_stats_online(request).await,
-            _ => stats_client.client.get_stats(request).await,
-        };
+            let response = match stat_type {
+                Stat::Conn(StatKind::Online) => stats_client.client.get_stats_online(request).await,
+                _ => stats_client.client.get_stats(request).await,
+            };
 
-        match response {
-            Ok(stat) => Ok(stat.into_inner()),
-            Err(e) => Err(Status::internal(format!(
-                "Stat request failed {:?} {}",
-                stat_type, e
-            ))),
+            match response {
+                Ok(stat) => Ok(stat.into_inner()),
+                Err(e) => Err(Status::internal(format!(
+                    "Stat request failed {:?} {}",
+                    stat_type, e
+                ))),
+            }
+        } else {
+            Err(Status::new(
+                Code::Unavailable,
+                "Xray Stats client doesn't exist",
+            ))
         }
     }
 
     async fn reset_stat(&self, conn_id: &uuid::Uuid) -> Result<(), Status> {
         let id = Prefix::ConnPrefix(*conn_id);
         let (downlink_result, uplink_result, online_result) = tokio::join!(
-            self.stat(id, Stat::Conn(StatType::Downlink), true),
-            self.stat(id, Stat::Conn(StatType::Uplink), true),
-            self.stat(id, Stat::Conn(StatType::Online), true)
+            self.stat(id, Stat::Conn(StatKind::Downlink), true),
+            self.stat(id, Stat::Conn(StatKind::Uplink), true),
+            self.stat(id, Stat::Conn(StatKind::Online), true)
         );
 
         match (downlink_result, uplink_result, online_result) {
@@ -118,13 +132,13 @@ where
         }
     }
 
-    async fn conn_stats(&self, conn_id: Prefix) -> Result<ConnStat, Status> {
+    async fn conn_stats(&self, conn_id: Prefix) -> Result<ConnectionStat, Status> {
         log::debug!("conn_stats {:?}", conn_id);
 
         let (downlink_result, uplink_result, online_result) = tokio::join!(
-            self.stat(conn_id.clone(), Stat::Conn(StatType::Downlink), false),
-            self.stat(conn_id.clone(), Stat::Conn(StatType::Uplink), false),
-            self.stat(conn_id.clone(), Stat::Conn(StatType::Online), false)
+            self.stat(conn_id.clone(), Stat::Conn(StatKind::Downlink), false),
+            self.stat(conn_id.clone(), Stat::Conn(StatKind::Uplink), false),
+            self.stat(conn_id.clone(), Stat::Conn(StatKind::Online), false)
         );
 
         match (downlink_result, uplink_result, online_result) {
@@ -140,7 +154,7 @@ where
                         uplink.clone(),
                         online.clone()
                     );
-                    Ok(ConnStat {
+                    Ok(ConnectionStat {
                         downlink: downlink.value,
                         uplink: uplink.value,
                         online: online.value,
@@ -168,11 +182,11 @@ where
 
     async fn inbound_stats(&self, inbound: Prefix) -> Result<InboundStat, Status> {
         let downlink_result = self
-            .stat(inbound.clone(), Stat::Inbound(StatType::Downlink), false)
+            .stat(inbound.clone(), Stat::Inbound(StatKind::Downlink), false)
             .await;
 
         let uplink_result = self
-            .stat(inbound.clone(), Stat::Inbound(StatType::Uplink), false)
+            .stat(inbound.clone(), Stat::Inbound(StatKind::Uplink), false)
             .await;
 
         let conn_count_result = self.conn_count(inbound.as_tag().unwrap().clone()).await;
@@ -223,13 +237,169 @@ where
     }
 
     async fn conn_count(&self, inbound: Tag) -> Result<Option<i64>, Status> {
-        let mut handler_client = self.xray_handler_client.lock().await;
-        match handler_client.conn_count_op(inbound.clone()).await {
-            Ok(count) => Ok(Some(count)),
-            Err(e) => Err(Status::internal(format!(
-                "Failed to fetch conn count for inbound {}: {}",
-                inbound, e
-            ))),
+        if let Some(client) = &self.xray_handler_client {
+            let mut handler_client = client.lock().await;
+            match handler_client.conn_count_op(inbound.clone()).await {
+                Ok(count) => Ok(Some(count)),
+                Err(e) => Err(Status::internal(format!(
+                    "Failed to fetch conn count for inbound {}: {}",
+                    inbound, e
+                ))),
+            }
+        } else {
+            Err(Status::new(
+                Code::Unavailable,
+                "Xray Hanler client doesn't exist",
+            ))
         }
+    }
+}
+
+impl<T, C> Agent<T, C>
+where
+    T: NodeStorageOp + Send + Sync + Clone,
+    C: ConnectionBaseOp + Send + Sync + Clone + 'static,
+{
+    async fn collect_conn_stats(self: Arc<Self>, conn_id: uuid::Uuid) -> PonyResult<()> {
+        let conn_stat = self.conn_stats(Prefix::ConnPrefix(conn_id)).await?;
+        let mut state = self.state.lock().await;
+        let _ = state
+            .connections
+            .update_downlink(&conn_id, conn_stat.downlink);
+        let _ = state.connections.update_uplink(&conn_id, conn_stat.uplink);
+        let _ = state.connections.update_online(&conn_id, conn_stat.online);
+        Ok(())
+    }
+
+    async fn collect_inbound_stats(
+        self: Arc<Self>,
+        tag: Tag,
+        env: String,
+        node_uuid: uuid::Uuid,
+    ) -> PonyResult<()> {
+        let inbound_stat = self
+            .inbound_stats(Prefix::InboundPrefix(tag.clone()))
+            .await?;
+        let mut state = self.state.lock().await;
+        let _ = state
+            .nodes
+            .update_node_downlink(&tag, inbound_stat.downlink, &env, &node_uuid);
+        let _ = state
+            .nodes
+            .update_node_uplink(&tag, inbound_stat.uplink, &env, &node_uuid);
+        let _ = state
+            .nodes
+            .update_node_conn_count(&tag, inbound_stat.conn_count, &env, &node_uuid);
+        Ok(())
+    }
+
+    pub async fn collect_stats(self: Arc<Self>) -> PonyResult<()> {
+        log::debug!("Running xray stat job");
+        let mut tasks: Vec<JoinHandle<()>> = Vec::new();
+
+        let conn_ids = {
+            let state = self.state.lock().await;
+            state.connections.keys().cloned().collect::<Vec<_>>()
+        };
+
+        for conn_id in conn_ids {
+            let agent = self.clone();
+            tasks.push(tokio::spawn(async move {
+                if let Err(e) = agent.collect_conn_stats(conn_id).await {
+                    log::error!("Failed to collect stats for connection {}: {}", conn_id, e);
+                }
+            }));
+        }
+
+        if let Some(node) = {
+            let state = self.state.lock().await;
+            state.nodes.get_self()
+        } {
+            let node_tags = node.inbounds.keys().cloned().collect::<Vec<_>>();
+            for tag in node_tags {
+                let agent = self.clone();
+                let env = node.env.clone();
+                let node_uuid = node.uuid;
+                tasks.push(tokio::spawn(async move {
+                    if let Err(e) = agent
+                        .collect_inbound_stats(tag.clone(), env, node_uuid)
+                        .await
+                    {
+                        log::error!("Failed to collect stats for inbound {}: {}", tag.clone(), e);
+                    }
+                }));
+            }
+        }
+
+        let results = join_all(tasks).await;
+        for result in results {
+            if let Err(e) = result {
+                log::error!("Task panicked: {:?}", e);
+            }
+        }
+
+        Ok(())
+    }
+
+    pub async fn collect_wireguard_stats(self: Arc<Self>) -> PonyResult<()> {
+        let mut tasks: Vec<JoinHandle<()>> = Vec::new();
+
+        let wg_client = match &self.wg_client {
+            Some(client) => client.clone(),
+            None => {
+                log::warn!("WG API client is not available, skipping stats collection");
+                return Ok(());
+            }
+        };
+
+        let conns = {
+            let state = self.state.lock().await;
+            state
+                .connections
+                .iter()
+                .filter_map(|(id, conn)| {
+                    if let Tag::Wireguard = conn.get_proto().proto() {
+                        Some((*id, conn.clone()))
+                    } else {
+                        None
+                    }
+                })
+                .collect::<Vec<_>>()
+        };
+
+        for (conn_id, conn) in conns {
+            let wg_client = wg_client.clone();
+            let agent = self.clone();
+            tasks.push(tokio::spawn(async move {
+                if let Some(wg) = conn.get_wireguard() {
+                    match wg_client.peer_stats(&wg.keys.pubkey.clone()) {
+                        Ok((uplink, downlink)) => {
+                            let mut state = agent.state.lock().await;
+                            if let Some(existing) = state.connections.get_mut(&conn_id) {
+                                existing.set_uplink(uplink);
+                                existing.set_downlink(downlink);
+                            }
+                        }
+                        Err(e) => {
+                            log::error!(
+                                "Failed to collect WG stats for {} {}: {}",
+                                conn_id,
+                                wg.keys.pubkey,
+                                e
+                            );
+                        }
+                    }
+                }
+            }));
+        }
+
+        let results = join_all(tasks).await;
+        for result in results {
+            if let Err(e) = result {
+                log::error!("WireGuard stats task panicked: {:?}", e);
+            }
+        }
+
+        Ok(())
     }
 }

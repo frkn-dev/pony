@@ -38,7 +38,7 @@ impl AsMetric for CpuUsage<'_> {
 
         vec![Metric {
             //dev.localhost.cpu.processor1.percentage
-            path: format!("{env}.{hostname}.cpu.{name}.percentage"),
+            metric: format!("{env}.{hostname}.cpu.{name}.percentage"),
             value: self.usage,
             timestamp,
         }]

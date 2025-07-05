@@ -3,7 +3,6 @@ use crate::Result;
 use default_net::{get_default_interface, get_interfaces};
 use serde::de::DeserializeOwned;
 use serde::Deserialize;
-use serde::Serializer;
 use std::env;
 use std::fs;
 use std::net::Ipv4Addr;

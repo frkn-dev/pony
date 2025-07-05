@@ -15,6 +15,8 @@ use pony::http::ResponseMessage;
 use pony::state::node::Status as NodeStatus;
 use pony::state::storage::connection::ApiOp;
 use pony::utils;
+use pony::xray_op::clash::generate_clash_config;
+use pony::xray_op::clash::generate_proxy_config;
 use pony::zmq::publisher::Publisher as ZmqPublisher;
 use pony::Conn as Connection;
 use pony::ConnWithId;
@@ -756,14 +758,12 @@ where
             let mut proxies = vec![];
 
             for (inbound, conn_id, label, address) in &inbounds_by_node {
-                if let Some(proxy) =
-                    utils::generate_proxy_config(inbound, *conn_id, *address, label)
-                {
+                if let Some(proxy) = generate_proxy_config(inbound, *conn_id, *address, label) {
                     proxies.push(proxy)
                 }
             }
 
-            let config = utils::generate_clash_config(proxies);
+            let config = generate_clash_config(proxies);
             let yaml = serde_yaml::to_string(&config)
                 .unwrap_or_else(|_| "---\nerror: failed to serialize\n".into());
 

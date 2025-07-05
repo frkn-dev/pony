@@ -104,12 +104,12 @@ impl Node {
         Self {
             uuid: settings.uuid,
             env: settings.env,
-            hostname: settings.hostname.expect("hostname"),
+            hostname: settings.hostname,
             status: Status::Online,
-            address: settings.address.expect("address"),
+            address: settings.address,
             created_at: now,
             label: settings.label,
-            interface: settings.default_interface.expect("default_interface"),
+            interface: settings.default_interface,
             modified_at: now,
             inbounds: inbounds,
         }

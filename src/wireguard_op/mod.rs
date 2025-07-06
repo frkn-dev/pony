@@ -1,17 +1,23 @@
-use crate::http::requests::InboundResponse;
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
-use defguard_wireguard_rs::host::Peer;
-use defguard_wireguard_rs::key::Key;
-use defguard_wireguard_rs::net::IpAddrMask;
-use defguard_wireguard_rs::Userspace;
-use defguard_wireguard_rs::WGApi;
-use defguard_wireguard_rs::WireguardInterfaceApi;
 use std::collections::HashSet;
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
 use std::sync::Arc;
 
+use defguard_wireguard_rs::host::Peer;
+use defguard_wireguard_rs::key::Key;
+use defguard_wireguard_rs::net::IpAddrMask;
+use defguard_wireguard_rs::WGApi;
+use defguard_wireguard_rs::WireguardInterfaceApi;
+
+#[cfg(target_os = "linux")]
+use defguard_wireguard_rs::Kernel;
+
+#[cfg(target_os = "macos")]
+use defguard_wireguard_rs::Userspace;
+
+use crate::http::requests::InboundResponse;
 use crate::PonyError;
 use crate::Result;
 
@@ -19,12 +25,18 @@ const KEY_LEN: usize = 32;
 
 #[derive(Clone)]
 pub struct WgApi {
-    pub client: Arc<WGApi<Userspace>>,
+    pub client: Arc<InnerWgApi>,
 }
+
+#[cfg(target_os = "linux")]
+type InnerWgApi = WGApi<Kernel>;
+
+#[cfg(target_os = "macos")]
+type InnerWgApi = WGApi<Userspace>;
 
 impl WgApi {
     pub fn new(iface: &str) -> Result<Self> {
-        WGApi::<Userspace>::new(iface.to_string())
+        InnerWgApi::new(iface.to_string())
             .map(|wg_api| Self {
                 client: Arc::new(wg_api),
             })
@@ -32,7 +44,7 @@ impl WgApi {
     }
 
     pub fn validate(&self) -> Result<()> {
-        self.client.read_host()?;
+        self.client.as_ref().read_host()?;
         Ok(())
     }
 

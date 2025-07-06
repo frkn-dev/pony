@@ -15,7 +15,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .expect("required config path as an argument");
     println!("Config file {}", config_path);
 
-    let mut settings = AgentSettings::new(config_path);
+    let settings = AgentSettings::new(config_path);
 
     settings.validate().expect("Wrong settings file");
     println!(">>> Settings: {:?}", settings.clone());

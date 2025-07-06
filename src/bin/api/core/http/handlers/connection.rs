@@ -223,20 +223,6 @@ where
         }
     }
 
-    if let Some(user_id) = conn_req.user_id {
-        if !mem.users.contains_key(&user_id) {
-            let response = ResponseMessage::<Option<IdResponse>> {
-                status: StatusCode::BAD_REQUEST.as_u16(),
-                message: "user_id doesn't exist".into(),
-                response: Some(IdResponse { id: user_id }),
-            };
-            return Ok(warp::reply::with_status(
-                warp::reply::json(&response),
-                StatusCode::BAD_REQUEST,
-            ));
-        }
-    }
-
     let wg_param = if conn_req.proto.is_wireguard() && conn_req.wg.is_none() {
         let node_id = match node_id {
             Some(id) => id,

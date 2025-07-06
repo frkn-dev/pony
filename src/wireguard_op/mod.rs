@@ -44,7 +44,7 @@ impl WgApi {
     }
 
     pub fn validate(&self) -> Result<()> {
-        self.client.as_ref().read_host()?;
+        self.client.read_host()?;
         Ok(())
     }
 

@@ -44,8 +44,13 @@ impl WgApi {
     }
 
     pub fn validate(&self) -> Result<()> {
-        self.client.read_host()?;
-        Ok(())
+        match self.client.read_interface_data() {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                log::error!("❌ Failed to read interface data: {:?}", e);
+                Err(PonyError::Custom(format!("WireGuard error: {:?}", e)))
+            }
+        }
     }
 
     fn decode_pubkey(pubkey: &str) -> Result<Key> {

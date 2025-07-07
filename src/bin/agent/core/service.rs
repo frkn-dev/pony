@@ -320,10 +320,15 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
                 loop {
                     tokio::select! {
                         _ = sleep(Duration::from_secs(settings.agent.metrics_interval)) => {
-                            let _ = agent.send_metrics(&carbon_addr).await;
-
+                            match agent.send_metrics(&carbon_addr).await {
+                                Ok(_) => log::debug!("✅ Sent metrics to {}", carbon_addr),
+                                Err(e) => log::error!("❌ Failed to send metrics: {}", e),
+                            }
                         },
-                        _ = shutdown.recv() => break,
+                        _ = shutdown.recv() => {
+                            log::info!("🛑 Metrics task received shutdown");
+                            break;
+                        },
                     }
                 }
             }
@@ -339,9 +344,15 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
                 loop {
                     tokio::select! {
                         _ = sleep(Duration::from_secs(settings.agent.metrics_hb_interval)) => {
-                            let _ = agent.send_hb_metric(&carbon_addr).await;
+                            match agent.send_hb_metric(&carbon_addr).await {
+                                Ok(_) => log::debug!("✅ Sent heartbeat to {}", carbon_addr),
+                                Err(e) => log::error!("❌ Failed to send heartbeat: {}", e),
+                            }
                         },
-                        _ = shutdown.recv() => break,
+                        _ = shutdown.recv() => {
+                            log::info!("🛑 Heartbeat task received shutdown");
+                            break;
+                        },
                     }
                 }
             }
@@ -351,7 +362,7 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
 
     if settings.agent.stat_enabled {
         log::info!("Running Stat Task");
-        let stats_task = tokio::spawn({
+        let xray_stats_task = tokio::spawn({
             let agent = Arc::new(agent.clone());
             let mut shutdown = shutdown_tx.subscribe();
             async move {
@@ -367,7 +378,7 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
                 }
             }
         });
-        tasks.push(stats_task);
+        tasks.push(xray_stats_task);
     }
 
     if settings.agent.stat_enabled {

@@ -56,7 +56,7 @@ impl<T: std::fmt::Display + std::fmt::Debug> Metric<T> {
     pub async fn send(&self, server: &str) -> Result<(), io::Error> {
         let metric_string = self.to_string();
 
-        log::debug!("Send metric to carbon: {:?}", self);
+        log::debug!("Sending carbon metric string: {}", metric_string);
 
         match TcpStream::connect(server).await {
             Ok(mut stream) => {
@@ -67,6 +67,11 @@ impl<T: std::fmt::Display + std::fmt::Debug> Metric<T> {
 
                 if let Err(e) = stream.flush().await {
                     log::warn!("Failed to flush stream: {}", e);
+                    return Err(e);
+                }
+
+                if let Err(e) = stream.shutdown().await {
+                    log::warn!("Failed to shutdown stream: {}", e);
                     return Err(e);
                 }
 

@@ -50,9 +50,9 @@ impl<T: fmt::Display> fmt::Display for Metric<T> {
 
 impl<T: std::fmt::Display + std::fmt::Debug> Metric<T> {
     pub async fn send(&self, server: &str) -> Result<(), io::Error> {
-        let metric_string = format!("{}\n", self.to_string());
+        let metric_string = format!("{self}\n");
 
-        log::debug!("Sending carbon metric string: {}", metric_string);
+        log::debug!("Sending carbon metric string: {:?}", metric_string);
 
         match TcpStream::connect(server).await {
             Ok(mut stream) => {

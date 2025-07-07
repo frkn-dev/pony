@@ -40,22 +40,30 @@ impl Queries for ChContext {
         T: DeserializeOwned + Debug + Send + Clone + Sync + 'static,
     {
         let query = format!(
-            "SELECT 
-                  toInt64(toUnixTimestamp(toDateTime(argMax(Timestamp, Timestamp)))) AS timestamp,
-                  Path AS metric,
-                  toFloat64(argMax(Value, Timestamp)) AS value
-            FROM default.graphite_data
-            WHERE Path LIKE '{}.{}.{}.heartbeat'
-            GROUP BY Path",
+            r#"SELECT Path AS metric,
+          toFloat64(argMax(Value, Timestamp)) AS value,
+          toInt64(toUnixTimestamp(toDateTime(argMax(Timestamp, Timestamp)))) AS timestamp     
+FROM default.graphite_data
+WHERE Path = '{}.{}.{}.heartbeat'
+GROUP BY Path"#,
             env, hostname, uuid
         );
 
-        log::debug!("CH Query {}", query);
+        println!("CH Query\n{}", query);
 
         let client = self.client();
-        let client = client.lock().await;
 
         let result = client.query(&query).fetch_all::<Metric<T>>().await;
+
+        match result {
+            Ok(ref rows) => {
+                log::debug!("Fetched {} rows from CH", rows.len());
+            }
+            Err(ref e) => {
+                log::error!("Failed to fetch heartbeat from CH: {:?}", e);
+            }
+        }
+
         result.ok().and_then(|mut rows| rows.pop())
     }
 
@@ -69,30 +77,28 @@ impl Queries for ChContext {
     {
         let start_str = start.format("%Y-%m-%d %H:%M:%S").to_string();
         let query = format!(
-            "SELECT 
-                   anyLast(timestamp) as timestamp,
-                   metric, 
-                   toInt64(sum(metric_value)) AS value
-               FROM (
-                 SELECT
-                   toInt64(toUnixTimestamp(toDateTime(anyLast(Timestamp)))) AS timestamp,
-                   extract(Path, '[^.]+$') AS metric,
-                   anyLast(Value) AS metric_value
-                 FROM default.graphite_data
-                 WHERE Path LIKE '%.%.{conn_id}.conn_stat.%'
-                    AND Timestamp >= toDateTime('{start}')
-                    AND Timestamp < toDateTime('{start}') + INTERVAL 1 DAY
-                 GROUP BY Path
-                )
-            GROUP BY metric",
+            r#"SELECT  metric, 
+           toInt64(sum(metric_value)) AS value,
+           anyLast(timestamp) AS timestamp 
+FROM (
+  SELECT
+    toInt64(toUnixTimestamp(toDateTime(anyLast(Timestamp)))) AS timestamp,
+    extract(Path, '[^.]+$') AS metric,
+    anyLast(Value) AS metric_value
+  FROM default.graphite_data
+  WHERE Path LIKE '%.%.{conn_id}.conn_stat.%'
+     AND Timestamp >= toDateTime('{start}')
+     AND Timestamp < toDateTime('{start}') + INTERVAL 1 DAY
+  GROUP BY Path
+ )
+GROUP BY metric"#,
             conn_id = conn_id,
             start = start_str,
         );
 
-        log::debug!("CH Query {}", query);
+        println!("CH Query\n{}", query);
 
         let client = self.client();
-        let client = client.lock().await;
 
         let result = client.query(&query).fetch_all::<Metric<T>>().await;
 

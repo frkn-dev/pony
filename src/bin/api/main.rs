@@ -38,7 +38,7 @@ async fn main() -> Result<()> {
         .expect("required config path as an argument");
     println!("Config file {:?}", config_path);
 
-    let mut settings = ApiSettings::new(&config_path);
+    let settings = ApiSettings::new(&config_path);
 
     settings.validate().expect("Wrong settings file");
     println!(">>> Settings: {:?}", settings.clone());
@@ -61,7 +61,13 @@ async fn main() -> Result<()> {
 
     let debug = settings.debug.enabled;
 
-    let db = PgContext::init(&settings.pg).await.expect("DB error");
+    let db = match PgContext::init(&settings.pg).await {
+        Ok(db) => db,
+        Err(err) => {
+            log::error!("Failed to init DB: {}", err);
+            return Err(err.into());
+        }
+    };
 
     let ch = ChContext::new(&settings.clickhouse.address);
     let publisher = ZmqPublisher::new(&settings.zmq.endpoint).await;

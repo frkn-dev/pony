@@ -44,17 +44,13 @@ impl<T: Default> Default for Metric<T> {
 
 impl<T: fmt::Display> fmt::Display for Metric<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "Metric {{ path: {}, value: {},  timestamp: {} }}",
-            self.metric, self.value, self.timestamp
-        )
+        write!(f, "{} {} {}", self.metric, self.value, self.timestamp)
     }
 }
 
 impl<T: std::fmt::Display + std::fmt::Debug> Metric<T> {
     pub async fn send(&self, server: &str) -> Result<(), io::Error> {
-        let metric_string = self.to_string();
+        let metric_string = format!("{}\n", self.to_string());
 
         log::debug!("Sending carbon metric string: {}", metric_string);
 

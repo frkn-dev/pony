@@ -321,7 +321,7 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
                     tokio::select! {
                         _ = sleep(Duration::from_secs(settings.agent.metrics_interval)) => {
                             match agent.send_metrics(&carbon_addr).await {
-                                Ok(_) => log::debug!("✅ Sent metrics to {}", carbon_addr),
+                                Ok(_) => {},
                                 Err(e) => log::error!("❌ Failed to send metrics: {}", e),
                             }
                         },
@@ -345,7 +345,7 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
                     tokio::select! {
                         _ = sleep(Duration::from_secs(settings.agent.metrics_hb_interval)) => {
                             match agent.send_hb_metric(&carbon_addr).await {
-                                Ok(_) => log::debug!("✅ Sent heartbeat to {}", carbon_addr),
+                                Ok(_) => {},
                                 Err(e) => log::error!("❌ Failed to send heartbeat: {}", e),
                             }
                         },

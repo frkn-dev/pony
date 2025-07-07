@@ -3,43 +3,7 @@
     "loglevel": "debug"
   },
   "inbounds": [
-    {
-      "tag": "Vmess",
-      "listen": "0.0.0.0",
-      "port": 8081,
-      "protocol": "vmess",
-      "settings": {
-        "clients": []
-      },
-      "streamSettings": {
-        "network": "tcp",
-        "tcpSettings": {
-          "header": {
-            "type": "http",
-            "request": {
-              "method": "GET",
-              "path": [
-                "/"
-              ],
-              "headers": {
-                "Host": [
-                  "google.com"
-                ]
-              }
-            },
-            "response": {}
-          }
-        },
-        "security": "none"
-      },
-      "sniffing": {
-        "enabled": true,
-        "destOverride": [
-          "http",
-          "tls"
-        ]
-      }
-    },
+   
     {
       "tag": "VlessXtls",
       "listen": "0.0.0.0",
@@ -64,45 +28,6 @@
           ],
           "dest": "discordapp.com:443"
         }
-      }
-    },
-    {
-      "tag": "VlessGrpc",
-      "listen": "0.0.0.0",
-      "port": 2053,
-      "protocol": "vless",
-      "settings": {
-        "clients": [],
-        "decryption": "none"
-      },
-      "streamSettings": {
-        "network": "grpc",
-        "grpcSettings": {
-          "serviceName": "xyz"
-        },
-        "security": "reality",
-        "realitySettings": {
-          "show": false,
-          "dest": "discordapp.com:443",
-          "xver": 0,
-          "serverNames": [
-            "cdn.discordapp.com",
-            "discordapp.com"
-          ],
-          "privateKey": "SPszL9moRyKwBGxCoh5wWr0x0Q8LrBSEim1DJPbdFVo",
-          "publicKey": "nrNLX_NWXexpqdjVEmfkCHV_OCdTf9OyBYi59hNfpxo",
-          "shortIds": [
-            "",
-            "e5c4d84fb339fb92"
-          ]
-        }
-      },
-      "sniffing": {
-        "enabled": true,
-        "destOverride": [
-          "http",
-          "tls"
-        ]
       }
     }
   ],

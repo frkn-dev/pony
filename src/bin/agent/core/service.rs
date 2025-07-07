@@ -292,7 +292,7 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
         if !settings.agent.local {
             let _ = {
                 let settings = settings.clone();
-                log::debug!("Register node task");
+                log::debug!("Register node task {:?}", node_type);
                 if let Err(e) = agent
                     .register_node(
                         settings.api.endpoint.clone(),

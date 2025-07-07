@@ -146,7 +146,7 @@ where
             .and(auth.clone())
             .and(warp::query::<ConnQueryParam>())
             .and(with_state(self.state.clone()))
-            .and_then(connections_lines_handler);
+            .and_then(get_connection_handler);
 
         let get_subscription_route = warp::get()
             .and(warp::path("sub"))

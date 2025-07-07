@@ -1,3 +1,7 @@
+use crate::state::state::Connections;
+use crate::ConnectionBaseOp;
+use rand::prelude::SliceRandom;
+use rand::thread_rng;
 use serde_json::json;
 use std::collections::HashMap;
 
@@ -37,6 +41,14 @@ pub trait Operations {
         env: &str,
         node_id: &uuid::Uuid,
     ) -> Result<()>;
+    fn select_least_loaded_node<C>(
+        &self,
+        env: &str,
+        proto: &Tag,
+        connections: &Connections<C>,
+    ) -> Option<uuid::Uuid>
+    where
+        C: ConnectionBaseOp;
 }
 
 impl Operations for Node {
@@ -114,6 +126,15 @@ impl Operations for Node {
     }
     fn get_by_id(&self, _: &uuid::Uuid) -> std::option::Option<Node> {
         None
+    }
+
+    fn select_least_loaded_node<C>(
+        &self,
+        _env: &str,
+        _proto: &Tag,
+        _connections: &Connections<C>,
+    ) -> Option<uuid::Uuid> {
+        Some(self.uuid.clone())
     }
 }
 
@@ -237,5 +258,47 @@ impl Operations for HashMap<String, Vec<Node>> {
             "Environment '{}' not found",
             env
         )))
+    }
+
+    fn select_least_loaded_node<C>(
+        &self,
+        env: &str,
+        proto: &Tag,
+        connections: &Connections<C>,
+    ) -> Option<uuid::Uuid>
+    where
+        C: ConnectionBaseOp,
+    {
+        let candidates: Vec<_> = self
+            .iter_nodes()
+            .filter(|(_, node)| node.env == env && node.inbounds.contains_key(proto))
+            .collect();
+
+        if candidates.is_empty() {
+            return None;
+        }
+
+        let mut rng = thread_rng();
+
+        let counts: Vec<(usize, &uuid::Uuid)> = candidates
+            .iter()
+            .map(|(id, _)| {
+                let count = connections
+                    .values()
+                    .filter(|conn| conn.get_wireguard_node_id() == Some(**id))
+                    .count();
+                (count, *id)
+            })
+            .collect();
+
+        let min_count = counts.iter().map(|(count, _)| *count).min()?;
+
+        let least_loaded_ids: Vec<_> = counts
+            .into_iter()
+            .filter(|(count, _)| *count == min_count)
+            .map(|(_, id)| id)
+            .collect();
+
+        least_loaded_ids.choose(&mut rng).copied().copied()
     }
 }

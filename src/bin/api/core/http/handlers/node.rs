@@ -10,8 +10,6 @@ use pony::http::requests::NodeType;
 use pony::http::requests::NodesQueryParams;
 use pony::http::ResponseMessage;
 use pony::state::node::Status as NodeStatus;
-use pony::zmq::message::Action;
-use pony::zmq::message::Message;
 use pony::zmq::publisher::Publisher as ZmqPublisher;
 use pony::Conn as Connection;
 use pony::ConnectionApiOp;
@@ -70,28 +68,20 @@ where
                     && conn.get_status() == ConnectionStatus::Active
                     && match node_type {
                         NodeType::Wireguard => {
+                            log::debug!("NODE TYPE {:?} {:?}", node_type, conn.get_proto().proto());
                             conn.get_proto().proto() == Tag::Wireguard
                                 && Some(node_id) == conn.get_wireguard_node_id()
                         }
                         NodeType::Xray => conn.get_proto().proto() != Tag::Wireguard,
-                        NodeType::All => {
-                            if conn.get_proto().proto() == Tag::Wireguard {
-                                Some(node_id) == conn.get_wireguard_node_id()
-                            } else {
-                                true
-                            }
-                        }
+                        NodeType::All => match conn.get_proto().proto() {
+                            Tag::Wireguard => conn.get_wireguard_node_id() == Some(node_id),
+                            _ => true,
+                        },
                     }
             });
 
             for (conn_id, conn) in connections_iter {
-                let message = Message {
-                    conn_id: *conn_id,
-                    action: Action::Create,
-                    password: conn.get_password(),
-                    tag: conn.get_proto().proto(),
-                    wg: conn.get_wireguard().cloned(),
-                };
+                let message = conn.as_create_message(conn_id);
 
                 if let Err(e) = publisher.send(&node_req.uuid.to_string(), message).await {
                     log::error!("Failed to send message for connection {}: {}", conn_id, e);

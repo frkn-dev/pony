@@ -1,8 +1,6 @@
 use base64::Engine;
-
-use warp::http::Response;
-
 use defguard_wireguard_rs::net::IpAddrMask;
+use warp::http::Response;
 use warp::http::StatusCode;
 
 use pony::http::requests::ConnCreateRequest;
@@ -18,8 +16,6 @@ use pony::state::storage::connection::ApiOp;
 use pony::utils;
 use pony::xray_op::clash::generate_clash_config;
 use pony::xray_op::clash::generate_proxy_config;
-use pony::zmq::message::Action;
-use pony::zmq::message::Message;
 use pony::zmq::publisher::Publisher as ZmqPublisher;
 use pony::Conn as Connection;
 use pony::ConnWithId;
@@ -115,40 +111,12 @@ where
                         StatusCode::BAD_REQUEST,
                     ));
                 }
+
                 Some(node_id)
             }
             None => {
-                let candidates: Vec<_> = mem
-                    .nodes
-                    .iter_nodes()
-                    .filter(|(_, node)| {
-                        node.env == conn_req.env && node.inbounds.contains_key(&conn_req.proto)
-                    })
-                    .collect();
-
-                if candidates.is_empty() {
-                    let response = ResponseMessage::<Option<String>> {
-                        status: StatusCode::BAD_REQUEST.as_u16(),
-                        message: "No available nodes with WireGuard inbound for this env".into(),
-                        response: None,
-                    };
-                    return Ok(warp::reply::with_status(
-                        warp::reply::json(&response),
-                        StatusCode::BAD_REQUEST,
-                    ));
-                }
-
-                let (selected_id, _node) = candidates
-                    .iter()
-                    .min_by_key(|(id, _node)| {
-                        mem.connections
-                            .values()
-                            .filter(|conn| conn.get_wireguard_node_id() == Some(**id))
-                            .count()
-                    })
-                    .unwrap();
-
-                Some(**selected_id)
+                mem.nodes
+                    .select_least_loaded_node(&conn_req.env, &conn_req.proto, &mem.connections)
             }
         }
     } else {
@@ -291,7 +259,8 @@ where
             .inbounds
             .get(&Tag::Wireguard)
             .and_then(|inb| inb.wg.as_ref())
-            .map(|wg| wg.address);
+            .map(|wg| wg.address)
+            .and_then(utils::increment_ip);
 
         let max_ip = mem
             .connections
@@ -306,7 +275,10 @@ where
             .or_else(|| base_ip.and_then(utils::increment_ip))
             .map(std::net::IpAddr::V4)
         {
-            Some(ip) => ip,
+            Some(ip) => {
+                log::debug!("IP Gen: {:?} {:?} {:?}", base_ip, max_ip, ip);
+                ip
+            }
             None => {
                 let response = ResponseMessage::<Option<String>> {
                     status: StatusCode::BAD_REQUEST.as_u16(),
@@ -335,10 +307,7 @@ where
             ));
         }
 
-        Some(WgParam::new(IpAddrMask::new(
-            next_ip,
-            wg_settings.network.cidr,
-        )))
+        Some(WgParam::new(IpAddrMask::new(next_ip, 32)))
     } else {
         None
     };
@@ -378,7 +347,7 @@ where
 
     log::debug!("New connection to create {}", conn);
 
-    let msg = conn_req.as_message(&conn_id);
+    let msg = conn.as_create_message(&conn_id);
 
     match SyncOp::add_conn(&state, &conn_id, conn.clone()).await {
         Ok(StorageOperationStatus::Ok(id)) => {
@@ -502,13 +471,7 @@ where
 
     match SyncOp::delete_connection(&state, &conn_id).await {
         Ok(StorageOperationStatus::Ok(id)) => {
-            let msg = Message {
-                action: Action::Delete,
-                conn_id: conn_id,
-                password: conn.get_password(),
-                wg: conn.get_wireguard().cloned(),
-                tag: conn.get_proto().proto(),
-            };
+            let msg = conn.as_delete_message(&conn_id);
 
             if let Some(node_id) = conn.get_wireguard_node_id() {
                 let _ = publisher.send(&node_id.to_string(), msg).await;
@@ -747,8 +710,9 @@ where
     }
 }
 
-/// Get list of user connection credentials
-pub async fn connections_lines_handler<N, C>(
+/// Get connection detaisl
+// GET /connection?conn_id=
+pub async fn get_connection_handler<N, C>(
     conn_req: ConnQueryParam,
     state: SyncState<N, C>,
 ) -> Result<impl warp::Reply, warp::Rejection>
@@ -762,47 +726,36 @@ where
         + 'static
         + From<Connection>
         + std::fmt::Debug
-        + PartialEq,
+        + PartialEq
+        + serde::ser::Serialize,
 {
     let state = state.memory.lock().await;
 
     let conn_id = conn_req.conn_id;
-    let mut connection_links = Vec::new();
 
     if let Some(conn) = state.connections.get(&conn_id) {
-        if let Some(nodes) = state.nodes.get_by_env(&conn.get_env()) {
-            for node in nodes
-                .iter()
-                .filter(|node| node.status == NodeStatus::Online)
-            {
-                for (tag, inbound) in &node.inbounds {
-                    let link = utils::create_conn_link(
-                        *tag,
-                        &conn_id,
-                        inbound.as_inbound_response(),
-                        &node.label,
-                        node.address,
-                    );
-
-                    if let Ok(link) = link {
-                        connection_links.push(link);
-                    }
-                }
-            }
-        }
-    }
-
-    if connection_links.is_empty() {
+        let message = format!("Connections are found");
+        let response = ResponseMessage::<Option<(uuid::Uuid, C)>> {
+            status: StatusCode::OK.as_u16(),
+            message,
+            response: Some((conn_id, conn.clone())),
+        };
         return Ok(warp::reply::with_status(
-            warp::reply::json(&serde_json::json!({ "error": "NO CONNECTIONS AVAILABLE" })),
-            warp::http::StatusCode::NOT_FOUND,
+            warp::reply::json(&response),
+            StatusCode::OK,
+        ));
+    } else {
+        let message = format!("Connections are not found");
+        let response = ResponseMessage::<Option<(uuid::Uuid, C)>> {
+            status: StatusCode::NOT_FOUND.as_u16(),
+            message,
+            response: None,
+        };
+        return Ok(warp::reply::with_status(
+            warp::reply::json(&response),
+            StatusCode::NOT_FOUND,
         ));
     }
-
-    Ok(warp::reply::with_status(
-        warp::reply::json(&connection_links),
-        warp::http::StatusCode::OK,
-    ))
 }
 
 pub async fn subscription_link_handler<N, C>(

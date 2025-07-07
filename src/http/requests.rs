@@ -11,8 +11,6 @@ use crate::state::node::Node;
 use crate::state::node::Status as NodeStatus;
 use crate::state::tag::Tag;
 use crate::state::user::User;
-use crate::zmq::message::Action;
-use crate::zmq::message::Message;
 use crate::ConnectionStatus;
 
 fn default_format() -> String {
@@ -155,18 +153,6 @@ pub struct ConnCreateRequest {
     pub proto: Tag,
     pub wg: Option<WgParam>,
     pub node_id: Option<uuid::Uuid>,
-}
-
-impl ConnCreateRequest {
-    pub fn as_message(&self, conn_id: &uuid::Uuid) -> Message {
-        Message {
-            conn_id: *conn_id,
-            action: Action::Create,
-            password: self.password.clone(),
-            tag: self.proto,
-            wg: self.wg.clone(),
-        }
-    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]

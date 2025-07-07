@@ -1,8 +1,8 @@
 use crate::state::connection::conn::Conn;
 use crate::state::connection::conn::Status;
-use crate::state::connection::op::base::Operations as BaseOp;
 use crate::zmq::message::Action;
 use crate::zmq::message::Message;
+use crate::Proto;
 
 pub trait Operations {
     fn get_trial(&self) -> bool;
@@ -21,6 +21,8 @@ pub trait Operations {
     fn set_env(&mut self, env: &str);
 
     fn as_update_message(&self, conn_id: &uuid::Uuid) -> Message;
+    fn as_create_message(&self, conn_id: &uuid::Uuid) -> Message;
+    fn as_delete_message(&self, conn_id: &uuid::Uuid) -> Message;
 }
 
 impl Operations for Conn {
@@ -59,13 +61,69 @@ impl Operations for Conn {
         self.env = env.to_string();
     }
 
+    fn as_create_message(&self, conn_id: &uuid::Uuid) -> Message {
+        let password = match &self.proto {
+            Proto::Shadowsocks { password } => Some(password.clone()),
+            _ => None,
+        };
+
+        let tag = self.proto.proto();
+
+        let wg = match &self.proto {
+            Proto::Wireguard { param, .. } => Some(param.clone()),
+            _ => None,
+        };
+
+        Message {
+            conn_id: *conn_id,
+            action: Action::Create,
+            password,
+            tag,
+            wg,
+        }
+    }
+
     fn as_update_message(&self, conn_id: &uuid::Uuid) -> Message {
+        let password = match &self.proto {
+            Proto::Shadowsocks { password } => Some(password.clone()),
+            _ => None,
+        };
+
+        let tag = self.proto.proto();
+
+        let wg = match &self.proto {
+            Proto::Wireguard { param, .. } => Some(param.clone()),
+            _ => None,
+        };
+
         Message {
             conn_id: *conn_id,
             action: Action::Update,
-            tag: self.proto.proto(),
-            wg: self.get_wireguard().cloned(),
-            password: self.get_password(),
+            password,
+            tag,
+            wg,
+        }
+    }
+
+    fn as_delete_message(&self, conn_id: &uuid::Uuid) -> Message {
+        let password = match &self.proto {
+            Proto::Shadowsocks { password } => Some(password.clone()),
+            _ => None,
+        };
+
+        let tag = self.proto.proto();
+
+        let wg = match &self.proto {
+            Proto::Wireguard { param, .. } => Some(param.clone()),
+            _ => None,
+        };
+
+        Message {
+            conn_id: *conn_id,
+            action: Action::Delete,
+            password,
+            tag,
+            wg,
         }
     }
 }

@@ -46,19 +46,19 @@ where
 
                 match Topic::from_raw(topic_str) {
                     Topic::Init(uuid) if uuid != topic0 => {
-                        log::warn!("ZMQ: Skipping init for another node: {}", uuid);
+                        log::warn!("SUB: Skipping init for another node: {}", uuid);
                         continue;
                     }
                     Topic::Updates(env) if env != topic1 => {
-                        log::warn!("ZMQ: Skipping update for another env: {}", env);
+                        log::warn!("SUB: Skipping update for another env: {}", env);
                         continue;
                     }
                     Topic::Unknown(raw) => {
-                        log::warn!("ZMQ: Unknown topic: {}", raw);
+                        log::warn!("SUB: Unknown topic: {}", raw);
                         continue;
                     }
                     Topic::All => {
-                        log::debug!("ZMQ: message for All topic recieved");
+                        log::debug!("SUB: message for All topic recieved");
                     }
                     _ => {}
                 }

@@ -96,4 +96,6 @@ ALTER COLUMN password DROP NOT NULL;
 
 ALTER TABLE inbounds ADD COLUMN dns INET[];
 
+ALTER TABLE connections DROP CONSTRAINT connections_user_id_fkey;
+
 

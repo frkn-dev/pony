@@ -45,7 +45,7 @@ where
         conn_id: &uuid::Uuid,
         conn: ConnUpdateRequest,
     ) -> Result<OperationStatus>;
-    async fn delete_connection(&self, conn_id: &uuid::Uuid) -> Result<()>;
+    async fn delete_connection(&self, conn_id: &uuid::Uuid) -> Result<OperationStatus>;
     async fn update_node_status(
         &self,
         uuid: &uuid::Uuid,
@@ -215,7 +215,7 @@ where
             )),
         }
     }
-    async fn delete_connection(&self, conn_id: &uuid::Uuid) -> Result<()> {
+    async fn delete_connection(&self, conn_id: &uuid::Uuid) -> Result<OperationStatus> {
         let mut mem = self.memory.lock().await;
 
         match mem.connections.delete(conn_id) {
@@ -223,9 +223,9 @@ where
                 self.sync_tx
                     .send(SyncTask::DeleteConn { conn_id: *conn_id })
                     .await?;
-                Ok(())
+                Ok(OperationStatus::Ok(*conn_id))
             }
-            Err(e) => Err(PonyError::Custom(e.to_string())),
+            Err(_) => Ok(OperationStatus::NotFound(*conn_id)),
         }
     }
     async fn update_node_status(

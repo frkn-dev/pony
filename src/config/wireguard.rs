@@ -18,7 +18,7 @@ pub struct WireguardSettings {
 
 impl WireguardSettings {
     pub fn new(config: &WgConfig) -> Self {
-        let (privkey, pubkey) = match (config.pubkey.clone(), config.privkey.clone()) {
+        let (privkey, pubkey) = match (config.privkey.clone(), config.pubkey.clone()) {
             (Some(privkey), Some(pubkey)) => (privkey, pubkey),
             _ => {
                 let keys = WgKeys::default();

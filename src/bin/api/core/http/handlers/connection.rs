@@ -1,4 +1,5 @@
 use base64::Engine;
+
 use warp::http::Response;
 
 use defguard_wireguard_rs::net::IpAddrMask;
@@ -17,6 +18,8 @@ use pony::state::storage::connection::ApiOp;
 use pony::utils;
 use pony::xray_op::clash::generate_clash_config;
 use pony::xray_op::clash::generate_proxy_config;
+use pony::zmq::message::Action;
+use pony::zmq::message::Message;
 use pony::zmq::publisher::Publisher as ZmqPublisher;
 use pony::Conn as Connection;
 use pony::ConnWithId;
@@ -436,6 +439,123 @@ where
                 status: StatusCode::INTERNAL_SERVER_ERROR.as_u16(),
                 message: format!(
                     "Internal error while processing connection {}: {}",
+                    conn_id, err
+                ),
+                response: None,
+            };
+            Ok(warp::reply::with_status(
+                warp::reply::json(&response),
+                StatusCode::INTERNAL_SERVER_ERROR,
+            ))
+        }
+    }
+}
+
+/// Handler deletes connection
+// DELETE /connection?conn_id=
+pub async fn delete_connection_handler<N, C>(
+    conn_param: ConnQueryParam,
+    publisher: ZmqPublisher,
+    state: SyncState<N, C>,
+) -> Result<impl warp::Reply, warp::Rejection>
+where
+    N: NodeStorageOp + Sync + Send + Clone + 'static,
+    C: ConnectionApiOp
+        + ConnectionBaseOp
+        + Sync
+        + Send
+        + Clone
+        + 'static
+        + From<Connection>
+        + PartialEq,
+    Connection: From<C>,
+{
+    let conn_id = conn_param.conn_id;
+    let conn_opt = {
+        let mem = state.memory.lock().await;
+        mem.connections.get(&conn_id).cloned()
+    };
+
+    let Some(conn) = conn_opt else {
+        let response = ResponseMessage::<Option<uuid::Uuid>> {
+            status: StatusCode::NOT_FOUND.as_u16(),
+            message: format!("Connection {} not found", conn_id),
+            response: None,
+        };
+        return Ok(warp::reply::with_status(
+            warp::reply::json(&response),
+            StatusCode::NOT_FOUND,
+        ));
+    };
+
+    if conn.get_deleted() {
+        let response = ResponseMessage::<Option<uuid::Uuid>> {
+            status: StatusCode::NOT_FOUND.as_u16(),
+            message: format!("Connection {} is deleted", conn_id),
+            response: None,
+        };
+        return Ok(warp::reply::with_status(
+            warp::reply::json(&response),
+            StatusCode::NOT_FOUND,
+        ));
+    }
+
+    match SyncOp::delete_connection(&state, &conn_id).await {
+        Ok(StorageOperationStatus::Ok(id)) => {
+            let msg = Message {
+                action: Action::Delete,
+                conn_id: conn_id,
+                password: conn.get_password(),
+                wg: conn.get_wireguard().cloned(),
+                tag: conn.get_proto().proto(),
+            };
+
+            if let Some(node_id) = conn.get_wireguard_node_id() {
+                let _ = publisher.send(&node_id.to_string(), msg).await;
+            } else {
+                let _ = publisher.send(&conn.get_env(), msg).await;
+            }
+
+            let response = ResponseMessage::<Option<uuid::Uuid>> {
+                status: StatusCode::OK.as_u16(),
+                message: format!("Connection {} has been deleted", id),
+                response: Some(id),
+            };
+            Ok(warp::reply::with_status(
+                warp::reply::json(&response),
+                StatusCode::OK,
+            ))
+        }
+
+        Ok(StorageOperationStatus::NotFound(id)) => {
+            let response = ResponseMessage::<Option<uuid::Uuid>> {
+                status: StatusCode::NOT_FOUND.as_u16(),
+                message: format!("Connection {} not found", id),
+                response: None,
+            };
+            Ok(warp::reply::with_status(
+                warp::reply::json(&response),
+                StatusCode::NOT_FOUND,
+            ))
+        }
+
+        Ok(status) => {
+            let response = ResponseMessage::<Option<uuid::Uuid>> {
+                status: StatusCode::BAD_REQUEST.as_u16(),
+                message: format!("Unsupported operation status: {}", status),
+                response: None,
+            };
+            Ok(warp::reply::with_status(
+                warp::reply::json(&response),
+                StatusCode::BAD_REQUEST,
+            ))
+        }
+
+        Err(err) => {
+            let response = ResponseMessage::<Option<uuid::Uuid>> {
+                status: StatusCode::INTERNAL_SERVER_ERROR.as_u16(),
+                message: format!(
+                    "Internal error while deleting connection {}: {}",
                     conn_id, err
                 ),
                 response: None,

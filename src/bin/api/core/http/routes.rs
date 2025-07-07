@@ -164,6 +164,15 @@ where
             .and(with_state(self.state.clone()))
             .and_then(create_connection_handler);
 
+        let delete_connection_route = warp::delete()
+            .and(warp::path("connection"))
+            .and(warp::path::end())
+            .and(auth.clone())
+            .and(warp::query::<ConnQueryParam>())
+            .and(publisher(self.publisher.clone()))
+            .and(with_state(self.state.clone()))
+            .and_then(delete_connection_handler);
+
         let put_connection_route = warp::put()
             .and(warp::path("connection"))
             .and(warp::path::end())
@@ -191,6 +200,7 @@ where
             .or(get_connection_route)
             .or(get_subscription_route)
             .or(post_connection_route)
+            .or(delete_connection_route)
             .or(put_connection_route)
             .recover(rejection);
 

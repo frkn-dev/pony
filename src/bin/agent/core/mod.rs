@@ -1,5 +1,6 @@
 use std::sync::Arc;
 use tokio::sync::Mutex;
+use tokio::sync::RwLock;
 
 use pony::memory::node::Node;
 use pony::wireguard_op::WgApi;
@@ -24,7 +25,7 @@ where
     N: NodeStorageOp + Send + Sync + Clone + 'static,
     C: ConnectionBaseOp + Send + Sync + Clone + 'static,
 {
-    pub memory: Arc<Mutex<MemoryCache<N, C>>>,
+    pub memory: Arc<RwLock<MemoryCache<N, C>>>,
     pub subscriber: ZmqSubscriber,
     pub xray_stats_client: Option<Arc<Mutex<StatsClient>>>,
     pub xray_handler_client: Option<Arc<Mutex<HandlerClient>>>,
@@ -37,7 +38,7 @@ where
     C: ConnectionBaseOp + Send + Sync + Clone + 'static,
 {
     pub fn new(
-        memory: Arc<Mutex<MemoryCache<N, C>>>,
+        memory: Arc<RwLock<MemoryCache<N, C>>>,
         subscriber: ZmqSubscriber,
         xray_stats_client: Option<Arc<Mutex<StatsClient>>>,
         xray_handler_client: Option<Arc<Mutex<HandlerClient>>>,

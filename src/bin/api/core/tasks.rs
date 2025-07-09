@@ -1,11 +1,12 @@
 use async_trait::async_trait;
-use chrono::Duration;
+use std::time::Duration;
+
 use chrono::NaiveTime;
 use chrono::TimeZone;
 use chrono::Utc;
 use futures::future::join_all;
-use pony::ConnectionStorageApiOp;
 use std::collections::HashMap;
+use tokio::time::interval;
 
 use pony::memory::node::Node;
 use pony::memory::node::Status as NodeStatus;
@@ -15,6 +16,7 @@ use pony::ConnectionApiOp;
 use pony::ConnectionBaseOp;
 use pony::ConnectionStat;
 use pony::ConnectionStatus;
+use pony::MemoryCache;
 use pony::Message;
 use pony::NodeStorageOp;
 use pony::OperationStatus;
@@ -23,17 +25,14 @@ use pony::Result;
 use pony::Tag;
 
 use crate::core::clickhouse::query::Queries;
-use crate::core::postgres::connection::ConnRow;
-use crate::core::postgres::user::UserRow;
+use crate::core::postgres::Tasks as MemoryCacheTasks;
 use crate::core::sync::tasks::SyncOp;
-use crate::core::sync::SyncTask;
 use crate::Api;
 
 #[async_trait]
 pub trait Tasks {
-    async fn add_node(&self, db_node: Node) -> Result<()>;
-    async fn add_conn(&self, db_conn: ConnRow) -> Result<OperationStatus>;
-    async fn add_user(&self, db_user: UserRow) -> Result<OperationStatus>;
+    async fn init_state_from_db(&self) -> Result<()>;
+    async fn periodic_db_sync(&self, interval_sec: u64);
     async fn node_healthcheck(&self) -> Result<()>;
     async fn collect_conn_stat(&self) -> Result<()>;
     async fn enforce_xray_trial_limits(&self) -> Result<()>;
@@ -41,61 +40,46 @@ pub trait Tasks {
 }
 
 #[async_trait]
-impl<N, C> Tasks for Api<N, C>
-where
-    N: NodeStorageOp + Send + Sync + Clone + 'static,
-    C: ConnectionApiOp
-        + ConnectionBaseOp
-        + Send
-        + Sync
-        + Clone
-        + 'static
-        + From<Connection>
-        + std::cmp::PartialEq,
-    Vec<(uuid::Uuid, Connection)>: FromIterator<(uuid::Uuid, C)>,
-    Connection: From<C>,
-{
-    async fn add_user(&self, db_user: UserRow) -> Result<OperationStatus> {
-        let user_id = db_user.user_id;
-        let user = db_user.try_into()?;
-
+impl Tasks for Api<HashMap<String, Vec<Node>>, Connection> {
+    async fn periodic_db_sync(&self, interval_sec: u64) {
+        let mut ticker = interval(Duration::from_secs(interval_sec));
+        loop {
+            ticker.tick().await;
+            if let Err(e) = self.init_state_from_db().await {
+                log::error!("Periodic DB sync failed: {:?}", e);
+            } else {
+                log::info!("Periodic DB sync completed successfully");
+            }
+        }
+    }
+    async fn init_state_from_db(&self) -> Result<()> {
+        let db = self.sync.db.clone();
         let mut mem = self.sync.memory.write().await;
 
-        if mem.users.contains_key(&user_id) {
-            return Ok(OperationStatus::AlreadyExist(user_id));
+        let mut tmp_mem: MemoryCache<HashMap<String, Vec<Node>>, Connection> = MemoryCache::new();
+
+        let user_repo = db.user();
+        let node_repo = db.node();
+        let conn_repo = db.conn();
+
+        let (users, nodes, conns) =
+            tokio::try_join!(user_repo.all(), node_repo.all(), conn_repo.all(),)?;
+
+        for user in users {
+            tmp_mem.add_user(user).await?;
+        }
+        for node in nodes {
+            tmp_mem.add_node(node).await?;
+        }
+        for conn in conns {
+            tmp_mem.add_conn(conn).await?;
         }
 
-        mem.users.insert(user_id, user);
-        Ok(OperationStatus::Ok(user_id))
+        *mem = tmp_mem;
+
+        Ok(())
     }
 
-    async fn add_conn(&self, db_conn: ConnRow) -> Result<OperationStatus> {
-        let conn_id = db_conn.conn_id;
-        let conn: Connection = db_conn.try_into()?;
-
-        let mut state = self.sync.memory.write().await;
-        state.connections.add(&conn_id, conn.into()).map_err(|e| {
-            format!(
-                "Create: Failed to add connection {} to state: {}",
-                conn_id, e
-            )
-            .into()
-        })
-    }
-    async fn add_node(&self, db_node: Node) -> Result<()> {
-        let mut state = self.sync.memory.write().await;
-        match state.nodes.add(db_node.clone()) {
-            Ok(_) => {
-                log::debug!("Node added to State: {}", db_node.uuid);
-                Ok(())
-            }
-            Err(e) => Err(format!(
-                "Create: Failed to add node {} to state: {}",
-                db_node.uuid, e
-            )
-            .into()),
-        }
-    }
     async fn node_healthcheck(&self) -> Result<()> {
         let mem = self.sync.memory.read().await;
         let nodes = match mem.nodes.all() {
@@ -104,7 +88,7 @@ where
         };
         drop(mem);
 
-        let timeout = Duration::seconds(self.settings.api.node_health_check_timeout as i64);
+        let timeout = chrono::Duration::seconds(self.settings.api.node_health_check_timeout as i64);
         let now = Utc::now();
 
         let tasks = nodes.into_iter().map(|node| {
@@ -156,7 +140,10 @@ where
                         }
                     };
 
-                SyncOp::update_node_status(&sync, &uuid, &env, status).await?;
+                if let Err(e) = SyncOp::update_node_status(&sync, &uuid, &env, status).await {
+                    log::error!("Failed to update_node_status {}  database: {}", uuid, e);
+                    return Err(PonyError::Custom(e.to_string()));
+                }
                 Ok::<_, PonyError>(())
             }
         });
@@ -250,21 +237,17 @@ where
 
                 if (total_downlink as f64 / 1_048_576.0) >= limit as f64 {
                     for (conn_id, conn) in conns {
-                        {
-                            let mut mem = sync.memory.write().await;
-                            if let Some(conn) = mem.connections.get_mut(&conn_id) {
-                                conn.set_status(ConnectionStatus::Expired);
-                                conn.set_modified_at();
-                            }
-                        }
+                        self.sync
+                            .db
+                            .conn()
+                            .update_status(&conn_id, ConnectionStatus::Expired)
+                            .await?;
 
-                        let _ = sync
-                            .sync_tx
-                            .send(SyncTask::UpdateConnStatus {
-                                conn_id,
-                                status: ConnectionStatus::Expired,
-                            })
-                            .await;
+                        let mut mem = sync.memory.write().await;
+                        if let Some(conn_mut) = mem.connections.get_mut(&conn_id) {
+                            conn_mut.set_status(ConnectionStatus::Expired);
+                            conn_mut.set_modified_at();
+                        }
 
                         let msg = Message {
                             action: Action::Delete,

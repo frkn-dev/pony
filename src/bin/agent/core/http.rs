@@ -34,7 +34,7 @@ where
         node_type: NodeType,
     ) -> Result<()> {
         let node = {
-            let mem = self.memory.lock().await;
+            let mem = self.memory.read().await;
             mem.nodes
                 .get_self()
                 .expect("No node available to register")

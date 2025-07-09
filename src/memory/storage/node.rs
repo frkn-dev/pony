@@ -11,6 +11,7 @@ use super::super::tag::Tag;
 use crate::error::{PonyError, Result};
 
 pub trait Operations {
+    fn clear(&mut self) -> Result<()>;
     fn iter_nodes(&self) -> Box<dyn Iterator<Item = (&uuid::Uuid, &Node)> + '_>;
     fn add(&mut self, new_node: Node) -> Result<OperationStatus>;
     fn all(&self) -> Option<Vec<Node>>;
@@ -136,9 +137,16 @@ impl Operations for Node {
     ) -> Option<uuid::Uuid> {
         Some(self.uuid.clone())
     }
+    fn clear(&mut self) -> Result<()> {
+        Err(PonyError::Custom("Cannot clear Node".to_string()))
+    }
 }
 
 impl Operations for HashMap<String, Vec<Node>> {
+    fn clear(&mut self) -> Result<()> {
+        self.clear();
+        Ok(())
+    }
     fn iter_nodes(&self) -> Box<dyn Iterator<Item = (&uuid::Uuid, &Node)> + '_> {
         let all_nodes: Vec<(&uuid::Uuid, &Node)> = self
             .values()
@@ -152,15 +160,18 @@ impl Operations for HashMap<String, Vec<Node>> {
         let env = new_node.env.clone();
         let uuid = new_node.uuid;
 
-        if self
-            .values()
-            .any(|nodes| nodes.iter().any(|n| n.uuid == uuid))
-        {
-            return Ok(OperationStatus::AlreadyExist(uuid));
-        }
-
         match self.get_mut(&env) {
             Some(nodes) => {
+                for node in nodes.iter_mut() {
+                    if node.uuid == uuid {
+                        if node == &new_node {
+                            return Ok(OperationStatus::AlreadyExist(uuid));
+                        } else {
+                            *node = new_node;
+                            return Ok(OperationStatus::Updated(uuid));
+                        }
+                    }
+                }
                 nodes.push(new_node);
             }
             None => {
@@ -170,7 +181,6 @@ impl Operations for HashMap<String, Vec<Node>> {
 
         Ok(OperationStatus::Ok(uuid))
     }
-
     fn get_self(&self) -> Option<Node> {
         None
     }

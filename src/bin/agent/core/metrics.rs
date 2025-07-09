@@ -27,7 +27,7 @@ where
         T: NodeStorageOp + Sync + Send + Clone + 'static,
     {
         let mut metrics: Vec<MetricType> = Vec::new();
-        let mem = self.memory.lock().await;
+        let mem = self.memory.read().await;
         let connections = mem.connections.clone();
 
         let node = mem.nodes.get_self();
@@ -57,7 +57,7 @@ where
     }
 
     async fn collect_hb_metrics<M>(&self) -> MetricType {
-        let mem = self.memory.lock().await;
+        let mem = self.memory.read().await;
         let node = mem.nodes.get_self();
         if let Some(node) = node {
             heartbeat_metrics(&node.env, &node.uuid, &node.hostname)

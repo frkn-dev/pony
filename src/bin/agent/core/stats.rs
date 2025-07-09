@@ -262,7 +262,7 @@ where
 {
     async fn collect_conn_stats(self: Arc<Self>, conn_id: uuid::Uuid) -> PonyResult<()> {
         let conn_stat = self.conn_stats(Prefix::ConnPrefix(conn_id)).await?;
-        let mut mem = self.memory.lock().await;
+        let mut mem = self.memory.write().await;
         let _ = mem
             .connections
             .update_downlink(&conn_id, conn_stat.downlink);
@@ -280,7 +280,7 @@ where
         let inbound_stat = self
             .inbound_stats(Prefix::InboundPrefix(tag.clone()))
             .await?;
-        let mut mem = self.memory.lock().await;
+        let mut mem = self.memory.write().await;
         let _ = mem
             .nodes
             .update_node_downlink(&tag, inbound_stat.downlink, &env, &node_uuid);
@@ -298,7 +298,7 @@ where
         let mut tasks: Vec<JoinHandle<()>> = Vec::new();
 
         let conn_ids = {
-            let mem = self.memory.lock().await;
+            let mem = self.memory.write().await;
             mem.connections.keys().cloned().collect::<Vec<_>>()
         };
 
@@ -312,7 +312,7 @@ where
         }
 
         if let Some(node) = {
-            let mem = self.memory.lock().await;
+            let mem = self.memory.read().await;
             mem.nodes.get_self()
         } {
             let node_tags = node.inbounds.keys().cloned().collect::<Vec<_>>();
@@ -353,7 +353,7 @@ where
         };
 
         let conns = {
-            let mem = self.memory.lock().await;
+            let mem = self.memory.read().await;
             mem.connections
                 .iter()
                 .filter_map(|(id, conn)| {
@@ -373,7 +373,7 @@ where
                 if let Some(wg) = conn.get_wireguard() {
                     match wg_client.peer_stats(&wg.keys.pubkey.clone()) {
                         Ok((uplink, downlink)) => {
-                            let mut mem = agent.memory.lock().await;
+                            let mut mem = agent.memory.write().await;
                             if let Some(existing) = mem.connections.get_mut(&conn_id) {
                                 existing.set_uplink(uplink);
                                 existing.set_downlink(downlink);

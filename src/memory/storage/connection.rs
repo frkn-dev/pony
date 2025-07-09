@@ -11,6 +11,7 @@ use super::super::storage::Status as OperationStatus;
 use super::super::tag::Tag;
 use crate::error::{PonyError, Result};
 use crate::http::requests::ConnUpdateRequest;
+use crate::Connection;
 
 pub trait ApiOp<C>
 where
@@ -25,7 +26,7 @@ where
     fn reset_stat(&mut self, conn_id: &uuid::Uuid, stat: StatKind);
     fn all_trial(&self, status: ConnectionStatus) -> HashMap<uuid::Uuid, C>;
     fn get_by_user_id(&self, user_id: &uuid::Uuid) -> Option<Vec<(uuid::Uuid, C)>>;
-    fn delete(&mut self, conn_id: &uuid::Uuid) -> Result<()>;
+    fn apply_update(conn: &mut Connection, conn_req: ConnUpdateRequest) -> Option<Connection>;
 }
 
 pub trait BaseOp<C>
@@ -219,15 +220,64 @@ where
             Entry::Vacant(_entry) => OperationStatus::NotFound(*conn_id),
         }
     }
-    fn delete(&mut self, conn_id: &uuid::Uuid) -> Result<()> {
-        if let Some(conn) = self.get_mut(conn_id) {
-            conn.set_deleted(true);
-            Ok(())
+
+    fn apply_update(conn: &mut Connection, conn_req: ConnUpdateRequest) -> Option<Connection> {
+        if conn_req.is_deleted.is_none() && conn.get_deleted() {
+            return None;
+        }
+
+        if let Some(_password) = &conn_req.password {
+            if conn.get_proto().proto() != Tag::Shadowsocks {
+                return None;
+            }
+        }
+
+        let mut changed = false;
+
+        if let Some(deleted) = &conn_req.is_deleted {
+            if !conn.get_deleted() && *deleted {
+                return None;
+            }
+            if conn.get_deleted() != *deleted {
+                conn.set_deleted(*deleted);
+                changed = true;
+            }
+        }
+        if let Some(env) = &conn_req.env {
+            if conn.get_env() != *env {
+                conn.set_env(env);
+                changed = true;
+            }
+        }
+        if let Some(trial) = &conn_req.trial {
+            if conn.get_trial() != *trial {
+                conn.set_trial(*trial);
+                changed = true;
+            }
+        }
+        if let Some(limit) = &conn_req.limit {
+            if conn.get_limit() != *limit {
+                conn.set_limit(*limit);
+                changed = true;
+            }
+        }
+        if let Some(password) = &conn_req.password {
+            if conn.get_password() != Some(password.clone()) {
+                let _ = conn.set_password(Some(password.to_string()));
+                changed = true;
+            }
+        }
+        if let Some(status) = &conn_req.status {
+            if conn.get_status() != *status {
+                conn.set_status(*status);
+                changed = true;
+            }
+        }
+        if changed {
+            conn.set_modified_at();
+            Some(conn.clone())
         } else {
-            Err(PonyError::Custom(format!(
-                "Connection not found {}",
-                conn_id
-            )))
+            None
         }
     }
 

@@ -51,7 +51,7 @@ impl FromStr for Status {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 pub struct Node {
     pub uuid: uuid::Uuid,
     pub env: String,

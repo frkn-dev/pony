@@ -6,6 +6,7 @@ use std::sync::Arc;
 use tokio::signal;
 use tokio::sync::broadcast;
 use tokio::sync::Mutex;
+use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
 use tokio::time::Duration;
@@ -97,7 +98,8 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
     let node_config = NodeConfig::from_raw(settings.node.clone());
     let node = Node::new(node_config?, xray_config, wg_config.clone());
 
-    let memory: Arc<Mutex<AgentState>> = Arc::new(Mutex::new(MemoryCache::with_node(node.clone())));
+    let memory: Arc<RwLock<AgentState>> =
+        Arc::new(RwLock::new(MemoryCache::with_node(node.clone())));
 
     let agent = Arc::new(Agent::new(
         memory.clone(),
@@ -118,16 +120,16 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
                     tokio::select! {
                         _ = async {
                             let _ = {
-                                let mut memory = agent.memory.lock().await;
+                                let mut mem = agent.memory.write().await;
                                 for (tag, _) in node.inbounds {
                                     let proto = Proto::new_xray(&tag);
                                     let conn = Connection::new(proto);
-                                    let _ = memory.connections.insert(conn_id, conn.into());
+                                    let _ = mem.connections.insert(conn_id, conn.into());
                                     let _ = xray_handler_client.create(&conn_id, tag, None).await;
                                 }
                             };
 
-                            let mem = agent.memory.lock().await;
+                            let mem = agent.memory.read().await;
                             if let Some(node) = mem.nodes.get_self() {
                                 println!(
                                     r#"
@@ -178,7 +180,7 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
             async move {
                 tokio::select! {
                     _ = async {
-                        let mut mem = agent.memory.lock().await;
+                        let mut mem = agent.memory.write().await;
                         for (tag, _inbound) in &node.inbounds {
                             if tag.is_wireguard() {
                                 let conn_id = uuid::Uuid::new_v4();

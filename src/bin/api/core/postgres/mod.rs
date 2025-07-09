@@ -1,17 +1,23 @@
+use pony::ConnectionStorageApiOp;
+use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::mpsc;
 use tokio::sync::Mutex;
 use tokio_postgres::Client as PgClient;
 use tokio_postgres::NoTls;
+
+use pony::config::settings::PostgresConfig;
+use pony::memory::node::Node;
+use pony::Connection;
+use pony::MemoryCache;
+use pony::NodeStorageOp;
+use pony::OperationStatus;
+use pony::Result;
 
 use crate::core::postgres::connection::ConnRow;
 use crate::core::postgres::connection::PgConn;
 use crate::core::postgres::node::PgNode;
 use crate::core::postgres::user::PgUser;
 use crate::core::postgres::user::UserRow;
-use crate::core::sync::SyncTask;
-use crate::Result;
-use pony::config::settings::PostgresConfig;
 
 pub mod connection;
 pub mod node;
@@ -55,66 +61,50 @@ impl PgContext {
     }
 }
 
-pub async fn run_shadow_sync(mut rx: mpsc::Receiver<SyncTask>, db: PgContext) {
-    while let Some(task) = rx.recv().await {
-        match task {
-            SyncTask::InsertUser { user_id, user } => {
-                let user_row: UserRow = (user_id, user).into();
-                if let Err(err) = db.user().insert(user_row).await {
-                    log::error!("Failed to sync InsertUser: {err}");
-                }
+#[async_trait::async_trait]
+pub trait Tasks {
+    async fn add_node(&mut self, db_node: Node) -> Result<()>;
+    async fn add_conn(&mut self, db_conn: ConnRow) -> Result<OperationStatus>;
+    async fn add_user(&mut self, db_user: UserRow) -> Result<OperationStatus>;
+}
+
+#[async_trait::async_trait]
+impl Tasks for MemoryCache<HashMap<String, Vec<Node>>, Connection> {
+    async fn add_user(&mut self, db_user: UserRow) -> Result<OperationStatus> {
+        let user_id = db_user.user_id;
+        let user = db_user.try_into()?;
+
+        if self.users.contains_key(&user_id) {
+            return Ok(OperationStatus::AlreadyExist(user_id));
+        }
+
+        self.users.insert(user_id, user);
+        Ok(OperationStatus::Ok(user_id))
+    }
+
+    async fn add_conn(&mut self, db_conn: ConnRow) -> Result<OperationStatus> {
+        let conn_id = db_conn.conn_id;
+        let conn: Connection = db_conn.try_into()?;
+
+        self.connections.add(&conn_id, conn.into()).map_err(|e| {
+            format!(
+                "Create: Failed to add connection {} to state: {}",
+                conn_id, e
+            )
+            .into()
+        })
+    }
+    async fn add_node(&mut self, db_node: Node) -> Result<()> {
+        match self.nodes.add(db_node.clone()) {
+            Ok(_) => {
+                log::debug!("Node added to State: {}", db_node.uuid);
+                Ok(())
             }
-            SyncTask::UpdateUser { user_id, user } => {
-                if let Err(err) = db.user().update(&user_id, user).await {
-                    log::error!("Failed to sync UpdateUser: {err}");
-                }
-            }
-            SyncTask::DeleteUser { user_id } => {
-                if let Err(err) = db.user().delete(&user_id).await {
-                    log::error!("Failed to sync DeleteUser: {err}");
-                }
-            }
-            SyncTask::InsertNode { node_id, node } => {
-                if let Err(err) = db.node().insert(node_id, node).await {
-                    log::error!("Failed to sync InsertNode: {err}");
-                }
-            }
-            SyncTask::UpdateNodeStatus {
-                node_id,
-                env,
-                status,
-            } => {
-                if let Err(err) = db.node().update_status(&node_id, &env, status).await {
-                    log::error!("Failed to sync UpdateNodeStatus: {err}");
-                }
-            }
-            SyncTask::InsertConn { conn_id, conn } => {
-                let conn_row: ConnRow = (conn_id, conn).into();
-                if let Err(err) = db.conn().insert(conn_row).await {
-                    log::error!("Failed to sync InsertConn: {err}");
-                }
-            }
-            SyncTask::UpdateConn { conn_id, conn } => {
-                let conn_row: ConnRow = (conn_id, conn).into();
-                if let Err(err) = db.conn().update(conn_row).await {
-                    log::error!("Failed to sync UpdateConn: {err}");
-                }
-            }
-            SyncTask::DeleteConn { conn_id } => {
-                if let Err(err) = db.conn().delete(&conn_id).await {
-                    log::error!("Failed to sync DeleteConn: {err}");
-                }
-            }
-            SyncTask::UpdateConnStat { conn_id, stat } => {
-                if let Err(err) = db.conn().update_stat(&conn_id, stat).await {
-                    log::error!("Failed to sync UpdateConnStat: {err}");
-                }
-            }
-            SyncTask::UpdateConnStatus { conn_id, status } => {
-                if let Err(err) = db.conn().update_status(&conn_id, status).await {
-                    log::error!("Failed to sync UpdateConnStatus: {err}");
-                }
-            }
+            Err(e) => Err(format!(
+                "Create: Failed to add node {} to state: {}",
+                db_node.uuid, e
+            )
+            .into()),
         }
     }
 }

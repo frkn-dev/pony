@@ -8,7 +8,7 @@ use crate::memory::tag::Tag;
 
 use crate::Result;
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct StreamSettings {
     #[serde(rename = "tcpSettings")]
     pub tcp_settings: Option<TcpSettings>,
@@ -18,13 +18,13 @@ pub struct StreamSettings {
     pub grpc_settings: Option<GrpcSettings>,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct GrpcSettings {
     #[serde(rename = "serviceName")]
     pub service_name: String,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct RealitySettings {
     #[serde(rename = "serverNames")]
     pub server_names: Vec<String>,
@@ -37,25 +37,25 @@ pub struct RealitySettings {
     pub dest: String,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct TcpSettings {
     pub header: Option<TcpHeader>,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct TcpHeader {
     pub r#type: String,
     pub request: Option<TcpRequest>,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct TcpRequest {
     pub method: String,
     pub path: Vec<String>,
     pub headers: Option<std::collections::HashMap<String, Vec<String>>>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub struct Inbound {
     pub tag: Tag,
     pub port: u16,

@@ -5,7 +5,7 @@ use serde::Deserialize;
 use serde::Serialize;
 use std::net::Ipv4Addr;
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct WireguardSettings {
     pub pubkey: String,
     pub privkey: String,

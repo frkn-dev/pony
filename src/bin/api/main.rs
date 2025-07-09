@@ -1,9 +1,7 @@
 use chrono::NaiveTime;
 use fern::Dispatch;
-use futures::future::join_all;
 use std::net::Ipv4Addr;
 use std::sync::Arc;
-use tokio::sync::mpsc;
 use tokio::sync::RwLock;
 use tokio::time::sleep;
 use tokio::time::Duration;
@@ -19,7 +17,6 @@ use pony::{PonyError, Result};
 
 use crate::core::clickhouse::ChContext;
 use crate::core::http::routes::Http;
-use crate::core::postgres::run_shadow_sync;
 use crate::core::postgres::PgContext;
 use crate::core::sync::MemSync;
 use crate::core::tasks::Tasks;
@@ -73,8 +70,7 @@ async fn main() -> Result<()> {
     let publisher = ZmqPublisher::new(&settings.zmq.endpoint).await;
 
     let mem: Arc<RwLock<ApiState>> = Arc::new(RwLock::new(MemoryCache::new()));
-    let (tx, rx) = mpsc::channel(100);
-    let mem_sync = MemSync::new(mem.clone(), tx);
+    let mem_sync = MemSync::new(mem.clone(), db.clone());
 
     let api = Arc::new(Api::new(
         ch.clone(),
@@ -83,64 +79,12 @@ async fn main() -> Result<()> {
         settings.clone(),
     ));
 
-    let _ = {
-        match measure_time(db.user().all(), "db.user().all()".to_string()).await {
-            Ok(users) => {
-                let futures: Vec<_> = users.into_iter().map(|user| api.add_user(user)).collect();
+    let _ = measure_time(api.init_state_from_db(), "Init PG DB".to_string()).await?;
 
-                if let Some(Err(e)) = measure_time(join_all(futures), "Add users".to_string())
-                    .await
-                    .into_iter()
-                    .find(|r| r.is_err())
-                {
-                    log::error!("Error during node state initialization: {}", e);
-                }
-            }
-            Err(e) => {
-                log::error!("Failed to fetch users from DB: {}", e);
-                return Err(PonyError::Custom(e.to_string()));
-            }
-        }
-
-        match measure_time(db.node().all(), "db.node().all()".to_string()).await {
-            Ok(nodes) => {
-                let futures: Vec<_> = nodes.into_iter().map(|node| api.add_node(node)).collect();
-
-                if let Some(Err(e)) = measure_time(join_all(futures), "Add nodes".to_string())
-                    .await
-                    .into_iter()
-                    .find(|r| r.is_err())
-                {
-                    log::error!("Error during node state initialization: {}", e);
-                }
-            }
-            Err(e) => {
-                log::error!("Failed to fetch nodes from DB: {}", e);
-                return Err(PonyError::Custom(e.to_string()));
-            }
-        }
-
-        match measure_time(db.conn().all(), "db.conn().all()".to_string()).await {
-            Ok(conns) => {
-                let futures: Vec<_> = conns.into_iter().map(|conn| api.add_conn(conn)).collect();
-
-                if let Some(Err(e)) = measure_time(
-                    join_all(futures),
-                    "add all connections to state".to_string(),
-                )
-                .await
-                .into_iter()
-                .find(|r| r.is_err())
-                {
-                    log::error!("Error during conn state initialization: {}", e);
-                }
-            }
-            Err(e) => {
-                log::error!("Failed to fetch conns from DB: {}", e);
-                return Err(PonyError::Custom(e.to_string()));
-            }
-        }
-    };
+    let api_clone = api.clone();
+    tokio::spawn(async move {
+        api_clone.periodic_db_sync(300).await;
+    });
 
     if settings.api.metrics_enabled {
         log::info!("Running metrics send task");
@@ -244,10 +188,6 @@ async fn main() -> Result<()> {
         },
         NaiveTime::from_hms_opt(3, 0, 0).unwrap(),
     ));
-
-    let _ = tokio::spawn(async move {
-        run_shadow_sync(rx, db).await;
-    });
 
     let api = api.clone();
     let api_handle = tokio::spawn(async move {

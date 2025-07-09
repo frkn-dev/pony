@@ -28,6 +28,123 @@ impl PgNode {
         Self { client }
     }
 
+    pub async fn upsert(&self, node_id: uuid::Uuid, node: Node) -> Result<()> {
+        let mut client = self.client.lock().await;
+        let tx = client.transaction().await?;
+
+        let address: IpAddr = IpAddr::V4(node.address);
+
+        let node_query = "
+        INSERT INTO nodes (
+            id, uuid, env, hostname, address, status, created_at, modified_at, label, interface
+        )
+        VALUES (
+            $1, $2, $3, $4, $5, $6::node_status, $7, $8, $9, $10
+        )
+        ON CONFLICT (id) DO UPDATE SET
+            uuid = EXCLUDED.uuid,
+            env = EXCLUDED.env,
+            hostname = EXCLUDED.hostname,
+            address = EXCLUDED.address,
+            status = EXCLUDED.status,
+            modified_at = EXCLUDED.modified_at,
+            label = EXCLUDED.label,
+            interface = EXCLUDED.interface
+    ";
+
+        tx.execute(
+            node_query,
+            &[
+                &node_id,
+                &node.uuid,
+                &node.env,
+                &node.hostname,
+                &address,
+                &node.status,
+                &node.created_at,
+                &node.modified_at,
+                &node.label,
+                &node.interface,
+            ],
+        )
+        .await?;
+
+        let inbound_query = "
+        INSERT INTO inbounds (
+            id, node_id, tag, port, stream_settings,
+            uplink, downlink, conn_count,
+            wg_pubkey, wg_privkey, wg_interface, wg_network, wg_address, dns
+        )
+        VALUES (
+            $1, $2, $3, $4, $5,
+            $6, $7, $8,
+            $9, $10, $11, $12, $13, $14
+        )
+        ON CONFLICT (id) DO UPDATE SET
+            port = EXCLUDED.port,
+            stream_settings = EXCLUDED.stream_settings,
+            uplink = EXCLUDED.uplink,
+            downlink = EXCLUDED.downlink,
+            conn_count = EXCLUDED.conn_count,
+            wg_pubkey = EXCLUDED.wg_pubkey,
+            wg_privkey = EXCLUDED.wg_privkey,
+            wg_interface = EXCLUDED.wg_interface,
+            wg_network = EXCLUDED.wg_network,
+            wg_address = EXCLUDED.wg_address,
+            dns = EXCLUDED.dns
+    ";
+
+        for inbound in node.inbounds.values() {
+            let inbound_id = uuid::Uuid::new_v4();
+            let stream_settings = serde_json::to_value(&inbound.stream_settings)?;
+
+            let (wg_pubkey, wg_privkey, wg_interface, wg_network, wg_address, dns) = inbound
+                .wg
+                .as_ref()
+                .map(|wg| {
+                    (
+                        Some(&wg.pubkey),
+                        Some(&wg.privkey),
+                        Some(&wg.interface),
+                        Some(wg.network.to_string()),
+                        Some(wg.address.to_string()),
+                        Some(
+                            wg.dns
+                                .iter()
+                                .cloned()
+                                .map(IpAddr::V4)
+                                .collect::<Vec<IpAddr>>(),
+                        ),
+                    )
+                })
+                .unwrap_or((None, None, None, None, None, None));
+
+            tx.execute(
+                inbound_query,
+                &[
+                    &inbound_id,
+                    &node_id,
+                    &inbound.tag,
+                    &(inbound.port as i32),
+                    &stream_settings,
+                    &inbound.uplink,
+                    &inbound.downlink,
+                    &inbound.conn_count,
+                    &wg_pubkey,
+                    &wg_privkey,
+                    &wg_interface,
+                    &wg_network,
+                    &wg_address,
+                    &dns,
+                ],
+            )
+            .await?;
+        }
+
+        tx.commit().await?;
+        Ok(())
+    }
+
     pub async fn insert(&self, node_id: uuid::Uuid, node: Node) -> Result<()> {
         let mut client = self.client.lock().await;
 

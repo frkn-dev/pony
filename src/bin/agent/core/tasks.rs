@@ -94,7 +94,7 @@ where
                             .ok_or_else(|| PonyError::Custom("Missing WireGuard keys".into()))?;
 
                         let node_id = {
-                            let mem = self.memory.lock().await;
+                            let mem = self.memory.read().await;
                             let node = mem.nodes.get_self();
                             node.map(|n| n.uuid).ok_or_else(|| {
                                 PonyError::Custom("Current node UUID not found".to_string())
@@ -105,7 +105,7 @@ where
                         let conn = Connection::new(proto);
 
                         {
-                            let mut mem = self.memory.lock().await;
+                            let mut mem = self.memory.write().await;
                             mem.connections
                                 .add(&conn_id, conn.clone().into())
                                 .map_err(|err| {
@@ -153,7 +153,7 @@ where
                                 ))
                             })?;
 
-                        let mut mem = self.memory.lock().await;
+                        let mut mem = self.memory.write().await;
                         mem.connections.add(&conn_id, conn.into()).map_err(|err| {
                             PonyError::Custom(format!("Failed to add conn {}: {}", conn_id, err))
                         })?;
@@ -179,7 +179,7 @@ where
                                     ))
                                 })?;
 
-                            let mut mem = self.memory.lock().await;
+                            let mut mem = self.memory.write().await;
                             mem.connections.add(&conn_id, conn.into()).map_err(|err| {
                                 PonyError::Custom(format!(
                                     "Failed to add conn {}: {}",
@@ -212,7 +212,7 @@ where
                         PonyError::Custom(format!("Failed to delete WireGuard peer: {}", e))
                     })?;
 
-                    let mut mem = self.memory.lock().await;
+                    let mut mem = self.memory.write().await;
                     let _ = mem.connections.remove(&msg.conn_id);
 
                     Ok(())
@@ -232,7 +232,7 @@ where
                             ))
                         })?;
 
-                    let mut mem = self.memory.lock().await;
+                    let mut mem = self.memory.write().await;
                     let _ = mem.connections.remove(&msg.conn_id);
 
                     Ok(())

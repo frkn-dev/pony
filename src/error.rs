@@ -52,6 +52,27 @@ pub enum PonyError {
     Custom(String),
 }
 
+#[derive(Debug, Error)]
+pub enum SyncError {
+    #[error("Database operation failed: {0}")]
+    Database(#[from] PonyError),
+
+    #[error("Memory operation failed: {0}")]
+    Memory(String),
+
+    #[error("Validation failed: {0}")]
+    Validation(String),
+
+    #[error("Inconsistent state between database and memory for {resource} {id}")]
+    InconsistentState { resource: String, id: uuid::Uuid },
+
+    #[error("Resource not found: {resource} {id}")]
+    ResourceNotFound { resource: String, id: uuid::Uuid },
+
+    #[error("Concurrent modification detected for {resource} {id}")]
+    ConcurrentModification { resource: String, id: uuid::Uuid },
+}
+
 pub type Result<T> = std::result::Result<T, PonyError>;
 
 impl From<String> for PonyError {

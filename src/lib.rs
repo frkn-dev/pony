@@ -9,7 +9,7 @@ pub mod xray_api;
 pub mod xray_op;
 pub mod zmq;
 
-pub use crate::error::{PonyError, Result};
+pub use crate::error::{PonyError, Result, SyncError};
 
 pub use memory::cache::Cache as MemoryCache;
 pub use memory::connection::base::Base as BaseConnection;

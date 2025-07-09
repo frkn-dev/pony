@@ -7,11 +7,10 @@ use std::fmt;
 use tokio_postgres::types::FromSql;
 use tokio_postgres::types::ToSql;
 
-use crate::state::connection::proto::Proto;
-use crate::state::connection::stat::Stat;
-
-use crate::state::connection::op::api::Operations as ApiOps;
-use crate::state::connection::op::base::Operations as BasOps;
+use super::op::api::Operations as ApiOps;
+use super::op::base::Operations as BasOps;
+use super::proto::Proto;
+use super::stat::Stat;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Conn {

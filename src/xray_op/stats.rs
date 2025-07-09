@@ -1,11 +1,11 @@
 use async_trait::async_trait;
 use tonic::Status;
 
-use crate::state::connection::stat::Stat as ConnectionStat;
-use crate::state::node::Stat as InboundStat;
-use crate::state::stat::Stat;
+use crate::memory::connection::stat::Stat as ConnectionStat;
+use crate::memory::node::Stat as InboundStat;
+use crate::memory::stat::Stat;
+use crate::memory::tag::Tag;
 use crate::xray_api::xray::app::stats::command::GetStatsResponse;
-use crate::xray_op::Tag;
 
 #[derive(Debug, Clone, Copy)]
 pub enum Prefix {

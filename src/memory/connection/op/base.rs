@@ -1,12 +1,12 @@
 use chrono::NaiveDateTime;
 use chrono::Utc;
 
-use crate::state::connection::base::Base;
-use crate::state::connection::conn::Conn;
-use crate::state::connection::proto::Proto;
-use crate::state::connection::stat::Stat;
-use crate::state::connection::wireguard::Param as WgParam;
-use crate::{PonyError, Result};
+use super::super::base::Base;
+use super::super::conn::Conn;
+use super::super::proto::Proto;
+use super::super::stat::Stat;
+use super::super::wireguard::Param as WgParam;
+use crate::error::{PonyError, Result};
 
 pub trait Operations {
     fn get_uplink(&self) -> i64;

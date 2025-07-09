@@ -7,7 +7,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio_postgres::Client as PgClient;
 
-use pony::Conn;
+use pony::Connection as Conn;
 
 use pony::ConnectionStat;
 use pony::ConnectionStatus;

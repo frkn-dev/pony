@@ -10,7 +10,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use tonic::Request;
 
-use crate::state::tag::Tag;
+use crate::memory::tag::Tag;
 
 use crate::xray_api::xray::{
     app::proxyman::command::{AddUserOperation, AlterInboundRequest, RemoveUserOperation},

@@ -11,18 +11,18 @@ use pony::http::requests::UserIdQueryParam;
 use pony::http::requests::UserSubQueryParam;
 use pony::http::IdResponse;
 use pony::http::ResponseMessage;
-use pony::state::node::Status as NodeStatus;
-use pony::state::storage::connection::ApiOp;
+use pony::memory::node::Status as NodeStatus;
 use pony::utils;
 use pony::xray_op::clash::generate_clash_config;
 use pony::xray_op::clash::generate_proxy_config;
 use pony::zmq::publisher::Publisher as ZmqPublisher;
-use pony::Conn as Connection;
 use pony::ConnWithId;
+use pony::Connection;
 use pony::ConnectionApiOp;
 use pony::ConnectionBaseOp;
 use pony::ConnectionStat;
 use pony::ConnectionStatus;
+use pony::ConnectionStorageApiOp;
 use pony::NodeStorageOp;
 use pony::OperationStatus as StorageOperationStatus;
 use pony::Proto;
@@ -30,14 +30,14 @@ use pony::Tag;
 use pony::WgParam;
 
 use crate::core::sync::tasks::SyncOp;
-use crate::core::sync::SyncState;
+use crate::core::sync::MemSync;
 
 /// Handler creates connection
 // POST /connection
 pub async fn create_connection_handler<N, C>(
     conn_req: ConnCreateRequest,
     publisher: ZmqPublisher,
-    state: SyncState<N, C>,
+    memory: MemSync<N, C>,
 ) -> Result<impl warp::Reply, warp::Rejection>
 where
     N: NodeStorageOp + Sync + Send + Clone + 'static,
@@ -53,7 +53,7 @@ where
 {
     let env = conn_req.env.clone();
     let conn_id = uuid::Uuid::new_v4();
-    let mem = state.memory.lock().await;
+    let mem = memory.memory.read().await;
 
     if conn_req.password.is_some() && conn_req.wg.is_some() {
         let response = ResponseMessage::<Option<String>> {
@@ -349,7 +349,7 @@ where
 
     let msg = conn.as_create_message(&conn_id);
 
-    match SyncOp::add_conn(&state, &conn_id, conn.clone()).await {
+    match SyncOp::add_conn(&memory, &conn_id, conn.clone()).await {
         Ok(StorageOperationStatus::Ok(id)) => {
             if let Some(node_id) = conn.node_id {
                 let _ = publisher.send(&node_id.to_string(), msg).await;
@@ -425,7 +425,7 @@ where
 pub async fn delete_connection_handler<N, C>(
     conn_param: ConnQueryParam,
     publisher: ZmqPublisher,
-    state: SyncState<N, C>,
+    memory: MemSync<N, C>,
 ) -> Result<impl warp::Reply, warp::Rejection>
 where
     N: NodeStorageOp + Sync + Send + Clone + 'static,
@@ -441,7 +441,7 @@ where
 {
     let conn_id = conn_param.conn_id;
     let conn_opt = {
-        let mem = state.memory.lock().await;
+        let mem = memory.memory.read().await;
         mem.connections.get(&conn_id).cloned()
     };
 
@@ -469,7 +469,7 @@ where
         ));
     }
 
-    match SyncOp::delete_connection(&state, &conn_id).await {
+    match SyncOp::delete_connection(&memory, &conn_id).await {
         Ok(StorageOperationStatus::Ok(id)) => {
             let msg = conn.as_delete_message(&conn_id);
 
@@ -532,12 +532,12 @@ where
 }
 
 /// Handler updates connection
-// PUT /connection
+// PUT /connection?conn_id=
 pub async fn put_connection_handler<N, C>(
     conn_id: ConnQueryParam,
     conn_req: ConnUpdateRequest,
     publisher: ZmqPublisher,
-    state: SyncState<N, C>,
+    memory: MemSync<N, C>,
 ) -> Result<impl warp::Reply, warp::Rejection>
 where
     N: NodeStorageOp + Sync + Send + Clone + 'static,
@@ -554,9 +554,9 @@ where
     let conn_id = conn_id.conn_id;
     log::debug!("Connection to update {}", conn_id);
 
-    match SyncOp::update_conn(&state, &conn_id, conn_req).await {
+    match SyncOp::update_conn(&memory, &conn_id, conn_req).await {
         Ok(StorageOperationStatus::Updated(id)) => {
-            let mem = state.memory.lock().await;
+            let mem = memory.memory.read().await;
 
             let conn = mem.connections.get(&id);
             if let Some(conn) = conn {
@@ -653,7 +653,7 @@ where
 /// Get list of user connection credentials
 pub async fn get_user_connections_handler<N, C>(
     user_req: UserIdQueryParam,
-    state: SyncState<N, C>,
+    memory: MemSync<N, C>,
 ) -> Result<impl warp::Reply, warp::Rejection>
 where
     N: NodeStorageOp + Sync + Send + Clone + 'static,
@@ -673,7 +673,7 @@ where
     let user_id = user_req.user_id;
 
     let connections = {
-        let mem = state.memory.lock().await;
+        let mem = memory.memory.read().await;
         mem.connections.get_by_user_id(&user_id)
     };
 
@@ -714,7 +714,7 @@ where
 // GET /connection?conn_id=
 pub async fn get_connection_handler<N, C>(
     conn_req: ConnQueryParam,
-    state: SyncState<N, C>,
+    memory: MemSync<N, C>,
 ) -> Result<impl warp::Reply, warp::Rejection>
 where
     N: NodeStorageOp + Sync + Send + Clone + 'static,
@@ -729,11 +729,11 @@ where
         + PartialEq
         + serde::ser::Serialize,
 {
-    let state = state.memory.lock().await;
+    let mem = memory.memory.read().await;
 
     let conn_id = conn_req.conn_id;
 
-    if let Some(conn) = state.connections.get(&conn_id) {
+    if let Some(conn) = mem.connections.get(&conn_id) {
         let message = format!("Connections are found");
         let response = ResponseMessage::<Option<(uuid::Uuid, C)>> {
             status: StatusCode::OK.as_u16(),
@@ -758,9 +758,11 @@ where
     }
 }
 
+/// Gets Subscriprion link
+// GET /sub?user_id=
 pub async fn subscription_link_handler<N, C>(
     user_req: UserSubQueryParam,
-    state: SyncState<N, C>,
+    memory: MemSync<N, C>,
 ) -> Result<Box<dyn warp::Reply + Send>, warp::Rejection>
 where
     N: NodeStorageOp + Sync + Send + Clone + 'static,
@@ -774,7 +776,7 @@ where
         + std::fmt::Debug
         + PartialEq,
 {
-    let mem = state.memory.lock().await;
+    let mem = memory.memory.read().await;
 
     let conns = mem.connections.get_by_user_id(&user_req.user_id);
     let mut inbounds_by_node = vec![];

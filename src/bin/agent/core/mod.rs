@@ -1,15 +1,15 @@
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
-use pony::state::node::Node;
+use pony::memory::node::Node;
 use pony::wireguard_op::WgApi;
 use pony::xray_op::client::HandlerClient;
 use pony::xray_op::client::StatsClient;
 use pony::zmq::subscriber::Subscriber as ZmqSubscriber;
-use pony::Base as Connection;
+use pony::BaseConnection as Connection;
 use pony::ConnectionBaseOp;
+use pony::MemoryCache;
 use pony::NodeStorageOp;
-use pony::State;
 
 mod http;
 pub(crate) mod metrics;
@@ -17,14 +17,14 @@ pub mod service;
 mod stats;
 mod tasks;
 
-pub type AgentState = State<Node, Connection>;
+pub type AgentState = MemoryCache<Node, Connection>;
 
 pub struct Agent<N, C>
 where
     N: NodeStorageOp + Send + Sync + Clone + 'static,
     C: ConnectionBaseOp + Send + Sync + Clone + 'static,
 {
-    pub state: Arc<Mutex<State<N, C>>>,
+    pub memory: Arc<Mutex<MemoryCache<N, C>>>,
     pub subscriber: ZmqSubscriber,
     pub xray_stats_client: Option<Arc<Mutex<StatsClient>>>,
     pub xray_handler_client: Option<Arc<Mutex<HandlerClient>>>,
@@ -37,14 +37,14 @@ where
     C: ConnectionBaseOp + Send + Sync + Clone + 'static,
 {
     pub fn new(
-        state: Arc<Mutex<State<N, C>>>,
+        memory: Arc<Mutex<MemoryCache<N, C>>>,
         subscriber: ZmqSubscriber,
         xray_stats_client: Option<Arc<Mutex<StatsClient>>>,
         xray_handler_client: Option<Arc<Mutex<HandlerClient>>>,
         wg_client: Option<WgApi>,
     ) -> Self {
         Self {
-            state,
+            memory,
             subscriber,
             xray_stats_client,
             xray_handler_client,

@@ -4,9 +4,9 @@ use serde::Deserialize;
 use serde::Serialize;
 use std::fmt;
 
-use crate::state::connection::conn::Conn;
-use crate::state::connection::proto::Proto;
-use crate::state::connection::stat::Stat as ConnectionStat;
+use super::super::connection::conn::Conn;
+use super::super::connection::proto::Proto;
+use super::super::connection::stat::Stat as ConnectionStat;
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct Base {

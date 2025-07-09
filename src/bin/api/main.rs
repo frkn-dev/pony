@@ -4,7 +4,7 @@ use futures::future::join_all;
 use std::net::Ipv4Addr;
 use std::sync::Arc;
 use tokio::sync::mpsc;
-use tokio::sync::Mutex;
+use tokio::sync::RwLock;
 use tokio::time::sleep;
 use tokio::time::Duration;
 
@@ -14,14 +14,14 @@ use pony::http::debug;
 use pony::metrics::Metrics;
 use pony::utils::*;
 use pony::zmq::publisher::Publisher as ZmqPublisher;
-use pony::State;
+use pony::MemoryCache;
 use pony::{PonyError, Result};
 
 use crate::core::clickhouse::ChContext;
 use crate::core::http::routes::Http;
 use crate::core::postgres::run_shadow_sync;
 use crate::core::postgres::PgContext;
-use crate::core::sync::SyncState;
+use crate::core::sync::MemSync;
 use crate::core::tasks::Tasks;
 use crate::core::Api;
 use crate::core::ApiState;
@@ -72,15 +72,14 @@ async fn main() -> Result<()> {
     let ch = ChContext::new(&settings.clickhouse.address);
     let publisher = ZmqPublisher::new(&settings.zmq.endpoint).await;
 
-    let state: ApiState = State::new();
-    let mem = Arc::new(Mutex::new(state));
+    let mem: Arc<RwLock<ApiState>> = Arc::new(RwLock::new(MemoryCache::new()));
     let (tx, rx) = mpsc::channel(100);
-    let sync_state = SyncState::new(mem.clone(), tx);
+    let mem_sync = MemSync::new(mem.clone(), tx);
 
     let api = Arc::new(Api::new(
         ch.clone(),
         publisher.clone(),
-        sync_state.clone(),
+        mem_sync.clone(),
         settings.clone(),
     ));
 

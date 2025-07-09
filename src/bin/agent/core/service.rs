@@ -14,25 +14,24 @@ use pony::config::settings::AgentSettings;
 use pony::config::wireguard::WireguardSettings;
 use pony::config::xray::Config as XrayConfig;
 use pony::http::debug;
-use pony::metrics::Metrics;
-use pony::state::connection::wireguard::Param as WgParam;
-use pony::wireguard_op::wireguard_conn;
-
 use pony::http::requests::NodeType;
-use pony::state::node::Node;
+use pony::memory::connection::wireguard::Param as WgParam;
+use pony::memory::node::Node;
+use pony::metrics::Metrics;
 use pony::utils::*;
+use pony::wireguard_op::wireguard_conn;
 use pony::wireguard_op::WgApi;
 use pony::xray_op::client::HandlerActions;
 use pony::xray_op::client::HandlerClient;
 use pony::xray_op::client::StatsClient;
 use pony::xray_op::client::XrayClient;
-use pony::zmq::subscriber::Subscriber as ZmqSubscriber;
-use pony::Base as Connection;
+use pony::BaseConnection as Connection;
 use pony::ConnectionBaseOp;
+use pony::MemoryCache;
 use pony::NodeStorageOp;
 use pony::Proto;
 use pony::Result;
-use pony::State;
+use pony::Subscriber as ZmqSubscriber;
 use pony::Tag;
 
 use super::tasks::Tasks;
@@ -98,10 +97,10 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
     let node_config = NodeConfig::from_raw(settings.node.clone());
     let node = Node::new(node_config?, xray_config, wg_config.clone());
 
-    let state: Arc<Mutex<AgentState>> = Arc::new(Mutex::new(State::with_node(node.clone())));
+    let memory: Arc<Mutex<AgentState>> = Arc::new(Mutex::new(MemoryCache::with_node(node.clone())));
 
     let agent = Arc::new(Agent::new(
-        state.clone(),
+        memory.clone(),
         subscriber,
         xray_stats_client.clone(),
         xray_handler_client.clone(),
@@ -119,17 +118,17 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
                     tokio::select! {
                         _ = async {
                             let _ = {
-                                let mut state = agent.state.lock().await;
+                                let mut memory = agent.memory.lock().await;
                                 for (tag, _) in node.inbounds {
                                     let proto = Proto::new_xray(&tag);
                                     let conn = Connection::new(proto);
-                                    let _ = state.connections.insert(conn_id, conn.into());
+                                    let _ = memory.connections.insert(conn_id, conn.into());
                                     let _ = xray_handler_client.create(&conn_id, tag, None).await;
                                 }
                             };
 
-                            let state = agent.state.lock().await;
-                            if let Some(node) = state.nodes.get_self() {
+                            let mem = agent.memory.lock().await;
+                            if let Some(node) = mem.nodes.get_self() {
                                 println!(
                                     r#"
 ╔════════════════════════════════════╗
@@ -179,7 +178,7 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
             async move {
                 tokio::select! {
                     _ = async {
-                        let mut state = agent.state.lock().await;
+                        let mut mem = agent.memory.lock().await;
                         for (tag, _inbound) in &node.inbounds {
                             if tag.is_wireguard() {
                                 let conn_id = uuid::Uuid::new_v4();
@@ -198,7 +197,7 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
                                     let wg_params = WgParam::new(next.clone());
                                     let proto = Proto::new_wg(&wg_params, &node.uuid);
                                     let conn = Connection::new(proto);
-                                    let _ = state.connections.insert(conn_id, conn.clone().into());
+                                    let _ = mem.connections.insert(conn_id, conn.clone().into());
 
                                     if let Err(e) = wg_api.create(&wg_params.keys.pubkey, next) {
                                         log::error!(
@@ -409,7 +408,7 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
             settings.debug.web_port
         );
         let mut shutdown = shutdown_tx.subscribe();
-        let state = state.clone();
+        let memory = memory.clone();
         let addr = settings
             .debug
             .web_server
@@ -419,7 +418,7 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
 
         let debug_handle = tokio::spawn(async move {
             tokio::select! {
-                _ = debug::start_ws_server(state, addr, port, token) => {},
+                _ = debug::start_ws_server(memory, addr, port, token) => {},
                 _ = shutdown.recv() => {},
             }
         });

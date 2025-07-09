@@ -3,7 +3,7 @@ use futures::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
-use tokio::sync::Mutex;
+use tokio::sync::RwLock;
 use warp::http::header::SEC_WEBSOCKET_PROTOCOL;
 use warp::ws::Message;
 use warp::ws::Ws;
@@ -12,10 +12,10 @@ use warp::Rejection;
 
 use crate::http::Unauthorized;
 
-use crate::state::connection::op::base::Operations as ConnectionBaseOp;
-use crate::state::state::State;
-use crate::state::storage::connection::BaseOp as ConnectionStorageBaseOp;
-use crate::state::storage::node::Operations as NodeStorageOp;
+use crate::memory::cache::Cache;
+use crate::memory::connection::op::base::Operations as ConnectionBaseOp;
+use crate::memory::storage::connection::BaseOp as ConnectionStorageBaseOp;
+use crate::memory::storage::node::Operations as NodeStorageOp;
 
 enum Kind {
     Conn,
@@ -50,7 +50,7 @@ pub struct Response {
 }
 
 pub async fn start_ws_server<N, C>(
-    state: Arc<Mutex<State<N, C>>>,
+    memory: Arc<RwLock<Cache<N, C>>>,
     ipaddr: Ipv4Addr,
     port: u16,
     expected_token: Arc<String>,
@@ -68,13 +68,13 @@ pub async fn start_ws_server<N, C>(
                 SEC_WEBSOCKET_PROTOCOL.as_str(),
             ))
             .and_then(move |ws: Ws, token: Option<String>| {
-                let state = state.clone();
+                let memory = memory.clone();
                 let expected_token = expected_token.clone();
                 async move {
                     match token {
                         Some(t) if t == *expected_token => {
                             Ok::<_, Rejection>(ws.on_upgrade(move |socket| {
-                                handle_debug_connection::<N, C>(socket, state)
+                                handle_debug_connection::<N, C>(socket, memory)
                             }))
                         }
                         _ => {
@@ -100,7 +100,7 @@ pub async fn start_ws_server<N, C>(
 
 pub async fn handle_debug_connection<N, C>(
     socket: warp::ws::WebSocket,
-    state: Arc<Mutex<State<N, C>>>,
+    memory: Arc<RwLock<Cache<N, C>>>,
 ) where
     N: NodeStorageOp + Sync + Send + Clone + 'static,
     C: ConnectionBaseOp + Sync + Send + Clone + 'static + std::fmt::Display,
@@ -123,19 +123,19 @@ pub async fn handle_debug_connection<N, C>(
 
         // COMMENT(@qezz): A `match` would probably work better here.
         if req.kind == "get_connections" {
-            let state = state.lock().await;
-            let conns: Vec<_> = state.connections.keys().collect();
+            let memory = memory.read().await;
+            let conns: Vec<_> = memory.connections.keys().collect();
             let data = serde_json::to_string(&conns).unwrap();
             let response = Response {
                 kind: Kind::Conns.to_string(),
                 data: serde_json::Value::String(data),
-                len: state.connections.len(),
+                len: memory.connections.len(),
             };
             let response_str = serde_json::to_string(&response).unwrap();
             sender.send(Message::text(response_str)).await.unwrap();
         } else if req.kind == "get_nodes" {
-            let state = state.lock().await;
-            let nodes = state.nodes.all_json();
+            let memory = memory.read().await;
+            let nodes = memory.nodes.all_json();
 
             let data = match serde_json::to_string(&nodes) {
                 Ok(json) => json,
@@ -148,14 +148,14 @@ pub async fn handle_debug_connection<N, C>(
             let response = Response {
                 kind: Kind::Nodes.to_string(),
                 data: serde_json::Value::String(data),
-                len: state.connections.len(),
+                len: memory.connections.len(),
             };
             let response_str = serde_json::to_string(&response).unwrap();
             sender.send(Message::text(response_str)).await.unwrap();
         } else if req.kind == "get_conn_info" {
             if let Some(conn_id) = req.conn_id {
-                let state = state.lock().await;
-                if let Some(conn) = state.connections.get(&conn_id) {
+                let memory = memory.read().await;
+                if let Some(conn) = memory.connections.get(&conn_id) {
                     let response = Response {
                         kind: Kind::Conn.to_string(),
                         data: serde_json::Value::String(conn.to_string()),
@@ -166,8 +166,8 @@ pub async fn handle_debug_connection<N, C>(
                 }
             }
         } else if req.kind == "get_users" {
-            let state = state.lock().await;
-            let users: Vec<_> = state.users.iter().collect();
+            let memory = memory.read().await;
+            let users: Vec<_> = memory.users.iter().collect();
             let data = serde_json::to_string(&users).unwrap();
             let response = Response {
                 kind: Kind::Users.to_string(),

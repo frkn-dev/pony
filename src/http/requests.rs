@@ -6,11 +6,11 @@ use std::net::Ipv4Addr;
 use crate::config::wireguard::WireguardSettings;
 use crate::config::xray::Inbound;
 use crate::config::xray::StreamSettings;
-use crate::state::connection::wireguard::Param as WgParam;
-use crate::state::node::Node;
-use crate::state::node::Status as NodeStatus;
-use crate::state::tag::Tag;
-use crate::state::user::User;
+use crate::memory::connection::wireguard::Param as WgParam;
+use crate::memory::node::Node;
+use crate::memory::node::Status as NodeStatus;
+use crate::memory::tag::Tag;
+use crate::memory::user::User;
 use crate::ConnectionStatus;
 
 fn default_format() -> String {

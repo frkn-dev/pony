@@ -4,8 +4,7 @@ use warp::Filter;
 
 use pony::http::filters::auth;
 use pony::http::requests::*;
-use pony::Conn as Connection;
-use pony::Conn;
+use pony::Connection;
 use pony::ConnectionApiOp;
 use pony::ConnectionBaseOp;
 use pony::NodeStorageOp;
@@ -39,7 +38,7 @@ where
         + serde::Serialize
         + PartialEq,
     N: NodeStorageOp + Send + Sync + Clone,
-    Conn: From<C>,
+    Connection: From<C>,
 {
     async fn run(&self) -> Result<()> {
         let auth = auth(Arc::new(self.settings.api.token.clone()));
@@ -47,7 +46,7 @@ where
         let get_healthcheck_route = warp::get()
             .and(warp::path("healthcheck"))
             .and(warp::path::end())
-            .and(with_state(self.state.clone()))
+            .and(with_state(self.sync.clone()))
             .and_then(healthcheck_handler);
 
         // Node routes
@@ -56,7 +55,7 @@ where
             .and(warp::path::end())
             .and(auth.clone())
             .and(warp::query::<NodesQueryParams>())
-            .and(with_state(self.state.clone()))
+            .and(with_state(self.sync.clone()))
             .and_then(get_nodes_handler);
 
         let post_node_register_route = warp::post()
@@ -65,7 +64,7 @@ where
             .and(auth.clone())
             .and(warp::body::json::<NodeRequest>())
             .and(warp::query::<NodeTypeParam>())
-            .and(with_state(self.state.clone()))
+            .and(with_state(self.sync.clone()))
             .and(publisher(self.publisher.clone()))
             .and_then(post_node_handler);
 
@@ -74,7 +73,7 @@ where
             .and(warp::path::end())
             .and(auth.clone())
             .and(warp::query::<NodeIdParam>())
-            .and(with_state(self.state.clone()))
+            .and(with_state(self.sync.clone()))
             .and_then(get_node_handler);
 
         // Users Routes
@@ -85,7 +84,7 @@ where
             .and(warp::path::end())
             .and(auth.clone())
             .and(warp::query::<UserIdQueryParam>())
-            .and(with_state(self.state.clone()))
+            .and(with_state(self.sync.clone()))
             .and_then(user_conn_stat_handler);
 
         let get_user_route = warp::get()
@@ -93,14 +92,14 @@ where
             .and(warp::path::end())
             .and(auth.clone())
             .and(warp::query::<UserIdQueryParam>())
-            .and(with_state(self.state.clone()))
+            .and(with_state(self.sync.clone()))
             .and_then(get_user_handler);
 
         let get_users_route = warp::get()
             .and(warp::path("users"))
             .and(warp::path::end())
             .and(auth.clone())
-            .and(with_state(self.state.clone()))
+            .and(with_state(self.sync.clone()))
             .and_then(get_users_handler);
 
         let post_user_register_route = warp::post()
@@ -108,7 +107,7 @@ where
             .and(warp::path::end())
             .and(auth.clone())
             .and(warp::body::json::<UserReq>())
-            .and(with_state(self.state.clone()))
+            .and(with_state(self.sync.clone()))
             .and_then(post_user_register_handler);
 
         let delete_user_route = warp::delete()
@@ -117,7 +116,7 @@ where
             .and(auth.clone())
             .and(warp::query::<UserIdQueryParam>())
             .and(publisher(self.publisher.clone()))
-            .and(with_state(self.state.clone()))
+            .and(with_state(self.sync.clone()))
             .and_then(delete_user_handler);
 
         let put_user_route = warp::put()
@@ -126,7 +125,7 @@ where
             .and(auth.clone())
             .and(warp::query::<UserIdQueryParam>())
             .and(warp::body::json::<UserUpdateReq>())
-            .and(with_state(self.state.clone()))
+            .and(with_state(self.sync.clone()))
             .and_then(put_user_handler);
 
         let get_user_connections_route = warp::get()
@@ -135,7 +134,7 @@ where
             .and(warp::path::end())
             .and(auth.clone())
             .and(warp::query::<UserIdQueryParam>())
-            .and(with_state(self.state.clone()))
+            .and(with_state(self.sync.clone()))
             .and_then(get_user_connections_handler);
 
         // Connections Routes
@@ -145,14 +144,14 @@ where
             .and(warp::path::end())
             .and(auth.clone())
             .and(warp::query::<ConnQueryParam>())
-            .and(with_state(self.state.clone()))
+            .and(with_state(self.sync.clone()))
             .and_then(get_connection_handler);
 
         let get_subscription_route = warp::get()
             .and(warp::path("sub"))
             .and(warp::path::end())
             .and(warp::query::<UserSubQueryParam>())
-            .and(with_state(self.state.clone()))
+            .and(with_state(self.sync.clone()))
             .and_then(subscription_link_handler);
 
         let post_connection_route = warp::post()
@@ -161,7 +160,7 @@ where
             .and(auth.clone())
             .and(warp::body::json())
             .and(publisher(self.publisher.clone()))
-            .and(with_state(self.state.clone()))
+            .and(with_state(self.sync.clone()))
             .and_then(create_connection_handler);
 
         let delete_connection_route = warp::delete()
@@ -170,7 +169,7 @@ where
             .and(auth.clone())
             .and(warp::query::<ConnQueryParam>())
             .and(publisher(self.publisher.clone()))
-            .and(with_state(self.state.clone()))
+            .and(with_state(self.sync.clone()))
             .and_then(delete_connection_handler);
 
         let put_connection_route = warp::put()
@@ -180,7 +179,7 @@ where
             .and(warp::query::<ConnQueryParam>())
             .and(warp::body::json())
             .and(publisher(self.publisher.clone()))
-            .and(with_state(self.state.clone()))
+            .and(with_state(self.sync.clone()))
             .and_then(put_connection_handler);
 
         let routes = get_healthcheck_route

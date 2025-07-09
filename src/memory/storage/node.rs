@@ -1,14 +1,14 @@
-use crate::state::state::Connections;
-use crate::ConnectionBaseOp;
 use rand::prelude::SliceRandom;
 use rand::thread_rng;
 use serde_json::json;
 use std::collections::HashMap;
 
-use crate::state::node::Node;
-use crate::state::storage::Status as OperationStatus;
-use crate::state::tag::Tag;
-use crate::{PonyError, Result};
+use super::super::cache::Connections;
+use super::super::connection::op::base::Operations as ConnectionBaseOp;
+use super::super::node::Node;
+use super::super::storage::Status as OperationStatus;
+use super::super::tag::Tag;
+use crate::error::{PonyError, Result};
 
 pub trait Operations {
     fn iter_nodes(&self) -> Box<dyn Iterator<Item = (&uuid::Uuid, &Node)> + '_>;

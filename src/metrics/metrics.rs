@@ -1,11 +1,10 @@
 use clickhouse::Row;
+use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::io;
-
-use serde::{Deserialize, Serialize};
 use tokio::{io::AsyncWriteExt, net::TcpStream};
 
-use crate::state::stat::Kind as StatKind;
+use crate::memory::stat::Kind as StatKind;
 
 pub trait AsMetric {
     type Output;

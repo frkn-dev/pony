@@ -10,7 +10,7 @@ use pony::metrics::metrics::MetricType;
 use pony::metrics::xray::xray_conn_metrics;
 use pony::metrics::xray::xray_stat_metrics;
 use pony::metrics::Metrics;
-use pony::Conn as Connection;
+use pony::Connection;
 use pony::ConnectionBaseOp;
 use pony::NodeStorageOp;
 
@@ -27,10 +27,10 @@ where
         T: NodeStorageOp + Sync + Send + Clone + 'static,
     {
         let mut metrics: Vec<MetricType> = Vec::new();
-        let state = self.state.lock().await;
-        let connections = state.connections.clone();
+        let mem = self.memory.lock().await;
+        let connections = mem.connections.clone();
 
-        let node = state.nodes.get_self();
+        let node = mem.nodes.get_self();
 
         if let Some(node) = node {
             let bandwidth: Vec<MetricType> =
@@ -57,8 +57,8 @@ where
     }
 
     async fn collect_hb_metrics<M>(&self) -> MetricType {
-        let state = self.state.lock().await;
-        let node = state.nodes.get_self();
+        let mem = self.memory.lock().await;
+        let node = mem.nodes.get_self();
         if let Some(node) = node {
             heartbeat_metrics(&node.env, &node.uuid, &node.hostname)
         } else {

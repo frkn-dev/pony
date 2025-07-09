@@ -1,8 +1,8 @@
-use crate::state::connection::conn::Conn;
-use crate::state::connection::conn::Status;
+use super::super::conn::Conn;
+use super::super::conn::Status;
+use super::super::proto::Proto;
 use crate::zmq::message::Action;
 use crate::zmq::message::Message;
-use crate::Proto;
 
 pub trait Operations {
     fn get_trial(&self) -> bool;

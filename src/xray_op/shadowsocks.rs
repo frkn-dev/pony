@@ -1,9 +1,9 @@
+use super::ProtocolConn;
+use crate::memory::tag::Tag;
 use crate::xray_api::xray::proxy::shadowsocks;
 use crate::xray_api::xray::{
     common::protocol::User, common::serial::TypedMessage, proxy::shadowsocks::CipherType,
 };
-use crate::xray_op::ProtocolConn;
-use crate::xray_op::Tag;
 
 #[derive(Clone, Debug)]
 pub struct ConnInfo {

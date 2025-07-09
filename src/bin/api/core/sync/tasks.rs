@@ -1,21 +1,22 @@
 use pony::http::requests::ConnUpdateRequest;
 use pony::http::requests::UserUpdateReq;
-use pony::state::node::Node;
-use pony::state::node::Status as NodeStatus;
-use pony::state::storage::connection::ApiOp;
-use pony::state::storage::connection::BaseOp;
-use pony::state::user::User;
-use pony::Conn;
+use pony::memory::node::Node;
+use pony::memory::node::Status as NodeStatus;
+use pony::memory::user::User;
+use pony::Connection as Conn;
 use pony::ConnectionApiOp;
+
 use pony::ConnectionBaseOp;
 use pony::ConnectionStat;
 use pony::ConnectionStatus;
+use pony::ConnectionStorageApiOp as ApiOp;
+use pony::ConnectionStorageBaseOp;
 use pony::NodeStorageOp;
 use pony::OperationStatus;
 use pony::UserStorageOp;
 use pony::{PonyError, Result};
 
-use super::SyncState;
+use super::MemSync;
 use super::SyncTask;
 
 #[async_trait::async_trait]
@@ -57,7 +58,7 @@ where
 }
 
 #[async_trait::async_trait]
-impl<N, C> SyncOp<N, C> for SyncState<N, C>
+impl<N, C> SyncOp<N, C> for MemSync<N, C>
 where
     N: NodeStorageOp + Send + Sync + Clone + 'static,
     C: ConnectionBaseOp
@@ -68,10 +69,10 @@ where
         + 'static
         + From<Conn>
         + std::cmp::PartialEq,
-    pony::Conn: From<C>,
+    Conn: From<C>,
 {
     async fn add_user(&self, user_id: &uuid::Uuid, user: User) -> Result<OperationStatus> {
-        let mut mem = self.memory.lock().await;
+        let mut mem = self.memory.write().await;
 
         if let Some((id, u)) = mem.users.iter().find(|(_, u)| u.username == user.username) {
             if u.is_deleted {
@@ -98,7 +99,7 @@ where
         user_id: &uuid::Uuid,
         user_upd: UserUpdateReq,
     ) -> Result<OperationStatus> {
-        let mut mem = self.memory.lock().await;
+        let mut mem = self.memory.write().await;
 
         if !mem.users.contains_key(user_id) {
             return Ok(OperationStatus::NotFound(*user_id));
@@ -125,7 +126,7 @@ where
     }
 
     async fn delete_user(&self, user_id: &uuid::Uuid) -> Result<OperationStatus> {
-        let mut mem = self.memory.lock().await;
+        let mut mem = self.memory.write().await;
 
         match mem.users.delete(user_id) {
             OperationStatus::Ok(id) => {
@@ -140,7 +141,7 @@ where
     }
 
     async fn add_node(&self, node_id: &uuid::Uuid, node: Node) -> Result<OperationStatus> {
-        let mut mem = self.memory.lock().await;
+        let mut mem = self.memory.write().await;
 
         match mem.nodes.add(node.clone()) {
             Ok(OperationStatus::Ok(_)) => {
@@ -167,7 +168,7 @@ where
     }
 
     async fn add_conn(&self, conn_id: &uuid::Uuid, conn: Conn) -> Result<OperationStatus> {
-        let mut mem = self.memory.lock().await;
+        let mut mem = self.memory.write().await;
         match ApiOp::add(&mut mem.connections, conn_id, conn.clone().into()) {
             Ok(OperationStatus::Ok(id)) => {
                 self.sync_tx
@@ -189,7 +190,7 @@ where
         conn_id: &uuid::Uuid,
         conn_req: ConnUpdateRequest,
     ) -> Result<OperationStatus> {
-        let mut mem = self.memory.lock().await;
+        let mut mem = self.memory.write().await;
         match ApiOp::update(&mut mem.connections, conn_id, conn_req) {
             OperationStatus::Updated(id) => {
                 if let Some(conn) = mem.connections.get(conn_id) {
@@ -216,7 +217,7 @@ where
         }
     }
     async fn delete_connection(&self, conn_id: &uuid::Uuid) -> Result<OperationStatus> {
-        let mut mem = self.memory.lock().await;
+        let mut mem = self.memory.write().await;
 
         match mem.connections.delete(conn_id) {
             Ok(_) => {
@@ -234,7 +235,7 @@ where
         env: &str,
         status: NodeStatus,
     ) -> Result<()> {
-        let mut mem = self.memory.lock().await;
+        let mut mem = self.memory.write().await;
         if let Some(node) = mem.nodes.get_mut(env, uuid) {
             if node.status != status {
                 node.update_status(status)?;
@@ -251,7 +252,7 @@ where
     }
 
     async fn update_conn_stat(&self, uuid: &uuid::Uuid, conn_stat: ConnectionStat) -> Result<()> {
-        let mut mem = self.memory.lock().await;
+        let mut mem = self.memory.write().await;
 
         let _ = mem.connections.update_stats(uuid, conn_stat.clone());
 
@@ -266,7 +267,7 @@ where
     }
 
     async fn activate_trial_conn(&self, conn_id: &uuid::Uuid) -> Result<OperationStatus> {
-        let mut mem = self.memory.lock().await;
+        let mut mem = self.memory.write().await;
 
         if let Some(conn) = mem.connections.get_mut(&conn_id) {
             if conn.get_status() == ConnectionStatus::Expired {

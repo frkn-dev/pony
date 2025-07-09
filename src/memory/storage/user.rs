@@ -1,11 +1,10 @@
 use chrono::Utc;
 use std::collections::HashMap;
 
+use super::super::storage::Status as OperationStatus;
+use super::super::user::User;
+use crate::error::Result;
 use crate::http::requests::UserUpdateReq;
-use crate::state::user::User;
-
-use crate::state::storage::Status as OperationStatus;
-use crate::Result;
 
 pub trait Operations {
     fn by_username(&self, username: &str) -> Option<uuid::Uuid>;

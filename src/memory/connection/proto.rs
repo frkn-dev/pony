@@ -1,8 +1,8 @@
 use serde::Deserialize;
 use serde::Serialize;
 
-use crate::state::connection::wireguard::Param as WgParam;
-use crate::state::tag::Tag;
+use super::super::tag::Tag;
+use super::wireguard::Param as WgParam;
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub enum Proto {

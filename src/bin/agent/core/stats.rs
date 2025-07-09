@@ -6,19 +6,19 @@ use tokio::task::JoinHandle;
 use tonic::Code;
 use tonic::{Request, Status};
 
-use pony::state::connection::stat::Stat as ConnectionStat;
-use pony::state::node::Stat as InboundStat;
-use pony::state::stat::Kind as StatKind;
-use pony::state::stat::Stat;
-use pony::state::storage::connection::BaseOp;
-use pony::state::tag::Tag;
+use pony::memory::connection::stat::Stat as ConnectionStat;
+use pony::memory::node::Stat as InboundStat;
+use pony::memory::stat::Kind as StatKind;
+use pony::memory::stat::Stat;
 use pony::xray_api::xray::app::stats::command::{GetStatsRequest, GetStatsResponse};
 use pony::xray_op::connections::ConnOp;
 use pony::xray_op::stats::Prefix;
 use pony::xray_op::stats::StatOp;
 use pony::ConnectionBaseOp;
+use pony::ConnectionStorageBaseOp;
 use pony::NodeStorageOp;
 use pony::Result as PonyResult;
+use pony::Tag;
 
 use super::Agent;
 
@@ -262,12 +262,12 @@ where
 {
     async fn collect_conn_stats(self: Arc<Self>, conn_id: uuid::Uuid) -> PonyResult<()> {
         let conn_stat = self.conn_stats(Prefix::ConnPrefix(conn_id)).await?;
-        let mut state = self.state.lock().await;
-        let _ = state
+        let mut mem = self.memory.lock().await;
+        let _ = mem
             .connections
             .update_downlink(&conn_id, conn_stat.downlink);
-        let _ = state.connections.update_uplink(&conn_id, conn_stat.uplink);
-        let _ = state.connections.update_online(&conn_id, conn_stat.online);
+        let _ = mem.connections.update_uplink(&conn_id, conn_stat.uplink);
+        let _ = mem.connections.update_online(&conn_id, conn_stat.online);
         Ok(())
     }
 
@@ -280,14 +280,14 @@ where
         let inbound_stat = self
             .inbound_stats(Prefix::InboundPrefix(tag.clone()))
             .await?;
-        let mut state = self.state.lock().await;
-        let _ = state
+        let mut mem = self.memory.lock().await;
+        let _ = mem
             .nodes
             .update_node_downlink(&tag, inbound_stat.downlink, &env, &node_uuid);
-        let _ = state
+        let _ = mem
             .nodes
             .update_node_uplink(&tag, inbound_stat.uplink, &env, &node_uuid);
-        let _ = state
+        let _ = mem
             .nodes
             .update_node_conn_count(&tag, inbound_stat.conn_count, &env, &node_uuid);
         Ok(())
@@ -298,8 +298,8 @@ where
         let mut tasks: Vec<JoinHandle<()>> = Vec::new();
 
         let conn_ids = {
-            let state = self.state.lock().await;
-            state.connections.keys().cloned().collect::<Vec<_>>()
+            let mem = self.memory.lock().await;
+            mem.connections.keys().cloned().collect::<Vec<_>>()
         };
 
         for conn_id in conn_ids {
@@ -312,8 +312,8 @@ where
         }
 
         if let Some(node) = {
-            let state = self.state.lock().await;
-            state.nodes.get_self()
+            let mem = self.memory.lock().await;
+            mem.nodes.get_self()
         } {
             let node_tags = node.inbounds.keys().cloned().collect::<Vec<_>>();
             for tag in node_tags {
@@ -353,9 +353,8 @@ where
         };
 
         let conns = {
-            let state = self.state.lock().await;
-            state
-                .connections
+            let mem = self.memory.lock().await;
+            mem.connections
                 .iter()
                 .filter_map(|(id, conn)| {
                     if let Tag::Wireguard = conn.get_proto().proto() {
@@ -374,8 +373,8 @@ where
                 if let Some(wg) = conn.get_wireguard() {
                     match wg_client.peer_stats(&wg.keys.pubkey.clone()) {
                         Ok((uplink, downlink)) => {
-                            let mut state = agent.state.lock().await;
-                            if let Some(existing) = state.connections.get_mut(&conn_id) {
+                            let mut mem = agent.memory.lock().await;
+                            if let Some(existing) = mem.connections.get_mut(&conn_id) {
                                 existing.set_uplink(uplink);
                                 existing.set_downlink(downlink);
                             }

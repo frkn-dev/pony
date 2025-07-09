@@ -1,13 +1,13 @@
 use std::sync::Arc;
 use tokio::sync::mpsc;
-use tokio::sync::Mutex;
+use tokio::sync::RwLock;
 
-use pony::state::node::Node;
-use pony::state::user::User;
-use pony::Conn;
-use pony::State;
+use pony::memory::node::Node;
+use pony::memory::user::User;
+use pony::Connection as Conn;
+use pony::MemoryCache;
 
-use pony::state::node::Status as NodeStatus;
+use pony::memory::node::Status as NodeStatus;
 use pony::ConnectionStat;
 use pony::ConnectionStatus;
 
@@ -61,21 +61,21 @@ pub enum SyncTask {
 }
 
 #[derive(Clone)]
-pub struct SyncState<N, C>
+pub struct MemSync<N, C>
 where
     N: Send + Sync + Clone + 'static,
     C: Send + Sync + Clone + 'static,
 {
-    pub memory: Arc<Mutex<State<N, C>>>,
+    pub memory: Arc<RwLock<MemoryCache<N, C>>>,
     pub sync_tx: mpsc::Sender<SyncTask>,
 }
 
-impl<N, C> SyncState<N, C>
+impl<N, C> MemSync<N, C>
 where
     N: NodeStorageOp + Send + Sync + Clone + 'static,
     C: ConnectionBaseOp + ConnectionApiOp + Send + Sync + Clone + 'static + From<Conn> + PartialEq,
 {
-    pub fn new(memory: Arc<Mutex<State<N, C>>>, sync_tx: mpsc::Sender<SyncTask>) -> Self {
+    pub fn new(memory: Arc<RwLock<MemoryCache<N, C>>>, sync_tx: mpsc::Sender<SyncTask>) -> Self {
         Self { memory, sync_tx }
     }
 }

@@ -3,8 +3,8 @@ use std::{fs::File, io::Read};
 
 use crate::config::wireguard::WireguardSettings;
 use crate::http::requests::InboundResponse;
-use crate::state::node::Stat as InboundStat;
-use crate::state::tag::Tag;
+use crate::memory::node::Stat as InboundStat;
+use crate::memory::tag::Tag;
 
 use crate::Result;
 

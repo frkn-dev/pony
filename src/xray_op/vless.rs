@@ -2,13 +2,12 @@ use std::fmt;
 use std::net::Ipv4Addr;
 use url::Url;
 
+use super::ProtocolConn;
+use crate::error::{PonyError, Result as PonyResult};
 use crate::http::requests::InboundResponse;
+use crate::memory::tag::Tag;
 use crate::xray_api::xray::proxy::vless;
 use crate::xray_api::xray::{common::protocol::User, common::serial::TypedMessage};
-use crate::xray_op::ProtocolConn;
-use crate::xray_op::Tag;
-use crate::PonyError;
-use crate::Result as PonyResult;
 
 #[derive(Clone, Debug)]
 pub struct ConnInfo {

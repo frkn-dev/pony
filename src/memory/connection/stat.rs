@@ -2,8 +2,8 @@ use serde::Deserialize;
 use serde::Serialize;
 use std::fmt;
 
+use super::super::stat::Kind;
 use crate::metrics::metrics::Metric;
-use crate::state::stat::Kind;
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct Stat {

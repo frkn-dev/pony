@@ -3,12 +3,11 @@ use std::collections::HashMap;
 use std::fmt;
 use std::ops::{Deref, DerefMut};
 
+use super::connection::op::api::Operations as ConnectionApiOp;
+use super::connection::op::base::Operations as ConnectionBaseOp;
 use super::node::Node;
+use super::storage::node::Operations as NodeStorageOp;
 use super::user::User;
-
-use crate::state::connection::op::api::Operations as ConnectionApiOp;
-use crate::state::connection::op::base::Operations as ConnectionBaseOp;
-use crate::state::storage::node::Operations as NodeStorageOp;
 
 #[derive(Clone, Deserialize, Serialize, Debug, PartialEq)]
 pub struct Connections<C>(pub HashMap<uuid::Uuid, C>);
@@ -43,7 +42,7 @@ impl<C> DerefMut for Connections<C> {
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
-pub struct State<T, C>
+pub struct Cache<T, C>
 where
     T: Send + Sync + Clone + 'static,
     C: Send + Sync + Clone + 'static,
@@ -54,13 +53,13 @@ where
 }
 
 // COMMENT(qezz): This is basically `impl Default for State`
-impl<T: Default, C> State<T, C>
+impl<T: Default, C> Cache<T, C>
 where
     T: NodeStorageOp + Sync + Send + Clone + 'static,
     C: ConnectionApiOp + ConnectionBaseOp + Clone + Send + Sync + 'static + PartialEq,
 {
     pub fn new() -> Self {
-        State {
+        Cache {
             users: HashMap::default(),
             nodes: T::default(),
             connections: Connections::default(),
@@ -68,7 +67,7 @@ where
     }
 }
 
-impl<C> State<Node, C>
+impl<C> Cache<Node, C>
 where
     C: ConnectionBaseOp + Send + Sync + Clone + 'static + PartialEq,
 {

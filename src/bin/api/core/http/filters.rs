@@ -1,22 +1,22 @@
 use warp::Filter;
 
 use pony::zmq::publisher::Publisher as ZmqPublisher;
-use pony::Conn as Connection;
+use pony::Connection;
 use pony::ConnectionApiOp;
 use pony::ConnectionBaseOp;
 use pony::NodeStorageOp;
 
-use crate::SyncState;
+use crate::MemSync;
 
 /// Provides application state filter
 pub fn with_state<T, C>(
-    sync_state: SyncState<T, C>,
-) -> impl Filter<Extract = (SyncState<T, C>,), Error = std::convert::Infallible> + Clone
+    mem_sync: MemSync<T, C>,
+) -> impl Filter<Extract = (MemSync<T, C>,), Error = std::convert::Infallible> + Clone
 where
     T: NodeStorageOp + Sync + Send + Clone + 'static,
     C: ConnectionApiOp + ConnectionBaseOp + Sync + Send + Clone + 'static + From<Connection>,
 {
-    warp::any().map(move || sync_state.clone())
+    warp::any().map(move || mem_sync.clone())
 }
 
 /// Provides zmq publisher filter

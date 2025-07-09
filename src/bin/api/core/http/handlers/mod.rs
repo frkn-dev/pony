@@ -5,16 +5,16 @@ pub mod user;
 use warp::http::StatusCode;
 
 use pony::http::ResponseMessage;
-use pony::Conn as Connection;
+use pony::Connection;
 use pony::ConnectionApiOp;
 use pony::ConnectionBaseOp;
 use pony::NodeStorageOp;
 
-use crate::core::sync::SyncState;
+use crate::core::sync::MemSync;
 
 // GET /healthcheck
 pub async fn healthcheck_handler<N, C>(
-    _state: SyncState<N, C>,
+    _state: MemSync<N, C>,
 ) -> Result<impl warp::Reply, warp::Rejection>
 where
     N: NodeStorageOp + Sync + Send + Clone + 'static,

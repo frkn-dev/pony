@@ -98,4 +98,8 @@ ALTER TABLE inbounds ADD COLUMN dns INET[];
 
 ALTER TABLE connections DROP CONSTRAINT connections_user_id_fkey;
 
+ALTER TABLE inbounds ADD COLUMN created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW();
+ALTER TABLE inbounds ADD COLUMN modified_at TIMESTAMP WITH TIME ZONE DEFAULT NOW();
+
+
 

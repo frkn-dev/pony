@@ -10,8 +10,8 @@ use chrono::Utc;
 use tokio::sync::Mutex;
 use tokio_postgres::Client as PgClient;
 
-use pony::state::node::Node;
-use pony::state::node::Status as NodeStatus;
+use pony::memory::node::Node;
+use pony::memory::node::Status as NodeStatus;
 use pony::utils::to_ipv4;
 
 use pony::config::wireguard::WireguardSettings;

@@ -34,9 +34,8 @@ where
         node_type: NodeType,
     ) -> Result<()> {
         let node = {
-            let state = self.state.lock().await;
-            state
-                .nodes
+            let mem = self.memory.lock().await;
+            mem.nodes
                 .get_self()
                 .expect("No node available to register")
                 .clone()

@@ -6,27 +6,27 @@ use pony::http::requests::UserReq;
 
 use pony::http::requests::UserIdQueryParam;
 use pony::http::ResponseMessage;
-use pony::state::storage::connection::ApiOp;
-use pony::state::user::User;
-use pony::zmq::message::Action;
-use pony::zmq::message::Message;
-use pony::zmq::publisher::Publisher as ZmqPublisher;
-use pony::Conn as Connection;
+use pony::memory::user::User;
+use pony::Action;
+use pony::Connection;
 use pony::ConnectionApiOp;
 use pony::ConnectionBaseOp;
 use pony::ConnectionStat;
 use pony::ConnectionStatus;
+use pony::ConnectionStorageApiOp;
+use pony::Message;
 use pony::NodeStorageOp;
 use pony::OperationStatus as StorageOperationStatus;
+use pony::Publisher as ZmqPublisher;
 use pony::Tag;
 
 use crate::core::sync::tasks::SyncOp;
-use crate::core::sync::SyncState;
+use crate::core::sync::MemSync;
 
 // POST /user
 pub async fn post_user_register_handler<N, C>(
     user_req: UserReq,
-    state: SyncState<N, C>,
+    memory: MemSync<N, C>,
 ) -> Result<impl warp::Reply, warp::Rejection>
 where
     N: NodeStorageOp + Sync + Send + Clone + 'static,
@@ -45,7 +45,7 @@ where
     let user_id = uuid::Uuid::new_v4();
     let user: User = user_req.into();
 
-    match SyncOp::add_user(&state, &user_id, user.clone()).await {
+    match SyncOp::add_user(&memory, &user_id, user.clone()).await {
         Ok(StorageOperationStatus::NotModified(id)) => Ok(warp::reply::with_status(
             warp::reply::json(&ResponseMessage {
                 status: StatusCode::NOT_MODIFIED.as_u16(),
@@ -104,7 +104,7 @@ where
 pub async fn put_user_handler<N, C>(
     user: UserIdQueryParam,
     user_req: UserUpdateReq,
-    state: SyncState<N, C>,
+    memory: MemSync<N, C>,
 ) -> Result<impl warp::Reply, warp::Rejection>
 where
     N: NodeStorageOp + Sync + Send + Clone + 'static,
@@ -122,7 +122,7 @@ where
 
     let user_id = user.user_id;
 
-    match SyncOp::update_user(&state, &user_id, user_req).await {
+    match SyncOp::update_user(&memory, &user_id, user_req).await {
         Ok(StorageOperationStatus::Updated(id)) => Ok(warp::reply::with_status(
             warp::reply::json(&ResponseMessage {
                 status: StatusCode::OK.as_u16(),
@@ -172,7 +172,7 @@ where
 // GET /user?user_id=<>
 pub async fn get_user_handler<N, C>(
     user_req: UserIdQueryParam,
-    state: SyncState<N, C>,
+    memory: MemSync<N, C>,
 ) -> Result<impl warp::Reply, warp::Rejection>
 where
     N: NodeStorageOp + Sync + Send + Clone + 'static,
@@ -187,7 +187,7 @@ where
 {
     log::debug!("Received: {:?}", user_req);
 
-    let mem = state.memory.lock().await;
+    let mem = memory.memory.read().await;
 
     match mem.users.get(&user_req.user_id) {
         Some(user) if !user.is_deleted => {
@@ -221,7 +221,7 @@ where
 
 // GET /users
 pub async fn get_users_handler<N, C>(
-    state: SyncState<N, C>,
+    memory: MemSync<N, C>,
 ) -> Result<impl warp::Reply, warp::Rejection>
 where
     N: NodeStorageOp + Sync + Send + Clone + 'static,
@@ -234,7 +234,7 @@ where
         + From<Connection>
         + PartialEq,
 {
-    let mem = state.memory.lock().await;
+    let mem = memory.memory.read().await;
     let users: Vec<(&uuid::Uuid, &User)> = mem.users.iter().collect();
 
     let response = ResponseMessage::<Option<Vec<(&uuid::Uuid, &User)>>> {
@@ -251,7 +251,7 @@ where
 // GET /user/stat?user_id=<>
 pub async fn user_conn_stat_handler<N, C>(
     user_req: UserIdQueryParam,
-    state: SyncState<N, C>,
+    memory: MemSync<N, C>,
 ) -> Result<impl warp::Reply, warp::Rejection>
 where
     N: NodeStorageOp + Sync + Send + Clone + 'static,
@@ -266,7 +266,7 @@ where
 {
     log::debug!("Received: {:?}", user_req);
 
-    let mem = state.memory.lock().await;
+    let mem = memory.memory.read().await;
     let mut result: Vec<(uuid::Uuid, ConnectionStat, Tag, ConnectionStatus, i32, bool)> =
         Vec::new();
 
@@ -320,7 +320,7 @@ where
 pub async fn delete_user_handler<N, C>(
     user_req: UserIdQueryParam,
     publisher: ZmqPublisher,
-    state: SyncState<N, C>,
+    memory: MemSync<N, C>,
 ) -> Result<impl warp::Reply, warp::Rejection>
 where
     N: NodeStorageOp + Sync + Send + Clone + 'static,
@@ -337,7 +337,7 @@ where
     log::debug!("Run delete_user_handler");
 
     let (user, conns) = {
-        let mem = state.memory.lock().await;
+        let mem = memory.memory.read().await;
 
         let Some(user) = mem.users.get(&user_req.user_id) else {
             let response = ResponseMessage::<Option<uuid::Uuid>> {
@@ -357,7 +357,7 @@ where
         (user.clone(), conns)
     };
 
-    match SyncOp::delete_user(&state, &user_req.user_id).await {
+    match SyncOp::delete_user(&memory, &user_req.user_id).await {
         Ok(StorageOperationStatus::Ok(id)) => {
             if let Some(conns) = conns {
                 for (conn_id, conn) in conns {
@@ -370,7 +370,7 @@ where
                         tag: tag,
                         wg: None,
                     };
-                    if let Err(e) = SyncOp::delete_connection(&state, &conn_id).await {
+                    if let Err(e) = SyncOp::delete_connection(&memory, &conn_id).await {
                         log::error!("Cannot delete connection {}", e);
                     }
                     let _ = publisher.send(&conn.get_env(), msg.clone()).await;

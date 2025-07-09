@@ -1,8 +1,9 @@
 use super::metrics::{AsMetric, Metric, MetricType};
-use crate::state::connection::op::base::Operations as ConnectionBaseOp;
-use crate::state::node::Node;
-use crate::state::state::Connections;
-use crate::state::{connection::stat::Stat as ConnectionStat, node::Stat as InboundStat};
+use crate::memory::cache::Connections;
+use crate::memory::connection::op::base::Operations as ConnectionBaseOp;
+use crate::memory::node::Node;
+
+use crate::memory::{connection::stat::Stat as ConnectionStat, node::Stat as InboundStat};
 use crate::utils::current_timestamp;
 
 impl AsMetric for InboundStat {

@@ -1,17 +1,16 @@
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 
+use super::super::cache::Connections;
+use super::super::connection::conn::Status as ConnectionStatus;
+use super::super::connection::op::api::Operations as ConnectionApiOp;
+use super::super::connection::op::base::Operations as ConnectionBaseOp;
+use super::super::connection::stat::Stat as ConnectionStat;
+use super::super::stat::Kind as StatKind;
+use super::super::storage::Status as OperationStatus;
+use super::super::tag::Tag;
+use crate::error::{PonyError, Result};
 use crate::http::requests::ConnUpdateRequest;
-use crate::state::connection::op::api::Operations as ConnectionApiOp;
-use crate::state::connection::op::base::Operations as ConnectionBaseOp;
-
-use crate::state::connection::conn::Status as ConnectionStatus;
-use crate::state::connection::stat::Stat as ConnectionStat;
-use crate::state::stat::Kind as StatKind;
-use crate::state::state::Connections;
-use crate::state::storage::Status as OperationStatus;
-use crate::Tag;
-use crate::{PonyError, Result};
 
 pub trait ApiOp<C>
 where

@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
-use crate::state::connection::wireguard::Param as WgParam;
-use crate::state::tag::Tag;
+use crate::memory::connection::wireguard::Param as WgParam;
+use crate::memory::tag::Tag;
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub enum Action {

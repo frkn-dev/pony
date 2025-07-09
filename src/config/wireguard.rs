@@ -1,5 +1,5 @@
 use crate::config::settings::WgConfig;
-use crate::state::connection::wireguard::Keys as WgKeys;
+use crate::memory::connection::wireguard::Keys as WgKeys;
 use defguard_wireguard_rs::net::IpAddrMask;
 use serde::Deserialize;
 use serde::Serialize;

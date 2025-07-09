@@ -4,21 +4,20 @@ use chrono::NaiveTime;
 use chrono::TimeZone;
 use chrono::Utc;
 use futures::future::join_all;
+use pony::ConnectionStorageApiOp;
 use std::collections::HashMap;
 
-use pony::state::node::Node;
-use pony::state::node::Status as NodeStatus;
-use pony::state::storage::connection::ApiOp;
-use pony::zmq::message::Action;
-use pony::zmq::message::Message;
-use pony::Conn as Connection;
+use pony::memory::node::Node;
+use pony::memory::node::Status as NodeStatus;
+use pony::Action;
+use pony::Connection;
 use pony::ConnectionApiOp;
 use pony::ConnectionBaseOp;
 use pony::ConnectionStat;
 use pony::ConnectionStatus;
+use pony::Message;
 use pony::NodeStorageOp;
 use pony::OperationStatus;
-use pony::OperationStatus as StorageOperationStatus;
 use pony::PonyError;
 use pony::Result;
 use pony::Tag;
@@ -60,7 +59,7 @@ where
         let user_id = db_user.user_id;
         let user = db_user.try_into()?;
 
-        let mut mem = self.state.memory.lock().await;
+        let mut mem = self.sync.memory.write().await;
 
         if mem.users.contains_key(&user_id) {
             return Ok(OperationStatus::AlreadyExist(user_id));
@@ -74,7 +73,7 @@ where
         let conn_id = db_conn.conn_id;
         let conn: Connection = db_conn.try_into()?;
 
-        let mut state = self.state.memory.lock().await;
+        let mut state = self.sync.memory.write().await;
         state.connections.add(&conn_id, conn.into()).map_err(|e| {
             format!(
                 "Create: Failed to add connection {} to state: {}",
@@ -84,7 +83,7 @@ where
         })
     }
     async fn add_node(&self, db_node: Node) -> Result<()> {
-        let mut state = self.state.memory.lock().await;
+        let mut state = self.sync.memory.write().await;
         match state.nodes.add(db_node.clone()) {
             Ok(_) => {
                 log::debug!("Node added to State: {}", db_node.uuid);
@@ -98,7 +97,7 @@ where
         }
     }
     async fn node_healthcheck(&self) -> Result<()> {
-        let mem = self.state.memory.lock().await;
+        let mem = self.sync.memory.read().await;
         let nodes = match mem.nodes.all() {
             Some(n) => n.clone(),
             None => return Ok(()),
@@ -110,7 +109,7 @@ where
 
         let tasks = nodes.into_iter().map(|node| {
             let ch = self.ch.clone();
-            let state = self.state.clone();
+            let sync = self.sync.clone();
             let uuid = node.uuid;
             let env = node.env.clone();
             let hostname = node.hostname;
@@ -157,7 +156,7 @@ where
                         }
                     };
 
-                SyncOp::update_node_status(&state, &uuid, &env, status).await?;
+                SyncOp::update_node_status(&sync, &uuid, &env, status).await?;
                 Ok::<_, PonyError>(())
             }
         });
@@ -173,9 +172,8 @@ where
 
     async fn collect_conn_stat(&self) -> Result<()> {
         let conns_map = {
-            let state = self.state.memory.lock().await;
-            state
-                .connections
+            let mem = self.sync.memory.read().await;
+            mem.connections
                 .iter()
                 .filter(|(_, conn)| conn.get_status() == ConnectionStatus::Active)
                 .map(|(k, v)| (k.clone(), v.clone()))
@@ -188,14 +186,14 @@ where
 
         let tasks = conns_map.into_iter().map(|(conn_id, _)| {
             let ch = self.ch.clone();
-            let state = self.state.clone();
+            let sync = self.sync.clone();
 
             async move {
                 if let Some(metrics) = ch.fetch_conn_stats::<i64>(conn_id, start_of_day).await {
                     log::debug!("metrics {:?}", metrics);
                     let stat = ConnectionStat::from_metrics(metrics);
                     log::debug!("Stat to update - {}", stat);
-                    SyncOp::update_conn_stat(&state, &conn_id, stat).await
+                    SyncOp::update_conn_stat(&sync, &conn_id, stat).await
                 } else {
                     log::warn!("No metrics found for conn_id {}", conn_id);
                     Ok(())
@@ -216,9 +214,8 @@ where
 
     async fn enforce_xray_trial_limits(&self) -> Result<()> {
         let conns: Vec<(uuid::Uuid, Connection)> = {
-            let state = self.state.memory.lock().await;
-            state
-                .connections
+            let mem = self.sync.memory.read().await;
+            mem.connections
                 .iter()
                 .filter_map(|(id, conn)| {
                     if conn.get_trial() && conn.get_status() == ConnectionStatus::Active {
@@ -239,11 +236,11 @@ where
                 .push((conn_id, conn));
         }
 
-        let state = self.state.clone();
+        let sync = self.sync.clone();
         let publisher = self.publisher.clone();
 
         let tasks = grouped.into_iter().map(move |(_user_id, conns)| {
-            let state = state.clone();
+            let sync = sync.clone();
             let publisher = publisher.clone();
 
             async move {
@@ -254,14 +251,14 @@ where
                 if (total_downlink as f64 / 1_048_576.0) >= limit as f64 {
                     for (conn_id, conn) in conns {
                         {
-                            let mut mem = state.memory.lock().await;
+                            let mut mem = sync.memory.write().await;
                             if let Some(conn) = mem.connections.get_mut(&conn_id) {
                                 conn.set_status(ConnectionStatus::Expired);
                                 conn.set_modified_at();
                             }
                         }
 
-                        let _ = state
+                        let _ = sync
                             .sync_tx
                             .send(SyncTask::UpdateConnStatus {
                                 conn_id,
@@ -305,9 +302,8 @@ where
 
     async fn restore_xray_trial_conns(&self) -> Result<()> {
         let conns_map = {
-            let state = self.state.memory.lock().await;
-            state
-                .connections
+            let mem = self.sync.memory.read().await;
+            mem.connections
                 .iter()
                 .filter(|(_, conn)| {
                     conn.get_trial() && !matches!(conn.get_proto().proto(), Tag::Wireguard)
@@ -317,7 +313,7 @@ where
         };
 
         let tasks = conns_map.into_iter().filter_map(|(conn_id, conn)| {
-            let state = self.state.clone();
+            let sync = self.sync.clone();
             let publisher = self.publisher.clone();
 
             let tag = conn.get_proto().proto();
@@ -341,14 +337,14 @@ where
             };
 
             Some(async move {
-                match SyncOp::activate_trial_conn(&state, &conn_id).await {
-                    Ok(StorageOperationStatus::Updated(_id)) => {
+                match SyncOp::activate_trial_conn(&sync, &conn_id).await {
+                    Ok(OperationStatus::Updated(_id)) => {
                         publisher.send(&conn.get_env(), restore_msg).await?;
                         publisher.send(&conn.get_env(), reset_msg).await?;
                         log::info!("Trial connection {} was restored", conn_id);
                         Ok(())
                     }
-                    Ok(StorageOperationStatus::UpdatedStat(_id)) => {
+                    Ok(OperationStatus::UpdatedStat(_id)) => {
                         log::info!("Trial connection stat {} was restored", conn_id);
                         Ok(())
                     }

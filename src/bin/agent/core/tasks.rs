@@ -3,16 +3,16 @@ use pony::Proto;
 
 use tonic::Status;
 
-use pony::state::storage::connection::BaseOp;
-use pony::state::tag::Tag;
 use pony::xray_op::client::HandlerActions;
 use pony::xray_op::stats::StatOp;
-use pony::zmq::message::Action;
-use pony::zmq::message::Message;
-use pony::zmq::Topic;
-use pony::Base as Connection;
+use pony::Action;
+use pony::BaseConnection as Connection;
 use pony::ConnectionBaseOp;
+use pony::ConnectionStorageBaseOp;
+use pony::Message;
 use pony::NodeStorageOp;
+use pony::Tag;
+use pony::Topic;
 use pony::{PonyError, Result};
 
 use super::Agent;
@@ -94,7 +94,7 @@ where
                             .ok_or_else(|| PonyError::Custom("Missing WireGuard keys".into()))?;
 
                         let node_id = {
-                            let mem = self.state.lock().await;
+                            let mem = self.memory.lock().await;
                             let node = mem.nodes.get_self();
                             node.map(|n| n.uuid).ok_or_else(|| {
                                 PonyError::Custom("Current node UUID not found".to_string())
@@ -105,7 +105,7 @@ where
                         let conn = Connection::new(proto);
 
                         {
-                            let mut mem = self.state.lock().await;
+                            let mut mem = self.memory.lock().await;
                             mem.connections
                                 .add(&conn_id, conn.clone().into())
                                 .map_err(|err| {
@@ -153,7 +153,7 @@ where
                                 ))
                             })?;
 
-                        let mut mem = self.state.lock().await;
+                        let mut mem = self.memory.lock().await;
                         mem.connections.add(&conn_id, conn.into()).map_err(|err| {
                             PonyError::Custom(format!("Failed to add conn {}: {}", conn_id, err))
                         })?;
@@ -179,7 +179,7 @@ where
                                     ))
                                 })?;
 
-                            let mut mem = self.state.lock().await;
+                            let mut mem = self.memory.lock().await;
                             mem.connections.add(&conn_id, conn.into()).map_err(|err| {
                                 PonyError::Custom(format!(
                                     "Failed to add conn {}: {}",
@@ -212,8 +212,8 @@ where
                         PonyError::Custom(format!("Failed to delete WireGuard peer: {}", e))
                     })?;
 
-                    let mut state = self.state.lock().await;
-                    let _ = state.connections.remove(&msg.conn_id);
+                    let mut mem = self.memory.lock().await;
+                    let _ = mem.connections.remove(&msg.conn_id);
 
                     Ok(())
                 }
@@ -232,8 +232,8 @@ where
                             ))
                         })?;
 
-                    let mut state = self.state.lock().await;
-                    let _ = state.connections.remove(&msg.conn_id);
+                    let mut mem = self.memory.lock().await;
+                    let _ = mem.connections.remove(&msg.conn_id);
 
                     Ok(())
                 }

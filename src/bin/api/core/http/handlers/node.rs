@@ -9,24 +9,24 @@ use pony::http::requests::NodeResponse;
 use pony::http::requests::NodeType;
 use pony::http::requests::NodesQueryParams;
 use pony::http::ResponseMessage;
-use pony::state::node::Status as NodeStatus;
-use pony::zmq::publisher::Publisher as ZmqPublisher;
-use pony::Conn as Connection;
+use pony::memory::node::Status as NodeStatus;
+use pony::Connection;
 use pony::ConnectionApiOp;
 use pony::ConnectionBaseOp;
 use pony::ConnectionStatus;
 use pony::NodeStorageOp;
 use pony::OperationStatus as StorageOperationStatus;
+use pony::Publisher as ZmqPublisher;
 
 use crate::core::sync::tasks::SyncOp;
-use crate::core::sync::SyncState;
+use crate::core::sync::MemSync;
 
 // Register node handler
 // POST /node
 pub async fn post_node_handler<N, C>(
     node_req: NodeRequest,
     node_param: NodeTypeParam,
-    state: SyncState<N, C>,
+    memory: MemSync<N, C>,
     publisher: ZmqPublisher,
 ) -> Result<impl warp::Reply, warp::Rejection>
 where
@@ -52,16 +52,16 @@ where
         NodeType::All
     };
 
-    let status = SyncOp::add_node(&state, &node_id, node.clone()).await;
+    let status = SyncOp::add_node(&memory, &node_id, node.clone()).await;
 
     let response = match status {
         Ok(StorageOperationStatus::Ok(id))
         | Ok(StorageOperationStatus::AlreadyExist(id))
         | Ok(StorageOperationStatus::NotModified(id)) => {
             let _ =
-                SyncOp::update_node_status(&state, &node_id, &node.env, NodeStatus::Online).await;
+                SyncOp::update_node_status(&memory, &node_id, &node.env, NodeStatus::Online).await;
 
-            let mem = state.memory.lock().await;
+            let mem = memory.memory.read().await;
 
             let connections_iter = mem.connections.iter().filter(|(_, conn)| {
                 !conn.get_deleted()
@@ -126,7 +126,7 @@ where
 /// List of nodes handler
 pub async fn get_nodes_handler<N, C>(
     node_req: NodesQueryParams,
-    state: SyncState<N, C>,
+    memory: MemSync<N, C>,
 ) -> Result<impl warp::Reply, warp::Rejection>
 where
     N: NodeStorageOp + Sync + Send + Clone + 'static,
@@ -139,7 +139,7 @@ where
         + From<Connection>
         + PartialEq,
 {
-    let mem = state.memory.lock().await;
+    let mem = memory.memory.read().await;
 
     let nodes = if let Some(env) = node_req.env {
         mem.nodes.get_by_env(&env)
@@ -181,7 +181,7 @@ where
 /// Get of a node handler
 pub async fn get_node_handler<N, C>(
     node_req: NodeIdParam,
-    state: SyncState<N, C>,
+    memory: MemSync<N, C>,
 ) -> Result<impl warp::Reply, warp::Rejection>
 where
     N: NodeStorageOp + Sync + Send + Clone + 'static,
@@ -194,7 +194,7 @@ where
         + From<Connection>
         + PartialEq,
 {
-    let mem = state.memory.lock().await;
+    let mem = memory.memory.read().await;
 
     if let Some(node) = mem.nodes.get_by_id(&node_req.node_id) {
         let response = ResponseMessage::<Option<NodeResponse>> {

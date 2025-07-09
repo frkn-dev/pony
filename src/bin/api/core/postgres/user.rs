@@ -5,7 +5,7 @@ use tokio::sync::Mutex;
 use tokio_postgres::error::SqlState;
 use tokio_postgres::Client as PgClient;
 
-use pony::state::user::User;
+use pony::memory::user::User;
 use pony::utils::from_pg_bigint;
 use pony::utils::to_pg_bigint;
 use pony::{PonyError, Result};

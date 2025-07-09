@@ -7,7 +7,7 @@ use pony::metrics::memory::mem_metrics;
 use pony::metrics::metrics::Metric;
 use pony::metrics::metrics::MetricType;
 use pony::metrics::Metrics;
-use pony::Conn as Connection;
+use pony::Connection;
 use pony::ConnectionApiOp;
 use pony::ConnectionBaseOp;
 use pony::NodeStorageOp;

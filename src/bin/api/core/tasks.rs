@@ -1,15 +1,15 @@
 use async_trait::async_trait;
-use std::time::Duration;
-
 use chrono::NaiveTime;
 use chrono::TimeZone;
 use chrono::Utc;
 use futures::future::join_all;
+use rand::Rng;
 use std::collections::HashMap;
-use tokio::time::interval;
+use std::time::Duration;
 
 use pony::memory::node::Node;
 use pony::memory::node::Status as NodeStatus;
+use pony::utils::measure_time;
 use pony::Action;
 use pony::Connection;
 use pony::ConnectionApiOp;
@@ -42,16 +42,26 @@ pub trait Tasks {
 #[async_trait]
 impl Tasks for Api<HashMap<String, Vec<Node>>, Connection> {
     async fn periodic_db_sync(&self, interval_sec: u64) {
-        let mut ticker = interval(Duration::from_secs(interval_sec));
+        let base = Duration::from_secs(interval_sec);
+
         loop {
-            ticker.tick().await;
-            if let Err(e) = self.init_state_from_db().await {
+            let jitter = rand::thread_rng().gen_range(0..=30);
+            let interval_sec_with_jitter = base + Duration::from_secs(jitter);
+            tokio::time::sleep(interval_sec_with_jitter).await;
+
+            if let Err(e) = measure_time(
+                self.init_state_from_db(),
+                format!("Periodic DB Sync: interval + jitter {interval_sec}, {jitter}"),
+            )
+            .await
+            {
                 log::error!("Periodic DB sync failed: {:?}", e);
             } else {
                 log::info!("Periodic DB sync completed successfully");
             }
         }
     }
+
     async fn init_state_from_db(&self) -> Result<()> {
         let db = self.sync.db.clone();
         let mut mem = self.sync.memory.write().await;

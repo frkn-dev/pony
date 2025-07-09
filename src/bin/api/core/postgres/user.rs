@@ -3,12 +3,13 @@ use chrono::Utc;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio_postgres::error::SqlState;
-use tokio_postgres::Client as PgClient;
 
 use pony::memory::user::User;
 use pony::utils::from_pg_bigint;
 use pony::utils::to_pg_bigint;
 use pony::{PonyError, Result};
+
+use super::PgClientManager;
 
 #[derive(Clone)]
 pub struct UserRow {
@@ -62,16 +63,17 @@ impl TryFrom<UserRow> for User {
 }
 
 pub struct PgUser {
-    pub client: Arc<Mutex<PgClient>>,
+    pub manager: Arc<Mutex<PgClientManager>>,
 }
 
 impl PgUser {
-    pub fn new(client: Arc<Mutex<PgClient>>) -> Self {
-        Self { client }
+    pub fn new(manager: Arc<Mutex<PgClientManager>>) -> Self {
+        Self { manager }
     }
 
     pub async fn insert(&self, user_row: UserRow) -> Result<()> {
-        let client = self.client.lock().await;
+        let mut manager = self.manager.lock().await;
+        let client = manager.get_client().await?;
 
         let query = "
         INSERT INTO users (id, username, telegram_id, env, daily_limit_mb, password, created_at, modified_at, is_deleted)
@@ -103,7 +105,8 @@ impl PgUser {
     }
 
     pub async fn delete(&self, user_id: &uuid::Uuid) -> Result<()> {
-        let client = self.client.lock().await;
+        let mut manager = self.manager.lock().await;
+        let client = manager.get_client().await?;
 
         let _ = client
             .execute(
@@ -115,7 +118,8 @@ impl PgUser {
         Ok(())
     }
     pub async fn update(&self, user_id: &uuid::Uuid, user: User) -> Result<()> {
-        let client = self.client.lock().await;
+        let mut manager = self.manager.lock().await;
+        let client = manager.get_client().await?;
 
         let query = "
                     UPDATE users SET env = $2, daily_limit_mb = $3, password = $4,  modified_at = $5, is_deleted = $6
@@ -144,7 +148,8 @@ impl PgUser {
     }
 
     pub async fn all(&self) -> Result<Vec<UserRow>> {
-        let client = self.client.lock().await;
+        let mut manager = self.manager.lock().await;
+        let client = manager.get_client().await?;
 
         let rows = client
             .query(

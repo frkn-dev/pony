@@ -105,6 +105,9 @@ fn default_healthcheck_interval() -> u64 {
 fn default_collect_conn_stat_interval() -> u64 {
     60
 }
+fn default_db_sync_interval_sec() -> u64 {
+    300
+}
 
 #[derive(Clone, Debug, Deserialize, Default)]
 pub struct ApiServiceConfig {
@@ -128,6 +131,8 @@ pub struct ApiServiceConfig {
     pub metrics_interval: u64,
     #[serde(default = "default_metrics_hb_interval")]
     pub metrics_hb_interval: u64,
+    #[serde(default = "default_db_sync_interval_sec")]
+    pub db_sync_interval_sec: u64,
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]

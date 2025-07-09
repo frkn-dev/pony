@@ -8,28 +8,28 @@ use std::sync::Arc;
 use chrono::DateTime;
 use chrono::Utc;
 use tokio::sync::Mutex;
-use tokio_postgres::Client as PgClient;
-
-use pony::memory::node::Node;
-use pony::memory::node::Status as NodeStatus;
-use pony::utils::to_ipv4;
 
 use pony::config::wireguard::WireguardSettings;
 use pony::config::xray::Inbound;
+use pony::memory::node::Node;
+use pony::memory::node::Status as NodeStatus;
+use pony::utils::to_ipv4;
+use pony::Result;
 
-use crate::Result;
+use super::PgClientManager;
 
 pub struct PgNode {
-    pub client: Arc<Mutex<PgClient>>,
+    pub manager: Arc<Mutex<PgClientManager>>,
 }
 
 impl PgNode {
-    pub fn new(client: Arc<Mutex<PgClient>>) -> Self {
-        Self { client }
+    pub fn new(manager: Arc<Mutex<PgClientManager>>) -> Self {
+        Self { manager }
     }
 
     pub async fn upsert(&self, node_id: uuid::Uuid, node: Node) -> Result<()> {
-        let mut client = self.client.lock().await;
+        let mut manager = self.manager.lock().await;
+        let client = manager.get_client().await?;
         let tx = client.transaction().await?;
 
         let address: IpAddr = IpAddr::V4(node.address);
@@ -146,8 +146,8 @@ impl PgNode {
     }
 
     pub async fn insert(&self, node_id: uuid::Uuid, node: Node) -> Result<()> {
-        let mut client = self.client.lock().await;
-
+        let mut manager = self.manager.lock().await;
+        let client = manager.get_client().await?;
         let tx = client.transaction().await?;
 
         let node_query = "
@@ -239,7 +239,8 @@ impl PgNode {
     }
 
     pub async fn all(&self) -> Result<Vec<Node>> {
-        let client = self.client.lock().await;
+        let mut manager = self.manager.lock().await;
+        let client = manager.get_client().await?;
 
         let rows = client
             .query(
@@ -356,7 +357,8 @@ impl PgNode {
         env: &str,
         new_status: NodeStatus,
     ) -> Result<()> {
-        let client = self.client.lock().await;
+        let mut manager = self.manager.lock().await;
+        let client = manager.get_client().await?;
 
         let query = "
             UPDATE nodes

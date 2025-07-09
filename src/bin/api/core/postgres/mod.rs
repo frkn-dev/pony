@@ -23,41 +23,80 @@ pub mod connection;
 pub mod node;
 pub mod user;
 
-#[derive(Clone)]
-pub struct PgContext {
-    pub client: Arc<Mutex<PgClient>>,
+pub struct PgClientManager {
+    config: PostgresConfig,
+    client: Option<PgClient>,
 }
 
-impl PgContext {
-    pub async fn init(config: &PostgresConfig) -> Result<Self> {
+impl PgClientManager {
+    pub async fn new(config: PostgresConfig) -> Result<Self> {
+        Ok(Self {
+            config,
+            client: None,
+        })
+    }
+
+    async fn connect(&mut self) -> Result<()> {
         let connection_line = format!(
             "host={} user={} dbname={} password={} port={}",
-            config.host, config.username, config.db, config.password, config.port
+            self.config.host,
+            self.config.username,
+            self.config.db,
+            self.config.password,
+            self.config.port
         );
 
         let (client, connection) = tokio_postgres::connect(&connection_line, NoTls).await?;
 
         tokio::spawn(async move {
             if let Err(e) = connection.await {
-                eprintln!("Postgres connection error: {}", e);
+                log::error!("Postgres connection dropped: {}", e);
             }
         });
 
+        self.client = Some(client);
+        Ok(())
+    }
+
+    pub async fn get_client(&mut self) -> Result<&mut PgClient> {
+        if self.client.is_none() {
+            self.connect().await?;
+        }
+
+        // ping with simple query
+        let client = self.client.as_mut().unwrap();
+        if let Err(e) = client.simple_query("SELECT 1").await {
+            log::warn!("PG ping failed: {}. Reconnecting...", e);
+            self.connect().await?;
+        }
+
+        Ok(self.client.as_mut().unwrap())
+    }
+}
+
+#[derive(Clone)]
+pub struct PgContext {
+    pub manager: Arc<Mutex<PgClientManager>>,
+}
+
+impl PgContext {
+    pub async fn init(config: &PostgresConfig) -> Result<Self> {
+        let manager = PgClientManager::new(config.clone()).await?;
         Ok(Self {
-            client: Arc::new(Mutex::new(client)),
+            manager: Arc::new(Mutex::new(manager)),
         })
     }
 
     pub fn node(&self) -> PgNode {
-        PgNode::new(self.client.clone())
+        PgNode::new(self.manager.clone())
     }
 
     pub fn conn(&self) -> PgConn {
-        PgConn::new(self.client.clone())
+        PgConn::new(self.manager.clone())
     }
 
     pub fn user(&self) -> PgUser {
-        PgUser::new(self.client.clone())
+        PgUser::new(self.manager.clone())
     }
 }
 

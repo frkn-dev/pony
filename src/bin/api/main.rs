@@ -13,7 +13,7 @@ use pony::metrics::Metrics;
 use pony::utils::*;
 use pony::zmq::publisher::Publisher as ZmqPublisher;
 use pony::MemoryCache;
-use pony::{PonyError, Result};
+use pony::Result;
 
 use crate::core::clickhouse::ChContext;
 use crate::core::http::routes::Http;
@@ -83,7 +83,9 @@ async fn main() -> Result<()> {
 
     let api_clone = api.clone();
     tokio::spawn(async move {
-        api_clone.periodic_db_sync(300).await;
+        api_clone
+            .periodic_db_sync(settings.api.db_sync_interval_sec)
+            .await;
     });
 
     if settings.api.metrics_enabled {

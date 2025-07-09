@@ -5,10 +5,8 @@ use serde::Deserialize;
 use serde::Serialize;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use tokio_postgres::Client as PgClient;
 
 use pony::Connection as Conn;
-
 use pony::ConnectionStat;
 use pony::ConnectionStatus;
 use pony::Proto;
@@ -16,7 +14,9 @@ use pony::Tag;
 use pony::WgKeys;
 use pony::WgParam;
 
-use crate::{PonyError, Result};
+use pony::{PonyError, Result};
+
+use super::PgClientManager;
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct ConnRow {
@@ -108,16 +108,17 @@ impl TryFrom<ConnRow> for Conn {
 }
 
 pub struct PgConn {
-    pub client: Arc<Mutex<PgClient>>,
+    pub manager: Arc<Mutex<PgClientManager>>,
 }
 
 impl PgConn {
-    pub fn new(client: Arc<Mutex<PgClient>>) -> Self {
-        Self { client }
+    pub fn new(manager: Arc<Mutex<PgClientManager>>) -> Self {
+        Self { manager }
     }
 
     pub async fn all(&self) -> Result<Vec<ConnRow>> {
-        let client = self.client.lock().await;
+        let mut manager = self.manager.lock().await;
+        let client = manager.get_client().await?;
 
         let query = "
         SELECT 
@@ -204,12 +205,14 @@ impl PgConn {
     }
 
     pub async fn update_stat(&self, conn_id: &uuid::Uuid, stat: ConnectionStat) -> Result<()> {
+        let mut manager = self.manager.lock().await;
+        let client = manager.get_client().await?;
+
         let query = "
                        UPDATE connections 
                        SET downlink = $1, uplink = $2, online = $3
                        WHERE id = $4";
 
-        let client = self.client.lock().await;
         client
             .execute(
                 query,
@@ -225,25 +228,30 @@ impl PgConn {
         conn_id: &uuid::Uuid,
         status: ConnectionStatus,
     ) -> Result<()> {
+        let mut manager = self.manager.lock().await;
+        let client = manager.get_client().await?;
+
         let query = format!("UPDATE connections SET status = $1::conn_status WHERE id = $2");
 
-        let client = self.client.lock().await;
         client.execute(&query, &[&status, conn_id]).await?;
 
         Ok(())
     }
 
     pub async fn delete(&self, conn_id: &uuid::Uuid) -> Result<()> {
+        let mut manager = self.manager.lock().await;
+        let client = manager.get_client().await?;
+
         let query = format!("UPDATE connections SET is_deleted = true WHERE id = $1");
 
-        let client = self.client.lock().await;
         client.execute(&query, &[conn_id]).await?;
 
         Ok(())
     }
 
     pub async fn insert(&self, conn: ConnRow) -> Result<()> {
-        let client = self.client.lock().await;
+        let mut manager = self.manager.lock().await;
+        let client = manager.get_client().await?;
 
         let query = "
         INSERT INTO connections (
@@ -315,7 +323,8 @@ impl PgConn {
         }
     }
     pub async fn update(&self, conn: ConnRow) -> Result<()> {
-        let client = self.client.lock().await;
+        let mut manager = self.manager.lock().await;
+        let client = manager.get_client().await?;
 
         let query = "
         UPDATE connections SET 

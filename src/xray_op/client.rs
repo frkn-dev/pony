@@ -9,7 +9,7 @@ use super::vmess::ConnInfo as VmessConnInfo;
 use super::ProtocolConn;
 
 use crate::error::{PonyError, Result};
-use crate::memory::tag::Tag;
+use crate::memory::tag::ProtoTag as Tag;
 use crate::xray_api::xray::app::{
     proxyman::command::handler_service_client::HandlerServiceClient,
     stats::command::stats_service_client::StatsServiceClient,

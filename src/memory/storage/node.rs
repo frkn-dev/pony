@@ -7,7 +7,7 @@ use super::super::cache::Connections;
 use super::super::connection::op::base::Operations as ConnectionBaseOp;
 use super::super::node::Node;
 use super::super::storage::Status as OperationStatus;
-use super::super::tag::Tag;
+use super::super::tag::ProtoTag as Tag;
 use crate::error::{PonyError, Result};
 
 pub trait Operations {

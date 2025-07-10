@@ -46,27 +46,42 @@ impl Subscriber {
         }
     }
 
-    pub async fn recv(&self) -> Option<String> {
+    pub async fn recv(&self) -> Option<(Vec<u8>, Vec<u8>)> {
         let socket = self.socket.clone();
-        tokio::task::spawn_blocking(move || {
+
+        let result = tokio::task::spawn_blocking(move || {
             let socket = socket.blocking_lock();
-            match socket.recv_string(0) {
-                Ok(Ok(data)) => {
-                    log::debug!("🔵 Received from ZMQ socket: {}", data);
-                    Some(data)
-                }
-                Ok(Err(e)) => {
-                    log::error!("🔴 Failed to decode string from ZMQ: {:?}", e);
-                    None
-                }
+
+            let topic = match socket.recv_bytes(0) {
+                Ok(t) => t,
                 Err(e) => {
-                    log::error!("🔴 Failed to receive from ZMQ: {}", e);
-                    None
+                    log::error!("ZMQ recv topic failed: {}", e);
+                    return None;
                 }
-            }
+            };
+
+            let payload = match socket.recv_bytes(0) {
+                Ok(p) => p,
+                Err(e) => {
+                    log::error!("ZMQ recv payload failed: {}", e);
+                    return None;
+                }
+            };
+
+            Some((topic, payload))
         })
-        .await
-        .ok()
-        .flatten()
+        .await;
+
+        match result {
+            Ok(Some(pair)) => Some(pair),
+            Ok(None) => {
+                log::warn!("ZMQ multipart recv returned None");
+                None
+            }
+            Err(e) => {
+                log::error!("ZMQ recv_multipart join error: {}", e);
+                None
+            }
+        }
     }
 }

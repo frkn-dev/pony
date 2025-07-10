@@ -1,7 +1,7 @@
 use serde::Deserialize;
 use serde::Serialize;
 
-use super::super::tag::Tag;
+use super::super::tag::ProtoTag as Tag;
 use super::wireguard::Param as WgParam;
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]

@@ -5,7 +5,7 @@ use url::Url;
 use super::ProtocolConn;
 use crate::error::{PonyError, Result as PonyResult};
 use crate::http::requests::InboundResponse;
-use crate::memory::tag::Tag;
+use crate::memory::tag::ProtoTag as Tag;
 use crate::xray_api::xray::proxy::vless;
 use crate::xray_api::xray::{common::protocol::User, common::serial::TypedMessage};
 

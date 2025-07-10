@@ -1,45 +1,103 @@
-App Protocol Description
+# Application Protocol Description
 
-The application communicates using the ZeroMQ Pub/Sub model, where messages are published to specific topics and subscribed by the application components. If any field provided for existed user_id it would be updated. Below is the detailed protocol specification for supported actions.
-1. CREATE User
+## Overview
 
-Used to create a new user in the system.
+The application communicates via ZeroMQ Pub/Sub pattern, exchanging binary messages serialized with rkyv on specific topics. Components subscribe to topics to receive messages about users and connections, and publish messages to control state changes.
 
-Message Structure:
+This approach replaces plain JSON messaging with efficient zero-copy serialization, reducing message size and CPU overhead.
+Supported Actions & Message Structures
 
-```
-{
-  "action": "create",
-  "user_id": "3747aefe-add3-4bad-badf-621e6585f3d0",
-  "trial": false,
-  "limit": 6000,
-  "password": "RANDOM_PASSWORD"
+Messages are sent as binary blobs representing the following Rust struct:
+
+#[derive(Archive, Serialize, Deserialize, Clone, Debug)]
+pub struct Message {
+pub conn_id: UuidWrapper,
+pub action: Action,
+pub tag: ArchivedTagSimple,
+pub wg: Option<WgParam>,
+pub password: Option<String>,
 }
-```
 
-Field Descriptions:
-
-    action: (String, mandatory) - Specifies the action type. Must be "create".
-    user_id: (String, mandatory) - A valid UUID representing the user.
-    trial: (Boolean, optional, default: true) - Indicates whether the user is a trial user.
-    limit: (i64, optional, default: 100) - Data usage limit for the user in megabytes (MB).
-    password: (String, optional) - password for Shadowsocks
-
-2. DELETE User
-
-Used to remove an existing user from the system.
-
-Message Structure:
-
-```
-{
-  "action": "delete",
-  "user_id": "dc79e5c9-4b10-48b3-b7b8-534821ce48c7"
+#[derive(Archive, Serialize, Deserialize, Debug, Clone)]
+pub enum Action {
+Create,
+Update,
+Delete,
+ResetStat,
 }
-```
 
-Field Descriptions:
+CREATE/UPDATE/DELETE Connection
 
-    action: (String, mandatory) - Specifies the action type. Must be "delete".
-    user_id: (String, mandatory) - A valid UUID representing the user.
+Connections represent individual tunnels (WireGuard, Shadowsocks, VLESS, etc.) and are managed similarly.
 
+Binary message includes:
+
+    conn_id: Connection UUID
+
+    action: Create/Update/Delete
+
+    tag: Protocol type string ("Wireguard", "Shadowsocks", "VlessXtls", etc.)
+
+    wg: WireGuard parameters (keys, allowed IPs), if applicable
+
+    password: Shadowsocks password, if applicable
+
+Messaging Details
+
+    Messages are serialized using rkyv for zero-copy performance.
+
+    Each message is published on a ZeroMQ topic: usually the node ID, environment, or "all".
+
+    Subscribers filter by topic and deserialize binary payloads to Message structs.
+
+    The protocol supports efficient updates and state syncing between components.
+
+### Examples in JSON
+
+Create
+
+    {
+      "action": "create",
+      "conn_id": "17865be5-e18b-40d6-b5af-e1c4d51ff50a",
+      "tag": "Wireguard",
+      "wg": {
+        "keys": {
+          "privkey": "LY8D/CyB/JT1uiFhK1yVKxBB3VMZeA0DzOAJEvgQw50=",
+          "pubkey": "a4uH3iSdV6Ifc7thKL8IHTM8PkL/yPBUztN9xuoA2Do="
+        },
+        "address": {
+          "ip": "10.10.0.24",
+          "cidr": 32
+        }
+      },
+      "password": null
+    }
+
+Update
+
+    {
+      "action": "update",
+      "conn_id": "17865be5-e18b-40d6-b5af-e1c4d51ff50a",
+      "tag": "Wireguard",
+      "wg": {
+        "keys": {
+          "privkey": "NEW_PRIVATE_KEY_BASE64",
+          "pubkey": "NEW_PUBLIC_KEY_BASE64"
+        },
+        "address": {
+          "ip": "10.10.0.25",
+          "cidr": 32
+        }
+      },
+      "password": null
+    }
+
+Delete
+
+    {
+      "action": "delete",
+      "conn_id": "17865be5-e18b-40d6-b5af-e1c4d51ff50a",
+      "tag": "Wireguard",
+      "wg": null,
+      "password": null
+    }

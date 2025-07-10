@@ -4,7 +4,7 @@ use tonic::Status;
 use crate::memory::connection::stat::Stat as ConnectionStat;
 use crate::memory::node::Stat as InboundStat;
 use crate::memory::stat::Stat;
-use crate::memory::tag::Tag;
+use crate::memory::tag::ProtoTag as Tag;
 use crate::xray_api::xray::app::stats::command::GetStatsResponse;
 
 #[derive(Debug, Clone, Copy)]

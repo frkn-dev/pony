@@ -1,11 +1,29 @@
+use rkyv::Archive;
+use rkyv::{Deserialize as RkyvDeserialize, Serialize as RkyvSerialize};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use tokio_postgres::types::FromSql;
 use tokio_postgres::types::ToSql;
 
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, Hash, Copy, ToSql, FromSql)]
+#[derive(
+    Archive,
+    Clone,
+    Debug,
+    RkyvDeserialize,
+    RkyvSerialize,
+    Deserialize,
+    Serialize,
+    PartialEq,
+    Eq,
+    Hash,
+    Copy,
+    ToSql,
+    FromSql,
+)]
+#[archive_attr(derive(Clone, Debug))]
+#[archive(check_bytes)]
 #[postgres(name = "proto", rename_all = "snake_case")]
-pub enum Tag {
+pub enum ProtoTag {
     #[serde(rename = "VlessXtls")]
     VlessXtls,
     #[serde(rename = "VlessGrpc")]
@@ -18,43 +36,38 @@ pub enum Tag {
     Wireguard,
 }
 
-impl fmt::Display for Tag {
+impl fmt::Display for ProtoTag {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Tag::VlessXtls => write!(f, "VlessXtls"),
-            Tag::VlessGrpc => write!(f, "VlessGrpc"),
-            Tag::Vmess => write!(f, "Vmess"),
-            Tag::Shadowsocks => write!(f, "Shadowsocks"),
-            Tag::Wireguard => write!(f, "Wireguard"),
+            ProtoTag::VlessXtls => write!(f, "VlessXtls"),
+            ProtoTag::VlessGrpc => write!(f, "VlessGrpc"),
+            ProtoTag::Vmess => write!(f, "Vmess"),
+            ProtoTag::Shadowsocks => write!(f, "Shadowsocks"),
+            ProtoTag::Wireguard => write!(f, "Wireguard"),
         }
     }
 }
 
-impl Tag {
+impl ProtoTag {
     pub fn is_wireguard(&self) -> bool {
-        // COMMENT(qezz): I'm sure it's possible to just use
-        //
-        // `*self == Tag::Wireguard`
-        //
-        // The `matches!()` is only needed when there's multiple entries
-        matches!(self, Tag::Wireguard)
+        *self == ProtoTag::Wireguard
     }
 
     pub fn is_shadowsocks(&self) -> bool {
-        matches!(self, Tag::Shadowsocks)
+        *self == ProtoTag::Shadowsocks
     }
 }
 
-impl std::str::FromStr for Tag {
+impl std::str::FromStr for ProtoTag {
     type Err = ();
 
     fn from_str(input: &str) -> Result<Self, Self::Err> {
         match input {
-            "VlessXtls" => Ok(Tag::VlessXtls),
-            "VlessGrpc" => Ok(Tag::VlessGrpc),
-            "Vmess" => Ok(Tag::Vmess),
-            "Shadowsocks" => Ok(Tag::Shadowsocks),
-            "Wireguard" => Ok(Tag::Wireguard),
+            "VlessXtls" => Ok(ProtoTag::VlessXtls),
+            "VlessGrpc" => Ok(ProtoTag::VlessGrpc),
+            "Vmess" => Ok(ProtoTag::Vmess),
+            "Shadowsocks" => Ok(ProtoTag::Shadowsocks),
+            "Wireguard" => Ok(ProtoTag::Wireguard),
             _ => Err(()),
         }
     }

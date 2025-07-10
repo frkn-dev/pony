@@ -174,7 +174,7 @@ impl PgConn {
                     (Some(privkey), Some(pubkey), Some(address)) => {
                         address.parse::<IpAddrMask>().ok().map(|ip_mask| WgParam {
                             keys: WgKeys { privkey, pubkey },
-                            address: ip_mask,
+                            address: ip_mask.into(),
                         })
                     }
                     _ => None,

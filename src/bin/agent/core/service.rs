@@ -1,4 +1,3 @@
-use pony::config::settings::NodeConfig;
 use qrcode::render::unicode;
 use qrcode::QrCode;
 use std::net::Ipv4Addr;
@@ -12,10 +11,12 @@ use tokio::time::sleep;
 use tokio::time::Duration;
 
 use pony::config::settings::AgentSettings;
+use pony::config::settings::NodeConfig;
 use pony::config::wireguard::WireguardSettings;
 use pony::config::xray::Config as XrayConfig;
 use pony::http::debug;
 use pony::http::requests::NodeType;
+use pony::memory::connection::wireguard::IpAddrMaskSerializable;
 use pony::memory::connection::wireguard::Param as WgParam;
 use pony::memory::node::Node;
 use pony::metrics::Metrics;
@@ -217,7 +218,10 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
                                     if let Some(inbound) = node.inbounds.get(&Tag::Wireguard) {
                                         log::debug!("Inbound {:?}", inbound);
 
+
+
                                         if let Some(wg) = conn.get_wireguard() {
+                                            let wg_address = <IpAddrMaskSerializable as Clone>::clone(&wg.address).into();
 
                                                 if let Ok(conn) = wireguard_conn(
                                                     &conn_id,
@@ -225,7 +229,7 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
                                                     inbound.as_inbound_response(),
                                                     &node.label,
                                                     &wg.keys.privkey,
-                                                    &wg.address,
+                                                    &wg_address,
                                                 ) {
 
                                                    println!(

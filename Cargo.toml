@@ -20,11 +20,14 @@ async-trait = "0.1"
 base64 = "0.22"
 chrono = { version = "0.4", features = ["serde"] }
 config = "0.14"
+console-subscriber = {version = "0.4", optional = true} 
 clickhouse = { version = "0.13.0" }
+clap = { version = "4.4", features = ["derive"] }
 defguard_wireguard_rs = {version = "0.7.2", features=["serde"]}
 default-net = "0.22"
 fern = "0.7"
 futures = "0.3"
+hex = "0.4"
 ipnet = { version = "2", features=["serde"] }
 log = "0.4"
 netstat2 = { version = "0.11.1" } 
@@ -33,6 +36,7 @@ prost = { version = "0.13" }
 prost-derive = { version = "0.13" }
 rand = "0.8"
 reqwest = { version = "0.12", features = ["json"] }
+rkyv = { version = "0.7", features = ["std", "alloc", "validation"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 serde_urlencoded = "0.7"
@@ -45,14 +49,13 @@ toml = "0.8"
 tokio = { version = "1", features = ["full"] }
 tokio-postgres = { version="0.7", features=["with-uuid-1", "with-chrono-0_4", "with-serde_json-1"]}
 postgres-types = { version = "0.2", features = ["derive"] }
+url = "2"
 uuid = { version = "1", features = ["serde", "v4"]  }
 urlencoding = "2.1.3"
 qrcode = "0.14"
 zmq = "0.10"
 warp = "0.3"
-url = "2"
 x25519-dalek =  { version = "2", features = ["static_secrets"] }
-console-subscriber = {version = "0.4", optional = true} 
 
 
 [build-dependencies]
@@ -76,5 +79,9 @@ path = "src/bin/agent/main.rs"
 [[bin]]
 name = "api"
 path = "src/bin/api/main.rs"
+
+[[bin]]
+name = "utils"
+path = "src/bin/utils.rs"
 
 

@@ -10,6 +10,7 @@ use pony::http::requests::ConnUpdateRequest;
 use pony::http::requests::UserIdQueryParam;
 use pony::http::requests::UserSubQueryParam;
 use pony::http::IdResponse;
+use pony::http::IpParseError;
 use pony::http::ResponseMessage;
 use pony::memory::node::Status as NodeStatus;
 use pony::utils;
@@ -145,7 +146,7 @@ where
                 node_id: existing_node_id,
             } = c.get_proto()
             {
-                existing_node_id == node_id && param.address.ip == wg.address.ip
+                existing_node_id == node_id && param.address.addr == wg.address.addr
             } else {
                 false
             }
@@ -178,7 +179,12 @@ where
         if let Some(node) = mem.nodes.get_by_id(&node_id) {
             if let Some(inbound) = node.inbounds.get(&conn_req.proto) {
                 if let Some(wg_settings) = &inbound.wg {
-                    if !utils::ip_in_mask(&wg_settings.network, wg.address.ip) {
+                    let ip = wg
+                        .address
+                        .addr
+                        .parse()
+                        .map_err(|e| warp::reject::custom(IpParseError(e)))?;
+                    if !utils::ip_in_mask(&wg_settings.network, ip) {
                         let response = ResponseMessage::<Option<String>> {
                             status: StatusCode::BAD_REQUEST.as_u16(),
                             message: format!("Address out of node netmask {}", wg_settings.network),
@@ -266,8 +272,10 @@ where
             .connections
             .iter()
             .filter(|(_, conn)| conn.get_proto().proto() == Tag::Wireguard)
-            .filter_map(|(_, conn)| conn.get_wireguard().map(|wg| wg.address.ip))
-            .filter_map(utils::to_ipv4)
+            .filter_map(|(_, conn)| {
+                conn.get_wireguard()
+                    .and_then(|wg| wg.address.addr.parse().ok())
+            })
             .max();
 
         let next_ip = match max_ip
@@ -351,11 +359,29 @@ where
 
     match SyncOp::add_conn(&memory, &conn_id, conn.clone()).await {
         Ok(StorageOperationStatus::Ok(id)) => {
+            let bytes = match rkyv::to_bytes::<_, 1024>(&msg) {
+                Ok(b) => b,
+                Err(e) => {
+                    let response = ResponseMessage::<Option<uuid::Uuid>> {
+                        status: StatusCode::INTERNAL_SERVER_ERROR.as_u16(),
+                        message: format!("Serialization error: {}", e),
+                        response: None,
+                    };
+                    return Ok(warp::reply::with_status(
+                        warp::reply::json(&response),
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                    ));
+                }
+            };
+
             if let Some(node_id) = conn.node_id {
-                let _ = publisher.send(&node_id.to_string(), msg).await;
+                let _ = publisher
+                    .send_binary(&node_id.to_string(), bytes.as_ref())
+                    .await;
             } else {
-                let _ = publisher.send(&env, msg).await;
+                let _ = publisher.send_binary(&env, bytes.as_ref()).await;
             }
+
             let response = ResponseMessage {
                 status: StatusCode::OK.as_u16(),
                 message: format!("Connection {} has been created", id),
@@ -473,10 +499,27 @@ where
         Ok(StorageOperationStatus::Ok(id)) => {
             let msg = conn.as_delete_message(&conn_id);
 
+            let bytes = match rkyv::to_bytes::<_, 1024>(&msg) {
+                Ok(b) => b,
+                Err(e) => {
+                    let response = ResponseMessage::<Option<uuid::Uuid>> {
+                        status: StatusCode::INTERNAL_SERVER_ERROR.as_u16(),
+                        message: format!("Serialization error: {}", e),
+                        response: None,
+                    };
+                    return Ok(warp::reply::with_status(
+                        warp::reply::json(&response),
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                    ));
+                }
+            };
+
             if let Some(node_id) = conn.get_wireguard_node_id() {
-                let _ = publisher.send(&node_id.to_string(), msg).await;
+                let _ = publisher
+                    .send_binary(&node_id.to_string(), bytes.as_ref())
+                    .await;
             } else {
-                let _ = publisher.send(&conn.get_env(), msg).await;
+                let _ = publisher.send_binary(&conn.get_env(), bytes.as_ref()).await;
             }
 
             let response = ResponseMessage::<Option<uuid::Uuid>> {
@@ -558,15 +601,29 @@ where
         Ok(StorageOperationStatus::Updated(id)) => {
             let mem = memory.memory.read().await;
 
-            let conn = mem.connections.get(&id);
-            if let Some(conn) = conn {
+            if let Some(conn) = mem.connections.get(&id) {
                 let msg = conn.as_update_message(&id);
 
-                let _ = publisher.send(&conn.get_env(), msg).await;
+                let bytes = match rkyv::to_bytes::<_, 1024>(&msg) {
+                    Ok(b) => b,
+                    Err(e) => {
+                        let response = ResponseMessage::<Option<IdResponse>> {
+                            status: StatusCode::INTERNAL_SERVER_ERROR.as_u16(),
+                            message: format!("Serialization error: {}", e),
+                            response: None,
+                        };
+                        return Ok(warp::reply::with_status(
+                            warp::reply::json(&response),
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                        ));
+                    }
+                };
+
+                let _ = publisher.send_binary(&conn.get_env(), bytes.as_ref()).await;
 
                 let message = format!("Connection {} has been updated", id);
                 let response = ResponseMessage::<Option<IdResponse>> {
-                    status: 200,
+                    status: StatusCode::OK.as_u16(),
                     message,
                     response: Some(IdResponse { id }),
                 };
@@ -577,7 +634,7 @@ where
             } else {
                 let message = format!("Connection {} is not found", id);
                 let response = ResponseMessage::<Option<uuid::Uuid>> {
-                    status: 404,
+                    status: StatusCode::NOT_FOUND.as_u16(),
                     message,
                     response: None,
                 };

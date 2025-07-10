@@ -9,7 +9,7 @@ use crate::config::xray::StreamSettings;
 use crate::memory::connection::wireguard::Param as WgParam;
 use crate::memory::node::Node;
 use crate::memory::node::Status as NodeStatus;
-use crate::memory::tag::Tag;
+use crate::memory::tag::ProtoTag as Tag;
 use crate::memory::user::User;
 use crate::ConnectionStatus;
 

@@ -43,6 +43,16 @@ impl Publisher {
         }
     }
 
+    pub async fn send_binary(&self, topic: &str, payload: &[u8]) -> zmq::Result<()> {
+        let socket = self.socket.lock().await;
+
+        socket.send(topic, zmq::SNDMORE)?;
+        socket.send(payload, 0)?;
+
+        log::debug!("PUB: Message sent: {} | {} bytes", topic, payload.len());
+        Ok(())
+    }
+
     pub async fn send(&self, topic: &str, message: impl ToString) -> zmq::Result<()> {
         let full_message = format!("{} {}", topic, message.to_string());
         let socket = self.socket.lock().await;

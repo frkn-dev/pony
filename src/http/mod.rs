@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use warp::reject;
+use warp::reject::Reject;
 
 pub mod debug;
 pub mod filters;
@@ -28,4 +29,14 @@ pub struct IdResponse {
 #[derive(Debug)]
 struct Unauthorized;
 
-impl warp::reject::Reject for Unauthorized {}
+impl Reject for Unauthorized {}
+
+#[derive(Debug)]
+pub struct IpParseError(pub std::net::AddrParseError);
+
+impl Reject for IpParseError {}
+
+#[derive(Debug)]
+pub struct MyRejection(pub Box<dyn std::error::Error + Send + Sync>);
+
+impl Reject for MyRejection {}

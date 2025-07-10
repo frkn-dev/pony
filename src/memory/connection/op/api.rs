@@ -75,10 +75,10 @@ impl Operations for Conn {
         };
 
         Message {
-            conn_id: *conn_id,
+            conn_id: (*conn_id).into(),
             action: Action::Create,
             password,
-            tag,
+            tag: tag,
             wg,
         }
     }
@@ -97,10 +97,10 @@ impl Operations for Conn {
         };
 
         Message {
-            conn_id: *conn_id,
+            conn_id: (*conn_id).into(),
             action: Action::Update,
             password,
-            tag,
+            tag: tag,
             wg,
         }
     }
@@ -119,10 +119,10 @@ impl Operations for Conn {
         };
 
         Message {
-            conn_id: *conn_id,
+            conn_id: (*conn_id).into(),
             action: Action::Delete,
             password,
-            tag,
+            tag: tag,
             wg,
         }
     }

@@ -12,7 +12,7 @@ use tokio::time::{sleep, Duration as TokioDuration};
 use url::Url;
 
 use crate::http::requests::InboundResponse;
-use crate::memory::tag::Tag;
+use crate::memory::tag::ProtoTag as Tag;
 use crate::xray_op::vless::vless_grpc_conn;
 use crate::xray_op::vless::vless_xtls_conn;
 use crate::xray_op::vmess::vmess_tcp_conn;

@@ -1,5 +1,5 @@
 use super::ProtocolConn;
-use crate::memory::tag::Tag;
+use crate::memory::tag::ProtoTag as Tag;
 use crate::xray_api::xray::proxy::shadowsocks;
 use crate::xray_api::xray::{
     common::protocol::User, common::serial::TypedMessage, proxy::shadowsocks::CipherType,

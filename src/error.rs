@@ -50,6 +50,9 @@ pub enum PonyError {
 
     #[error("Custom error: {0}")]
     Custom(String),
+
+    #[error("SerializationError: {0}")]
+    SerializationError(String),
 }
 
 #[derive(Debug, Error)]

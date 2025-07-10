@@ -1,5 +1,8 @@
 use async_trait::async_trait;
+use defguard_wireguard_rs::net::IpAddrMask;
+use hex::encode as hex_encode;
 use pony::Proto;
+use rkyv::AlignedVec;
 
 use tonic::Status;
 
@@ -14,6 +17,7 @@ use pony::NodeStorageOp;
 use pony::Tag;
 use pony::Topic;
 use pony::{PonyError, Result};
+use rkyv::Deserialize;
 
 use super::Agent;
 
@@ -32,50 +36,54 @@ where
     async fn run_subscriber(&self) -> Result<()> {
         let sub = self.subscriber.clone();
 
-        let topic0 = self.subscriber.topics[0].clone();
-        let topic1 = self.subscriber.topics[1].clone();
-        let _topic2 = self.subscriber.topics[2].clone();
-
         assert!(self.subscriber.topics.contains(&"all".to_string()));
 
         loop {
-            if let Some(data) = sub.recv().await {
-                let mut parts = data.splitn(2, ' ');
-                let topic_str = parts.next().unwrap_or("");
-                let payload = parts.next().unwrap_or("");
+            let Some((topic_bytes, payload_bytes)) = sub.recv().await else {
+                log::warn!("SUB: No multipart message received");
+                continue;
+            };
 
-                match Topic::from_raw(topic_str) {
-                    Topic::Init(uuid) if uuid != topic0 => {
-                        log::warn!("SUB: Skipping init for another node: {}", uuid);
-                        continue;
-                    }
-                    Topic::Updates(env) if env != topic1 => {
-                        log::warn!("SUB: Skipping update for another env: {}", env);
-                        continue;
-                    }
-                    Topic::Unknown(raw) => {
-                        log::warn!("SUB: Unknown topic: {}", raw);
-                        continue;
-                    }
-                    Topic::All => {
-                        log::debug!("SUB: message for All topic recieved");
-                    }
-                    _ => {}
+            let topic_str = std::str::from_utf8(&topic_bytes).unwrap_or("<invalid utf8>");
+            log::debug!("SUB: Topic string: {:?}", topic_str);
+            log::debug!("SUB: Payload {} bytes", payload_bytes.len());
+
+            match Topic::from_raw(topic_str) {
+                Topic::Init(uuid) if uuid != self.subscriber.topics[0] => {
+                    log::warn!("SUB: Skipping init for another node: {}", uuid);
+                    continue;
                 }
+                Topic::Updates(env) if env != self.subscriber.topics[1] => {
+                    log::warn!("SUB: Skipping update for another env: {}", env);
+                    continue;
+                }
+                Topic::Unknown(raw) => {
+                    log::warn!("SUB: Unknown topic: {}", raw);
+                    continue;
+                }
+                Topic::All => {
+                    log::debug!("SUB: Message for 'All' topic received");
+                }
+                topic => {
+                    log::debug!("SUB: Accepted topic: {:?}", topic);
+                }
+            }
 
-                match serde_json::from_str::<Message>(payload) {
-                    Ok(message) => {
-                        if let Err(err) = self.handle_message(message).await {
-                            log::error!("ZMQ SUB: Failed to handle message: {}", err);
-                        }
+            let mut aligned = AlignedVec::new();
+            aligned.extend_from_slice(&payload_bytes);
+
+            let archived = unsafe { rkyv::archived_root::<Message>(&aligned) };
+
+            match archived.deserialize(&mut rkyv::Infallible) {
+                Ok(message) => {
+                    log::debug!("SUB: Successfully deserialized message: {:?}", message);
+                    if let Err(err) = self.handle_message(message).await {
+                        log::error!("ZMQ SUB: Failed to handle message: {}", err);
                     }
-                    Err(err) => {
-                        log::error!(
-                            "ZMQ SUB: Failed to parse payload: {}\nError: {}",
-                            payload,
-                            err
-                        );
-                    }
+                }
+                Err(err) => {
+                    log::error!("ZMQ SUB: Failed to deserialize message: {}", err);
+                    log::error!("SUB: Payload bytes (hex) = {}", hex::encode(payload_bytes));
                 }
             }
         }
@@ -84,9 +92,10 @@ where
     async fn handle_message(&self, msg: Message) -> Result<()> {
         match msg.action {
             Action::Create | Action::Update => {
-                let conn_id = msg.conn_id;
+                let conn_id: uuid::Uuid = msg.conn_id.clone().into();
+                let tag = msg.tag;
 
-                match msg.tag {
+                match tag {
                     Tag::Wireguard => {
                         let wg = msg
                             .wg
@@ -107,7 +116,7 @@ where
                         {
                             let mut mem = self.memory.write().await;
                             mem.connections
-                                .add(&conn_id, conn.clone().into())
+                                .add(&conn_id.clone(), conn.clone().into())
                                 .map_err(|err| {
                                     PonyError::Custom(format!(
                                         "Failed to add WireGuard conn {}: {}",
@@ -126,7 +135,9 @@ where
                             return Err(PonyError::Custom("WG User already exist".into()));
                         }
 
-                        wg_api.create(&wg.keys.pubkey, wg.address).map_err(|e| {
+                        let wg_address: IpAddrMask = wg.address.into();
+
+                        wg_api.create(&wg.keys.pubkey, wg_address).map_err(|e| {
                             PonyError::Custom(format!("Failed to create WireGuard peer: {}", e))
                         })?;
 
@@ -136,7 +147,7 @@ where
                     }
 
                     Tag::VlessXtls | Tag::VlessGrpc | Tag::Vmess => {
-                        let proto = Proto::new_xray(&msg.tag);
+                        let proto = Proto::new_xray(&tag);
                         let conn = Connection::new(proto);
 
                         let client = self.xray_handler_client.as_ref().ok_or_else(|| {
@@ -144,19 +155,25 @@ where
                         })?;
 
                         client
-                            .create(&msg.conn_id, msg.tag, None)
+                            .create(&conn_id.clone(), tag, None)
                             .await
                             .map_err(|err| {
                                 PonyError::Custom(format!(
                                     "Failed to create conn {}: {}",
-                                    msg.conn_id, err
+                                    conn_id.clone(),
+                                    err
                                 ))
                             })?;
 
                         let mut mem = self.memory.write().await;
-                        mem.connections.add(&conn_id, conn.into()).map_err(|err| {
-                            PonyError::Custom(format!("Failed to add conn {}: {}", conn_id, err))
-                        })?;
+                        mem.connections
+                            .add(&conn_id.clone(), conn.into())
+                            .map_err(|err| {
+                                PonyError::Custom(format!(
+                                    "Failed to add conn {}: {}",
+                                    conn_id, err
+                                ))
+                            })?;
 
                         Ok(())
                     }
@@ -170,22 +187,24 @@ where
                             })?;
 
                             client
-                                .create(&msg.conn_id, msg.tag, Some(password))
+                                .create(&conn_id.clone(), tag, Some(password))
                                 .await
                                 .map_err(|err| {
                                     PonyError::Custom(format!(
                                         "Failed to create conn {}: {}",
-                                        msg.conn_id, err
+                                        conn_id, err
                                     ))
                                 })?;
 
                             let mut mem = self.memory.write().await;
-                            mem.connections.add(&conn_id, conn.into()).map_err(|err| {
-                                PonyError::Custom(format!(
-                                    "Failed to add conn {}: {}",
-                                    conn_id, err
-                                ))
-                            })?;
+                            mem.connections
+                                .add(&conn_id.clone(), conn.into())
+                                .map_err(|err| {
+                                    PonyError::Custom(format!(
+                                        "Failed to add conn {}: {}",
+                                        conn_id, err
+                                    ))
+                                })?;
 
                             Ok(())
                         } else {
@@ -197,50 +216,53 @@ where
                 }
             }
 
-            Action::Delete => match msg.tag {
-                Tag::Wireguard => {
-                    let wg_api = self
-                        .wg_client
-                        .as_ref()
-                        .ok_or_else(|| PonyError::Custom("WireGuard API is unavailable".into()))?;
-
-                    let wg = msg.wg.clone().ok_or_else(|| {
-                        PonyError::Custom("Missing WireGuard keys in message".into())
-                    })?;
-
-                    wg_api.delete(&wg.keys.pubkey).map_err(|e| {
-                        PonyError::Custom(format!("Failed to delete WireGuard peer: {}", e))
-                    })?;
-
-                    let mut mem = self.memory.write().await;
-                    let _ = mem.connections.remove(&msg.conn_id);
-
-                    Ok(())
-                }
-                Tag::VlessXtls | Tag::VlessGrpc | Tag::Vmess | Tag::Shadowsocks => {
-                    let client = self.xray_handler_client.as_ref().ok_or_else(|| {
-                        PonyError::Grpc(Status::unavailable("Xray handler unavailable"))
-                    })?;
-
-                    client
-                        .remove(&msg.conn_id, msg.tag, msg.password)
-                        .await
-                        .map_err(|e| {
-                            PonyError::Custom(format!(
-                                "Couldn't remove connection from Xray: {}",
-                                e
-                            ))
+            Action::Delete => {
+                let tag = msg.tag;
+                let conn_id = msg.conn_id.clone().into();
+                match tag {
+                    Tag::Wireguard => {
+                        let wg_api = self.wg_client.as_ref().ok_or_else(|| {
+                            PonyError::Custom("WireGuard API is unavailable".into())
                         })?;
 
-                    let mut mem = self.memory.write().await;
-                    let _ = mem.connections.remove(&msg.conn_id);
+                        let wg = msg.wg.clone().ok_or_else(|| {
+                            PonyError::Custom("Missing WireGuard keys in message".into())
+                        })?;
 
-                    Ok(())
+                        wg_api.delete(&wg.keys.pubkey).map_err(|e| {
+                            PonyError::Custom(format!("Failed to delete WireGuard peer: {}", e))
+                        })?;
+
+                        let mut mem = self.memory.write().await;
+                        let _ = mem.connections.remove(&conn_id);
+
+                        Ok(())
+                    }
+                    Tag::VlessXtls | Tag::VlessGrpc | Tag::Vmess | Tag::Shadowsocks => {
+                        let client = self.xray_handler_client.as_ref().ok_or_else(|| {
+                            PonyError::Grpc(Status::unavailable("Xray handler unavailable"))
+                        })?;
+
+                        client
+                            .remove(&conn_id.clone(), tag, msg.password)
+                            .await
+                            .map_err(|e| {
+                                PonyError::Custom(format!(
+                                    "Couldn't remove connection from Xray: {}",
+                                    e
+                                ))
+                            })?;
+
+                        let mut mem = self.memory.write().await;
+                        let _ = mem.connections.remove(&conn_id);
+
+                        Ok(())
+                    }
                 }
-            },
+            }
 
             Action::ResetStat => {
-                self.reset_stat(&msg.conn_id)
+                self.reset_stat(&msg.conn_id.clone().into())
                     .await
                     .map_err(|e| PonyError::Custom(format!("Couldn't reset stat: {}", e)))?;
                 log::debug!("Reset stat for {}", msg.conn_id);

@@ -2,12 +2,14 @@ use pony::http::requests::NodeIdParam;
 use pony::http::requests::NodeTypeParam;
 use pony::http::IdResponse;
 use pony::Tag;
+use rkyv::to_bytes;
 use warp::http::StatusCode;
 
 use pony::http::requests::NodeRequest;
 use pony::http::requests::NodeResponse;
 use pony::http::requests::NodeType;
 use pony::http::requests::NodesQueryParams;
+use pony::http::MyRejection;
 use pony::http::ResponseMessage;
 use pony::memory::node::Status as NodeStatus;
 use pony::Connection;
@@ -46,15 +48,11 @@ where
     let node = node_req.clone().as_node();
     let node_id = node_req.uuid;
 
-    let node_type = if let Some(node_type) = node_param.node_type {
-        node_type
-    } else {
-        NodeType::All
-    };
+    let node_type = node_param.node_type.unwrap_or(NodeType::All);
 
     let status = SyncOp::add_node(&memory, &node_id, node.clone()).await;
 
-    let response = match status {
+    let result_response = match status {
         Ok(StorageOperationStatus::Ok(id))
         | Ok(StorageOperationStatus::AlreadyExist(id))
         | Ok(StorageOperationStatus::NotModified(id)) => {
@@ -83,9 +81,13 @@ where
             for (conn_id, conn) in connections_iter {
                 let message = conn.as_create_message(conn_id);
 
-                if let Err(e) = publisher.send(&node_req.uuid.to_string(), message).await {
-                    log::error!("Failed to send message for connection {}: {}", conn_id, e);
-                }
+                let bytes = to_bytes::<_, 1024>(&message)
+                    .map_err(|e| warp::reject::custom(MyRejection(Box::new(e))))?;
+
+                publisher
+                    .send_binary(&node_req.uuid.to_string(), bytes.as_ref())
+                    .await
+                    .map_err(|e| warp::reject::custom(MyRejection(Box::new(e))))?;
             }
 
             ResponseMessage::<Option<IdResponse>> {
@@ -118,8 +120,8 @@ where
     };
 
     Ok(warp::reply::with_status(
-        warp::reply::json(&response),
-        StatusCode::from_u16(response.status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
+        warp::reply::json(&result_response),
+        StatusCode::from_u16(result_response.status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
     ))
 }
 

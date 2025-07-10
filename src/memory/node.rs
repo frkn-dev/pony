@@ -7,7 +7,7 @@ use chrono::Utc;
 use postgres_types::{FromSql, ToSql};
 use serde::{Deserialize, Serialize};
 
-use super::tag::Tag;
+use super::tag::ProtoTag as Tag;
 use crate::config::settings::NodeConfig;
 use crate::config::wireguard::WireguardSettings;
 use crate::config::xray::{Config as XrayConfig, Inbound};

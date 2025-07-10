@@ -261,13 +261,25 @@ impl Tasks for Api<HashMap<String, Vec<Node>>, Connection> {
 
                         let msg = Message {
                             action: Action::Delete,
-                            conn_id,
+                            conn_id: conn_id.into(),
                             password: conn.get_password(),
-                            tag: conn.get_proto().proto(),
+                            tag: conn.get_proto().proto().into(),
                             wg: None,
                         };
 
-                        let _ = publisher.send(&conn.get_env(), msg).await;
+                        let bytes = match rkyv::to_bytes::<_, 1024>(&msg) {
+                            Ok(b) => b,
+                            Err(e) => {
+                                log::error!(
+                                    "Failed to serialize delete message for connection {}: {}",
+                                    conn_id,
+                                    e
+                                );
+                                continue;
+                            }
+                        };
+
+                        let _ = publisher.send_binary(&conn.get_env(), bytes.as_ref()).await;
 
                         log::info!(
                             "Trial connection {} expired: downlink = {:.2} MB, limit = {} MB",
@@ -315,7 +327,7 @@ impl Tasks for Api<HashMap<String, Vec<Node>>, Connection> {
 
             let reset_msg = Message {
                 action: Action::ResetStat,
-                conn_id,
+                conn_id: conn_id.into(),
                 password: password.clone(),
                 tag: tag,
                 wg: wg.cloned(),
@@ -323,7 +335,7 @@ impl Tasks for Api<HashMap<String, Vec<Node>>, Connection> {
 
             let restore_msg = Message {
                 action: Action::Create,
-                conn_id,
+                conn_id: conn_id.into(),
                 password: password,
                 tag: tag,
                 wg: wg.cloned(),
@@ -332,8 +344,26 @@ impl Tasks for Api<HashMap<String, Vec<Node>>, Connection> {
             Some(async move {
                 match SyncOp::activate_trial_conn(&sync, &conn_id).await {
                     Ok(OperationStatus::Updated(_id)) => {
-                        publisher.send(&conn.get_env(), restore_msg).await?;
-                        publisher.send(&conn.get_env(), reset_msg).await?;
+                        let restore_bytes =
+                            rkyv::to_bytes::<_, 1024>(&restore_msg).map_err(|e| {
+                                PonyError::SerializationError(format!(
+                                    "rkyv serialization failed: {}",
+                                    e
+                                ))
+                            })?;
+                        let reset_bytes = rkyv::to_bytes::<_, 1024>(&reset_msg).map_err(|e| {
+                            PonyError::SerializationError(format!(
+                                "rkyv serialization failed: {}",
+                                e
+                            ))
+                        })?;
+                        publisher
+                            .send_binary(&conn.get_env(), restore_bytes.as_ref())
+                            .await?;
+                        publisher
+                            .send_binary(&conn.get_env(), reset_bytes.as_ref())
+                            .await?;
+
                         log::info!("Trial connection {} was restored", conn_id);
                         Ok(())
                     }

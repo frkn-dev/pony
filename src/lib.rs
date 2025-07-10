@@ -28,7 +28,7 @@ pub use memory::connection::conn::Status as ConnectionStatus;
 pub use memory::connection::stat::Stat as ConnectionStat;
 
 pub use memory::connection::proto::Proto;
-pub use memory::tag::Tag;
+pub use memory::tag::ProtoTag as Tag;
 
 pub use memory::connection::wireguard::Keys as WgKeys;
 pub use memory::connection::wireguard::Param as WgParam;

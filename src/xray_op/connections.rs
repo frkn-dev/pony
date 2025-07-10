@@ -6,7 +6,7 @@ use crate::xray_api::xray::app::proxyman::command::{
 };
 
 use super::client::HandlerClient;
-use crate::memory::tag::Tag;
+use crate::memory::tag::ProtoTag as Tag;
 
 #[async_trait]
 pub trait ConnOp {

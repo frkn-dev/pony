@@ -365,7 +365,7 @@ where
 
                     let msg = Message {
                         action: Action::Delete,
-                        conn_id,
+                        conn_id: conn_id.into(),
                         password: user.password.clone(),
                         tag: tag,
                         wg: None,
@@ -373,7 +373,18 @@ where
                     if let Err(e) = SyncOp::delete_connection(&memory, &conn_id).await {
                         log::error!("Cannot delete connection {}", e);
                     }
-                    let _ = publisher.send(&conn.get_env(), msg.clone()).await;
+                    match rkyv::to_bytes::<_, 1024>(&msg) {
+                        Ok(bytes) => {
+                            let _ = publisher.send_binary(&conn.get_env(), bytes.as_ref()).await;
+                        }
+                        Err(e) => {
+                            log::error!(
+                                "Failed to serialize delete message for connection {}: {}",
+                                conn_id,
+                                e
+                            );
+                        }
+                    }
                 }
             }
             let response = ResponseMessage::<Option<IdResponse>> {

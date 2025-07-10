@@ -101,5 +101,6 @@ ALTER TABLE connections DROP CONSTRAINT connections_user_id_fkey;
 ALTER TABLE inbounds ADD COLUMN created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW();
 ALTER TABLE inbounds ADD COLUMN modified_at TIMESTAMP WITH TIME ZONE DEFAULT NOW();
 
-
+CREATE UNIQUE INDEX inbounds_node_id_tag_key
+ON inbounds (node_id, tag);
 

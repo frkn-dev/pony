@@ -80,7 +80,7 @@ impl PgNode {
             $6, $7, $8,
             $9, $10, $11, $12, $13, $14
         )
-        ON CONFLICT (id) DO UPDATE SET
+        ON CONFLICT (node_id, tag) DO UPDATE SET
             port = EXCLUDED.port,
             stream_settings = EXCLUDED.stream_settings,
             uplink = EXCLUDED.uplink,

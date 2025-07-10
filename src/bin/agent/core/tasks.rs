@@ -1,6 +1,5 @@
 use async_trait::async_trait;
 use defguard_wireguard_rs::net::IpAddrMask;
-use hex::encode as hex_encode;
 use pony::Proto;
 use rkyv::AlignedVec;
 
@@ -76,7 +75,7 @@ where
 
             match archived.deserialize(&mut rkyv::Infallible) {
                 Ok(message) => {
-                    log::debug!("SUB: Successfully deserialized message: {:?}", message);
+                    log::debug!("SUB: Successfully deserialized message: {}", message);
                     if let Err(err) = self.handle_message(message).await {
                         log::error!("ZMQ SUB: Failed to handle message: {}", err);
                     }

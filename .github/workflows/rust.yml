@@ -23,6 +23,9 @@ jobs:
           default: true
           override: true
 
+      - name: Update apt package index
+        run: sudo apt-get update
+
       - name: Install protobuf-compiler
         run: sudo apt-get install -y protobuf-compiler
 
@@ -67,6 +70,9 @@ jobs:
           toolchain: nightly
           default: true
           override: true
+
+      - name: Update apt package index
+        run: sudo apt-get update
 
       - name: Install protobuf-compiler
         run: sudo apt-get install -y protobuf-compiler

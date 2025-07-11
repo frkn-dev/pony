@@ -10,10 +10,8 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build-agent:
+    build-agent:
     runs-on: ubuntu-latest
-    outputs:
-      agent-artifact: pony-agent
 
     steps:
       - name: Checkout
@@ -35,17 +33,29 @@ jobs:
       - name: Install cargo-zigbuild
         run: cargo install --locked cargo-zigbuild
 
-      - name: Add target
-        run: rustup target add x86_64-unknown-linux-gnu
+      - name: Add targets
+        run: |
+          rustup target add x86_64-unknown-linux-gnu
+          rustup target add aarch64-unknown-linux-gnu
 
-      - name: Build statically linked binary
+      - name: Build x86_64 binary
         run: cargo zigbuild --release --bin agent --no-default-features --target x86_64-unknown-linux-gnu
 
-      - name: Upload Agent binary
+      - name: Build aarch64 binary
+        run: cargo zigbuild --release --bin agent --no-default-features --target aarch64-unknown-linux-gnu
+
+      - name: Upload x86_64 binary
         uses: actions/upload-artifact@v4
         with:
-          name: pony-agent
+          name: pony-agent-x86_64
           path: target/x86_64-unknown-linux-gnu/release/agent
+
+      - name: Upload ARM64 binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: pony-agent-arm64
+          path: target/aarch64-unknown-linux-gnu/release/agent
+
 
   build-api:
     runs-on: ubuntu-latest
@@ -78,20 +88,27 @@ jobs:
     needs: [build-agent, build-api]
 
     steps:
-      - name: Download agent
+      - name: Download agent x86_64
         uses: actions/download-artifact@v4
         with:
-          name: pony-agent
-          path: collected
+          name: pony-agent-x86_64
+          path: collected/x86_64
+
+      - name: Download agent arm64
+        uses: actions/download-artifact@v4
+        with:
+          name: pony-agent-arm64
+          path: collected/arm64
 
       - name: Download api
         uses: actions/download-artifact@v4
         with:
           name: pony-api
-          path: collected
+          path: collected/api
 
       - name: Upload combined binaries
         uses: actions/upload-artifact@v4
         with:
           name: pony-binaries
           path: collected/
+

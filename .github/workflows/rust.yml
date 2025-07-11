@@ -10,7 +10,7 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-    build-agent:
+  build-agent:
     runs-on: ubuntu-latest
 
     steps:
@@ -55,7 +55,6 @@ jobs:
         with:
           name: pony-agent-arm64
           path: target/aarch64-unknown-linux-gnu/release/agent
-
 
   build-api:
     runs-on: ubuntu-latest
@@ -111,4 +110,3 @@ jobs:
         with:
           name: pony-binaries
           path: collected/
-

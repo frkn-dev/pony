@@ -11,61 +11,108 @@ env:
 
 jobs:
   build-agent:
+    runs-on: ubuntu-22.04
     strategy:
       matrix:
-        include:
-          - target: x86_64-unknown-linux-gnu
-            os: ubuntu-22.04
-          - target: aarch64-unknown-linux-gnu
-            os: ubuntu-22.04
-          - target: armv7-unknown-linux-gnueabihf
-            os: ubuntu-22.04
-          - target: aarch64-apple-darwin
-            os: macos-14
-
-    runs-on: ${{ matrix.os }}
+        target:
+          - x86_64-unknown-linux-gnu
+          - aarch64-unknown-linux-gnu
+          - armv7-unknown-linux-gnueabihf
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install Rust toolchain
+      - name: Install latest rust toolchain
         uses: actions-rs/toolchain@v1
         with:
           toolchain: nightly
           default: true
           override: true
 
-      - name: Update apt index (Linux only)
-        if: runner.os == 'Linux'
+      - name: Update apt package index
         run: sudo apt-get update
 
-      - name: Install protobuf-compiler (Linux only)
-        if: runner.os == 'Linux'
+      - name: Install protobuf-compiler
         run: sudo apt-get install -y protobuf-compiler
 
-      - name: Install zig (Linux only)
-        if: runner.os == 'Linux'
+      - name: Install zig
         run: pip3 install ziglang
 
-      - name: Install cargo-zigbuild (Linux only)
-        if: runner.os == 'Linux'
+      - name: Install cargo-zigbuild
         run: cargo install --locked cargo-zigbuild
 
-      - name: Add Rust target
+      - name: Add target
         run: rustup target add ${{ matrix.target }}
 
-      - name: Build (with or without zig)
-        run: |
-          if [[ "${{ matrix.os }}" == "ubuntu-22.04" ]]; then
-            cargo zigbuild --release --target ${{ matrix.target }} --bin agent --no-default-features
-          else
-            cargo build --release --target ${{ matrix.target }} --bin agent --no-default-features
-          fi
-        shell: bash
+      - name: Build for ${{ matrix.target }}
+        run: cargo zigbuild --release --bin agent --no-default-features --target ${{ matrix.target }}
 
-      - name: Upload artifact
+      - name: Upload binary for ${{ matrix.target }}
         uses: actions/upload-artifact@v4
         with:
-          name: agent-${{ matrix.target }}
+          name: pony-agent-${{ matrix.target }}
           path: target/${{ matrix.target }}/release/agent
+
+  build-api:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install latest rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: nightly
+          default: true
+          override: true
+
+      - name: Update apt package index
+        run: sudo apt-get update
+
+      - name: Install protobuf-compiler
+        run: sudo apt-get install -y protobuf-compiler
+
+      - name: Build API
+        run: cargo build --release --bin api --no-default-features
+
+      - name: Upload API binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: pony-api
+          path: target/release/api
+
+  collect-binaries:
+    runs-on: ubuntu-latest
+    needs: [build-agent, build-api]
+
+    steps:
+      - name: Download agent x86_64
+        uses: actions/download-artifact@v4
+        with:
+          name: pony-agent-x86_64-unknown-linux-gnu
+          path: collected/x86_64
+
+      - name: Download agent arm64
+        uses: actions/download-artifact@v4
+        with:
+          name: pony-agent-aarch64-unknown-linux-gnu
+          path: collected/arm64
+
+      - name: Download agent armv7
+        uses: actions/download-artifact@v4
+        with:
+          name: pony-agent-armv7-unknown-linux-gnueabihf
+          path: collected/armv7
+
+      - name: Download api
+        uses: actions/download-artifact@v4
+        with:
+          name: pony-api
+          path: collected/api
+
+      - name: Upload combined binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: pony-binaries
+          path: collected/

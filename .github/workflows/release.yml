@@ -25,8 +25,10 @@ jobs:
           toolchain: nightly
           default: true
           override: true
-      - name: Install protobuf-compiler
-        run: sudo apt-get install -y protobuf-compiler
+     - name: Update package lists and install protobuf-compiler
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler
       - name: Install zig
         run: pip3 install ziglang
       - name: Install cargo-zigbuild
@@ -52,8 +54,10 @@ jobs:
           toolchain: nightly
           default: true
           override: true
-      - name: Install protobuf-compiler
-        run: sudo apt-get install -y protobuf-compiler
+      - name: Update package lists and install protobuf-compiler
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler
       - name: Build
         run: cargo build --release --no-default-features --bin api
       - name: Upload artifacts

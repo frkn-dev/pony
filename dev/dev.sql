@@ -104,3 +104,6 @@ ALTER TABLE inbounds ADD COLUMN modified_at TIMESTAMP WITH TIME ZONE DEFAULT NOW
 CREATE UNIQUE INDEX inbounds_node_id_tag_key
 ON inbounds (node_id, tag);
 
+ALTER TABLE users
+ALTER COLUMN daily_limit_mb DROP NOT NULL;
+

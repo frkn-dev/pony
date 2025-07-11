@@ -32,7 +32,10 @@ jobs:
           override: true
 
       - name: Install protobuf-compiler
-        run: sudo apt-get install -y protobuf-compiler
+        run: |
+          sudo rm -f /etc/apt/apt-mirrors.txt
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler
 
       - name: Install zig
         run: pip3 install ziglang
@@ -67,7 +70,10 @@ jobs:
           override: true
 
       - name: Install protobuf-compiler
-        run: sudo apt-get install -y protobuf-compiler
+        run: |
+          sudo rm -f /etc/apt/apt-mirrors.txt
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler
 
       - name: Build
         run: cargo build --release --no-default-features --bin api

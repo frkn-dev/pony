@@ -31,11 +31,11 @@ jobs:
           default: true
           override: true
 
+      - name: Update apt package index
+        run: sudo apt-get update
+
       - name: Install protobuf-compiler
-        run: |
-          sudo rm -f /etc/apt/apt-mirrors.txt
-          sudo apt-get update
-          sudo apt-get install -y protobuf-compiler
+        run: sudo apt-get install -y protobuf-compiler
 
       - name: Install zig
         run: pip3 install ziglang
@@ -69,11 +69,11 @@ jobs:
           default: true
           override: true
 
+      - name: Update apt package index
+        run: sudo apt-get update
+
       - name: Install protobuf-compiler
-        run: |
-          sudo rm -f /etc/apt/apt-mirrors.txt
-          sudo apt-get update
-          sudo apt-get install -y protobuf-compiler
+        run: sudo apt-get install -y protobuf-compiler
 
       - name: Build
         run: cargo build --release --no-default-features --bin api

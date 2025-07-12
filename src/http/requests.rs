@@ -104,6 +104,8 @@ pub struct NodeRequest {
     pub uuid: uuid::Uuid,
     pub label: String,
     pub interface: String,
+    pub cores: usize,
+    pub max_bandwidth_bps: i64,
 }
 
 impl NodeRequest {
@@ -120,6 +122,8 @@ impl NodeRequest {
             modified_at: now,
             label: self.label,
             interface: self.interface,
+            cores: self.cores,
+            max_bandwidth_bps: self.max_bandwidth_bps,
         }
     }
 }
@@ -133,6 +137,8 @@ pub struct NodeResponse {
     pub inbounds: HashMap<Tag, InboundResponse>,
     pub status: NodeStatus,
     pub label: String,
+    pub cores: usize,
+    pub max_bandwidth_bps: i64,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

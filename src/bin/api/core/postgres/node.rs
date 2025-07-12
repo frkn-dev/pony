@@ -31,15 +31,16 @@ impl PgNode {
         let mut manager = self.manager.lock().await;
         let client = manager.get_client().await?;
         let tx = client.transaction().await?;
+        let cores = node.cores as i32;
 
         let address: IpAddr = IpAddr::V4(node.address);
 
         let node_query = "
         INSERT INTO nodes (
-            id, uuid, env, hostname, address, status, created_at, modified_at, label, interface
+            id, uuid, env, hostname, address, status, created_at, modified_at, label, interface, cores, max_bandwidth_bps
         )
         VALUES (
-            $1, $2, $3, $4, $5, $6::node_status, $7, $8, $9, $10
+            $1, $2, $3, $4, $5, $6::node_status, $7, $8, $9, $10, $11, $12
         )
         ON CONFLICT (id) DO UPDATE SET
             uuid = EXCLUDED.uuid,
@@ -49,7 +50,9 @@ impl PgNode {
             status = EXCLUDED.status,
             modified_at = EXCLUDED.modified_at,
             label = EXCLUDED.label,
-            interface = EXCLUDED.interface
+            interface = EXCLUDED.interface,
+            cores = EXCLUDED.cores,
+            max_bandwidth_bps = EXCLUDED.max_bandwidth_bps
     ";
 
         tx.execute(
@@ -65,6 +68,8 @@ impl PgNode {
                 &node.modified_at,
                 &node.label,
                 &node.interface,
+                &cores,
+                &node.max_bandwidth_bps,
             ],
         )
         .await?;
@@ -149,9 +154,10 @@ impl PgNode {
         let mut manager = self.manager.lock().await;
         let client = manager.get_client().await?;
         let tx = client.transaction().await?;
+        let cores = node.cores as i32;
 
         let node_query = "
-        INSERT INTO nodes (id, uuid, env, hostname, address, status, created_at, modified_at, label, interface)
+        INSERT INTO nodes (id, uuid, env, hostname, address, status, created_at, modified_at, label, interface, cores, max_bandwidth_bps)
         VALUES ($1, $2, $3, $4, $5, $6::node_status, $7, $8, $9, $10)
     ";
         let address: IpAddr = IpAddr::V4(node.address);
@@ -169,6 +175,8 @@ impl PgNode {
                 &node.modified_at,
                 &node.label,
                 &node.interface,
+                &cores,
+                &node.max_bandwidth_bps,
             ],
         )
         .await?;
@@ -246,7 +254,7 @@ impl PgNode {
             .query(
                 "SELECT
                 n.id AS node_id, n.uuid, n.env, n.hostname, n.address, n.status,
-                n.created_at, n.modified_at, n.label, n.interface,
+                n.created_at, n.modified_at, n.label, n.interface, n.cores, n.max_bandwidth_bps,
                 i.id AS inbound_id, i.tag, i.port, i.stream_settings, i.uplink, i.downlink,
                 i.conn_count, i.wg_pubkey, i.wg_privkey, i.wg_interface, i.wg_network, i.wg_address, i.dns
              FROM nodes n
@@ -268,6 +276,8 @@ impl PgNode {
             let modified_at: DateTime<Utc> = row.get("modified_at");
             let label: String = row.get("label");
             let interface: String = row.get("interface");
+            let cores: i32 = row.get("cores");
+            let max_bandwidth_bps: i64 = row.get("max_bandwidth_bps");
 
             let wg_network: Option<IpAddrMask> = row
                 .get::<_, Option<String>>("wg_network")
@@ -299,6 +309,8 @@ impl PgNode {
                     modified_at,
                     label: label.clone(),
                     inbounds: HashMap::new(),
+                    cores: cores as usize,
+                    max_bandwidth_bps: max_bandwidth_bps,
                 });
 
                 if let Some(_inbound_id) = inbound_id {

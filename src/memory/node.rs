@@ -63,6 +63,8 @@ pub struct Node {
     pub created_at: DateTime<Utc>,
     pub modified_at: DateTime<Utc>,
     pub inbounds: HashMap<Tag, Inbound>,
+    pub cores: usize,
+    pub max_bandwidth_bps: i64,
 }
 
 impl Node {
@@ -112,6 +114,8 @@ impl Node {
             interface: settings.default_interface,
             modified_at: now,
             inbounds: inbounds,
+            cores: settings.cores,
+            max_bandwidth_bps: settings.max_bandwidth_bps,
         }
     }
 
@@ -131,6 +135,8 @@ impl Node {
             inbounds: inbound_response,
             status: self.status,
             label: self.label.clone(),
+            cores: self.cores,
+            max_bandwidth_bps: self.max_bandwidth_bps,
         }
     }
 

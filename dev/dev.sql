@@ -107,3 +107,8 @@ ON inbounds (node_id, tag);
 ALTER TABLE users
 ALTER COLUMN daily_limit_mb DROP NOT NULL;
 
+
+ALTER TABLE nodes ADD COLUMN cores INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE nodes ADD COLUMN max_bandwidth_bps BIGINT NOT NULL DEFAULT 100000000;
+
+

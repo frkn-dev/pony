@@ -109,6 +109,10 @@ fn default_db_sync_interval_sec() -> u64 {
     300
 }
 
+fn default_max_bandwidth_bps() -> i64 {
+    100_000_000
+}
+
 #[derive(Clone, Debug, Deserialize, Default)]
 pub struct ApiServiceConfig {
     #[serde(default = "default_api_web_listen")]
@@ -195,6 +199,8 @@ pub struct NodeConfig {
     pub address: Ipv4Addr,
     pub uuid: Uuid,
     pub label: String,
+    pub max_bandwidth_bps: i64,
+    pub cores: usize,
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]
@@ -208,10 +214,13 @@ pub struct NodeConfigRaw {
     pub uuid: Uuid,
     #[serde(default = "default_label")]
     pub label: String,
+    #[serde(default = "default_max_bandwidth_bps")]
+    pub max_bandwidth_bps: i64,
 }
 
 impl NodeConfig {
     pub fn from_raw(raw: NodeConfigRaw) -> Result<NodeConfig> {
+        let num_cpus = std::thread::available_parallelism()?.get();
         let hostname = if raw.hostname.is_none() {
             match env::var("HOSTNAME") {
                 Ok(hostname) => hostname,
@@ -266,6 +275,8 @@ impl NodeConfig {
             address: address,
             uuid: raw.uuid,
             label: raw.label,
+            max_bandwidth_bps: raw.max_bandwidth_bps,
+            cores: num_cpus,
         })
     }
 }

@@ -6,6 +6,7 @@ use pony::ConnectionApiOp;
 use pony::ConnectionBaseOp;
 use pony::NodeStorageOp;
 
+use crate::core::clickhouse::ChContext;
 use crate::MemSync;
 
 /// Provides application state filter
@@ -17,6 +18,13 @@ where
     C: ConnectionApiOp + ConnectionBaseOp + Sync + Send + Clone + 'static + From<Connection>,
 {
     warp::any().map(move || mem_sync.clone())
+}
+
+/// Provides ckickhouse filter
+pub fn with_ch(
+    ch: ChContext,
+) -> impl Filter<Extract = (ChContext,), Error = std::convert::Infallible> + Clone {
+    warp::any().map(move || ch.clone())
 }
 
 /// Provides zmq publisher filter

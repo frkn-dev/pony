@@ -110,7 +110,7 @@ impl Tasks for Api<HashMap<String, Vec<Node>>, Connection> {
 
             async move {
                 let status =
-                    match ch.fetch_node_heartbeat::<f64>(&env, &uuid, &hostname).await {
+                    match ch.fetch_node_heartbeat(&env, &uuid, &hostname).await {
                         Some(hb) => {
                             let ts = Utc.timestamp_opt(hb.timestamp, 0);
                             match ts {
@@ -186,7 +186,7 @@ impl Tasks for Api<HashMap<String, Vec<Node>>, Connection> {
             let sync = self.sync.clone();
 
             async move {
-                if let Some(metrics) = ch.fetch_conn_stats::<i64>(conn_id, start_of_day).await {
+                if let Some(metrics) = ch.fetch_conn_stats(conn_id, start_of_day).await {
                     log::debug!("metrics {:?}", metrics);
                     let stat = ConnectionStat::from_metrics(metrics);
                     log::debug!("Stat to update - {}", stat);

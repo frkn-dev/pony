@@ -58,6 +58,16 @@ where
             .and(with_state(self.sync.clone()))
             .and_then(get_nodes_handler);
 
+        let get_node_score_route = warp::get()
+            .and(warp::path("node"))
+            .and(warp::path("score"))
+            .and(warp::path::end())
+            .and(auth.clone())
+            .and(warp::query::<NodeIdParam>())
+            .and(with_state(self.sync.clone()))
+            .and(with_ch(self.ch.clone()))
+            .and_then(get_node_score_handler);
+
         let post_node_register_route = warp::post()
             .and(warp::path("node"))
             .and(warp::path::end())
@@ -194,6 +204,7 @@ where
             // Node
             .or(get_nodes_route)
             .or(get_node_route)
+            .or(get_node_score_route)
             .or(post_node_register_route)
             // Connection
             .or(get_connection_route)

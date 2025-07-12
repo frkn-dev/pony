@@ -1,4 +1,4 @@
-# Application Protocol Description
+# Application Protocol Design
 
 ## Overview
 
@@ -7,26 +7,72 @@ The application communicates via ZeroMQ Pub/Sub pattern, exchanging binary messa
 This approach replaces plain JSON messaging with efficient zero-copy serialization, reducing message size and CPU overhead.
 Supported Actions & Message Structures
 
+Check src/bin/utils.rs for debugging binary message sending
+
 Messages are sent as binary blobs representing the following Rust struct:
 
-#[derive(Archive, Serialize, Deserialize, Clone, Debug)]
-pub struct Message {
-pub conn_id: UuidWrapper,
-pub action: Action,
-pub tag: ArchivedTagSimple,
-pub wg: Option<WgParam>,
-pub password: Option<String>,
-}
+    #[derive(Archive, Serialize, Deserialize, Clone, Debug)]
+    pub struct Message {
+        pub conn_id: UuidWrapper,
+        pub action: Action,
+        pub tag: ProtoTag,
+        pub wg: Option<Param>,
+        pub password: Option<String>,
+    }
 
-#[derive(Archive, Serialize, Deserialize, Debug, Clone)]
-pub enum Action {
-Create,
-Update,
-Delete,
-ResetStat,
-}
+        #[derive(Archive, Serialize, Deserialize, Debug, Clone)]
+    pub enum Action {
+        Create,
+        Update,
+        Delete,
+        ResetStat,
+    }
 
-CREATE/UPDATE/DELETE Connection
+    #[derive(
+         Archive,
+         Clone,
+         Debug,
+         RkyvDeserialize,
+         RkyvSerialize,
+         Deserialize,
+         Serialize,
+         PartialEq,
+         Eq,
+         Hash,
+         Copy,
+         ToSql,
+         FromSql,
+     )]
+     #[archive_attr(derive(Clone, Debug))]
+     #[archive(check_bytes)]
+     #[postgres(name = "proto", rename_all = "snake_case")]
+     pub enum ProtoTag {
+         #[serde(rename = "VlessXtls")]
+         VlessXtls,
+         #[serde(rename = "VlessGrpc")]
+         VlessGrpc,
+         #[serde(rename = "Vmess")]
+         Vmess,
+         #[serde(rename = "Shadowsocks")]
+         Shadowsocks,
+         #[serde(rename = "Wireguard")]
+         Wireguard,
+     }
+
+    #[derive(
+        Archive, Clone, Debug, Serialize, Deserialize, RkyvDeserialize, RkyvSerialize, PartialEq,
+    )]
+    pub struct Param {
+        pub keys: Keys,
+        pub address: IpAddrMaskSerializable,
+    }
+
+
+
+    Note: password field only for Shadowsocks
+    wg fileds only for wireguard
+
+## CREATE/UPDATE/DELETE/ResetStat Connection
 
 Connections represent individual tunnels (WireGuard, Shadowsocks, VLESS, etc.) and are managed similarly.
 
@@ -34,7 +80,7 @@ Binary message includes:
 
     conn_id: Connection UUID
 
-    action: Create/Update/Delete
+    action: Create/Update/Delete/ResetStat
 
     tag: Protocol type string ("Wireguard", "Shadowsocks", "VlessXtls", etc.)
 
@@ -73,6 +119,9 @@ Create
       "password": null
     }
 
+    Display output — binary message printed
+    17865be5-e18b-40d6-b5af-e1c4d51ff50a | Create | Wireguard | privkey: LY8D/CyB/JT1uiFhK1yVKxBB3VMZeA0DzOAJEvgQw50= pubkey: a4uH3iSdV6Ifc7thKL8IHTM8PkL/yPBUztN9xuoA2Do= address: 10.10.0.24/32 | -
+
 Update
 
     {
@@ -92,6 +141,9 @@ Update
       "password": null
     }
 
+     Display output — binary message printed
+    17865be5-e18b-40d6-b5af-e1c4d51ff50a | Update | Wireguard | privkey: NEW_PRIVATE_KEY_BASE64 pubkey: NEW_PUBLIC_KEY_BASE64 address: 10.10.0.25/32 | -
+
 Delete
 
     {
@@ -101,3 +153,7 @@ Delete
       "wg": null,
       "password": null
     }
+
+
+    Display output — binary message printed
+    17865be5-e18b-40d6-b5af-e1c4d51ff50a | Delete | Wireguard | - | -

@@ -21,7 +21,6 @@ pub use memory::storage::connection::ApiOp as ConnectionStorageApiOp;
 pub use memory::storage::connection::BaseOp as ConnectionStorageBaseOp;
 
 pub use memory::storage::node::Operations as NodeStorageOp;
-pub use memory::storage::user::Operations as UserStorageOp;
 pub use memory::storage::Status as OperationStatus;
 
 pub use memory::connection::conn::Status as ConnectionStatus;
@@ -32,6 +31,8 @@ pub use memory::tag::ProtoTag as Tag;
 
 pub use memory::connection::wireguard::Keys as WgKeys;
 pub use memory::connection::wireguard::Param as WgParam;
+
+pub use memory::snapshot::SnapshotManager;
 
 pub use zmq::message::{Action, Message};
 pub use zmq::publisher::Publisher;

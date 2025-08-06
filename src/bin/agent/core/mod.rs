@@ -2,6 +2,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio::sync::RwLock;
 
+use pony::memory::cache::Connections;
 use pony::memory::node::Node;
 use pony::wireguard_op::WgApi;
 use pony::xray_op::client::HandlerClient;

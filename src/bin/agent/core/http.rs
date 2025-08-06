@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use pony::http::requests::NodeRequest;
 use pony::http::requests::NodeType;
 use pony::http::requests::NodeTypeParam;
 use reqwest::Client as HttpClient;
@@ -18,6 +19,7 @@ pub trait ApiRequests {
         _endpoint: String,
         _token: String,
         node_type: NodeType,
+        last_update: Option<u64>,
     ) -> Result<()>;
 }
 
@@ -32,6 +34,7 @@ where
         endpoint: String,
         token: String,
         node_type: NodeType,
+        last_update: Option<u64>,
     ) -> Result<()> {
         let node = {
             let mem = self.memory.read().await;
@@ -46,7 +49,6 @@ where
             .path_segments_mut()
             .map_err(|_| PonyError::Custom("Invalid API endpoint".to_string()))?
             .push("node");
-
         let endpoint_str = endpoint_url.to_string();
 
         match serde_json::to_string_pretty(&node) {
@@ -56,6 +58,19 @@ where
 
         let node_type_param = NodeTypeParam {
             node_type: Some(node_type),
+            last_update,
+        };
+
+        let node_request = NodeRequest {
+            env: node.env.clone(),
+            hostname: node.hostname.clone(),
+            address: node.address,
+            inbounds: node.inbounds.clone(),
+            uuid: node.uuid,
+            label: node.label.clone(),
+            interface: node.interface.clone(),
+            cores: node.cores,
+            max_bandwidth_bps: node.max_bandwidth_bps,
         };
 
         let res = HttpClient::new()
@@ -63,13 +78,12 @@ where
             .query(&node_type_param)
             .header("Content-Type", "application/json")
             .header("Authorization", format!("Bearer {}", token))
-            .json(&node)
+            .json(&node_request)
             .send()
             .await?;
 
         let status = res.status();
         let body = res.text().await?;
-
         if status.is_success() || status == StatusCode::NOT_MODIFIED {
             log::debug!("Node is already registered: {:?}", status);
             Ok(())

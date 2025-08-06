@@ -4,7 +4,11 @@ use serde::Serialize;
 use super::super::tag::ProtoTag as Tag;
 use super::wireguard::Param as WgParam;
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+use rkyv::{Archive, Deserialize as RkyvDeserialize, Serialize as RkyvSerialize};
+
+#[derive(
+    Archive, Deserialize, Serialize, RkyvDeserialize, RkyvSerialize, Debug, Clone, PartialEq,
+)]
 pub enum Proto {
     Wireguard { param: WgParam, node_id: uuid::Uuid },
     Shadowsocks { password: String },

@@ -2,7 +2,6 @@ use pony::http::requests::ConnUpdateRequest;
 use pony::memory::cache::Connections;
 use pony::memory::node::Node;
 use pony::memory::node::Status as NodeStatus;
-use pony::memory::user::User;
 use pony::Connection as Conn;
 use pony::ConnectionApiOp;
 use pony::ConnectionBaseOp;
@@ -22,28 +21,6 @@ type SyncResult<T> = std::result::Result<T, SyncError>;
 // Input validation traits
 trait Validate {
     fn validate(&self) -> SyncResult<()>;
-}
-
-impl Validate for User {
-    fn validate(&self) -> SyncResult<()> {
-        if self.username.trim().is_empty() {
-            return Err(SyncError::Validation(
-                "Username cannot be empty".to_string(),
-            ));
-        }
-
-        if self.username.len() > 255 {
-            return Err(SyncError::Validation("Username too long".to_string()));
-        }
-
-        if let Some(ref password) = self.password {
-            if password.len() < 8 {
-                return Err(SyncError::Validation("Password too short".to_string()));
-            }
-        }
-
-        Ok(())
-    }
 }
 
 impl Validate for Node {

@@ -8,7 +8,11 @@ use super::super::connection::conn::Conn;
 use super::super::connection::proto::Proto;
 use super::super::connection::stat::Stat as ConnectionStat;
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+use rkyv::{Archive, Deserialize as RkyvDeserialize, Serialize as RkyvSerialize};
+
+#[derive(
+    Archive, Deserialize, Serialize, RkyvDeserialize, RkyvSerialize, Debug, Clone, PartialEq,
+)]
 pub struct Base {
     pub stat: ConnectionStat,
     pub created_at: NaiveDateTime,

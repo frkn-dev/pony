@@ -1,6 +1,7 @@
 use qrcode::render::unicode;
 use qrcode::QrCode;
 use std::net::Ipv4Addr;
+use std::path::Path;
 use std::sync::Arc;
 use tokio::signal;
 use tokio::sync::broadcast;
@@ -33,6 +34,7 @@ use pony::MemoryCache;
 use pony::NodeStorageOp;
 use pony::Proto;
 use pony::Result;
+use pony::SnapshotManager;
 use pony::Subscriber as ZmqSubscriber;
 use pony::Tag;
 
@@ -303,10 +305,11 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
                         settings.api.endpoint.clone(),
                         settings.api.token.clone(),
                         node_type,
+                        snapshot_timestamp,
                     )
                     .await
                 {
-                    panic!(
+                    log::error!(
                         "-->>Cannot register node, use setting local mode for running no deps\n {:?}",
                         e
                     );

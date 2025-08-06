@@ -10,46 +10,12 @@ use crate::memory::connection::wireguard::Param as WgParam;
 use crate::memory::node::Node;
 use crate::memory::node::Status as NodeStatus;
 use crate::memory::tag::ProtoTag as Tag;
-use crate::memory::user::User;
 use crate::ConnectionStatus;
 
 fn default_format() -> String {
     "txt".to_string()
 }
 
-#[derive(Deserialize, Debug)]
-pub struct UserReq {
-    pub telegram_id: Option<u64>,
-    pub username: String,
-    pub env: String,
-    pub limit: Option<i32>,
-    pub password: Option<String>,
-}
-
-impl From<UserReq> for User {
-    fn from(req: UserReq) -> Self {
-        let now = Utc::now().naive_utc();
-
-        User {
-            telegram_id: req.telegram_id,
-            username: req.username,
-            env: req.env,
-            limit: req.limit,
-            password: req.password,
-            created_at: now,
-            modified_at: now,
-            is_deleted: false,
-        }
-    }
-}
-
-#[derive(Deserialize, Clone, Debug)]
-pub struct UserUpdateReq {
-    pub env: Option<String>,
-    pub limit: Option<i32>,
-    pub password: Option<String>,
-    pub is_deleted: Option<bool>,
-}
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct UserIdQueryParam {
     pub user_id: uuid::Uuid,
@@ -93,6 +59,7 @@ pub enum NodeType {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct NodeTypeParam {
     pub node_type: Option<NodeType>,
+    pub last_update: Option<u64>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

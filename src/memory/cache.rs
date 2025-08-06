@@ -1,15 +1,18 @@
+use rkyv::{Archive, Deserialize as RkyvDeserialize, Serialize as RkyvSerialize};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt;
 use std::ops::{Deref, DerefMut};
+use std::sync::Arc;
+use tokio::sync::RwLock;
 
 use super::connection::op::api::Operations as ConnectionApiOp;
 use super::connection::op::base::Operations as ConnectionBaseOp;
 use super::node::Node;
 use super::storage::node::Operations as NodeStorageOp;
-use super::user::User;
 
-#[derive(Clone, Deserialize, Serialize, Debug, PartialEq)]
+#[derive(Archive, Deserialize, Serialize, RkyvDeserialize, RkyvSerialize, Debug, Clone)]
+#[archive(check_bytes)]
 pub struct Connections<C>(pub HashMap<uuid::Uuid, C>);
 
 impl<C> Default for Connections<C> {
@@ -47,7 +50,6 @@ where
     T: Send + Sync + Clone + 'static,
     C: Send + Sync + Clone + 'static,
 {
-    pub users: HashMap<uuid::Uuid, User>,
     pub connections: Connections<C>,
     pub nodes: T,
 }
@@ -60,7 +62,6 @@ where
 {
     pub fn new() -> Self {
         Cache {
-            users: HashMap::default(),
             nodes: T::default(),
             connections: Connections::default(),
         }
@@ -73,7 +74,6 @@ where
 {
     pub fn with_node(node: Node) -> Self {
         Self {
-            users: HashMap::default(),
             nodes: node,
             connections: Connections::default(),
         }

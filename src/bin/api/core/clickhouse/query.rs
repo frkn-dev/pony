@@ -21,7 +21,6 @@ pub trait Queries {
         start: DateTime<Utc>,
     ) -> Option<Vec<Metric<i64>>>;
 
-    async fn fetch_node_cpu_load_avg1(&self, env: &str, hostname: &str) -> Option<Metric<f64>>;
     async fn fetch_node_cpu_load_avg5(&self, env: &str, hostname: &str) -> Option<Metric<f64>>;
     async fn fetch_node_bandwidth(
         &self,
@@ -94,21 +93,6 @@ GROUP BY metric"#,
                 None
             }
         }
-    }
-
-    async fn fetch_node_cpu_load_avg1(&self, env: &str, hostname: &str) -> Option<Metric<f64>> {
-        let query = format!(
-            r#"
-SELECT
-    any(Path) AS metric,
-    avg(toFloat64(Value)) AS value,
-    toInt64(toUnixTimestamp(now())) AS timestamp
-FROM default.graphite_data
-WHERE Path = '{}.{}.loadavg.5m'
-AND Timestamp >= now() - INTERVAL 5 MINUTE"#,
-            env, hostname
-        );
-        self.execute_metric_query(&query).await
     }
 
     async fn fetch_node_cpu_load_avg5(&self, env: &str, hostname: &str) -> Option<Metric<f64>> {

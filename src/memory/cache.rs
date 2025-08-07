@@ -3,8 +3,6 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt;
 use std::ops::{Deref, DerefMut};
-use std::sync::Arc;
-use tokio::sync::RwLock;
 
 use super::connection::op::api::Operations as ConnectionApiOp;
 use super::connection::op::base::Operations as ConnectionBaseOp;

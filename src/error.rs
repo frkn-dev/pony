@@ -53,6 +53,19 @@ pub enum PonyError {
 
     #[error("SerializationError: {0}")]
     SerializationError(String),
+
+    #[error(transparent)]
+    RkyvSerialize(
+        #[from]
+        rkyv::ser::serializers::CompositeSerializerError<
+            std::convert::Infallible,
+            rkyv::ser::serializers::AllocScratchError,
+            rkyv::ser::serializers::SharedSerializeMapError,
+        >,
+    ),
+
+    #[error(transparent)]
+    ConvertInfallibleError(#[from] std::convert::Infallible),
 }
 
 #[derive(Debug, Error)]

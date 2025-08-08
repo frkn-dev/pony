@@ -45,10 +45,11 @@ where
         + PartialEq,
     Connection: From<C>,
 {
-    log::debug!("Received: {:?}", node_req);
+    log::debug!("Received node request: {:?}", node_req);
 
     let node = node_req.clone().as_node();
     let node_id = node_req.uuid;
+    let last_update = node_param.last_update;
 
     let node_type = node_param.node_type.unwrap_or(NodeType::All);
 
@@ -63,33 +64,55 @@ where
 
             let mem = memory.memory.read().await;
 
-            let connections_iter = mem.connections.iter().filter(|(_, conn)| {
-                !conn.get_deleted()
-                    && conn.get_status() == ConnectionStatus::Active
-                    && match node_type {
-                        NodeType::Wireguard => {
-                            log::debug!("NODE TYPE {:?} {:?}", node_type, conn.get_proto().proto());
-                            conn.get_proto().proto() == Tag::Wireguard
-                                && Some(node_id) == conn.get_wireguard_node_id()
-                        }
-                        NodeType::Xray => conn.get_proto().proto() != Tag::Wireguard,
-                        NodeType::All => match conn.get_proto().proto() {
-                            Tag::Wireguard => conn.get_wireguard_node_id() == Some(node_id),
-                            _ => true,
-                        },
-                    }
-            });
+            let connections_to_send: Vec<_> = mem
+                .connections
+                .iter()
+                .filter(|(_, conn)| {
+                    let matches_type = !conn.get_deleted()
+                        && conn.get_status() == ConnectionStatus::Active
+                        && match node_type {
+                            NodeType::Wireguard => {
+                                conn.get_proto().proto() == Tag::Wireguard
+                                    && Some(node_id) == conn.get_wireguard_node_id()
+                            }
+                            NodeType::Xray => conn.get_proto().proto() != Tag::Wireguard,
+                            NodeType::All => match conn.get_proto().proto() {
+                                Tag::Wireguard => conn.get_wireguard_node_id() == Some(node_id),
+                                _ => true,
+                            },
+                        };
 
-            for (conn_id, conn) in connections_iter {
+                    let matches_time = if let Some(ts) = last_update {
+                        conn.get_modified_at().and_utc().timestamp() as u64 >= ts
+                    } else {
+                        true
+                    };
+
+                    matches_type && matches_time
+                })
+                .collect();
+
+            log::info!(
+                "Sending {} connections to node {}",
+                connections_to_send.len(),
+                node_id
+            );
+
+            for (conn_id, conn) in connections_to_send {
                 let message = conn.as_create_message(conn_id);
 
-                let bytes = to_bytes::<_, 1024>(&message)
-                    .map_err(|e| warp::reject::custom(MyRejection(Box::new(e))))?;
+                let bytes = to_bytes::<_, 1024>(&message).map_err(|e| {
+                    log::error!("Serialization error: {}", e);
+                    warp::reject::custom(MyRejection(Box::new(e)))
+                })?;
 
                 publisher
-                    .send_binary(&node_req.uuid.to_string(), bytes.as_ref())
+                    .send_binary(&node_id.to_string(), bytes.as_ref())
                     .await
-                    .map_err(|e| warp::reject::custom(MyRejection(Box::new(e))))?;
+                    .map_err(|e| {
+                        log::error!("Publish error: {}", e);
+                        warp::reject::custom(MyRejection(Box::new(e)))
+                    })?;
             }
 
             ResponseMessage::<Option<IdResponse>> {
@@ -110,6 +133,7 @@ where
         },
 
         Err(e) => {
+            log::error!("Error adding node: {} for {}", e, node_id);
             return Ok(warp::reply::with_status(
                 warp::reply::json(&ResponseMessage::<Option<uuid::Uuid>> {
                     status: StatusCode::INTERNAL_SERVER_ERROR.as_u16(),
@@ -121,9 +145,12 @@ where
         }
     };
 
+    let status_code =
+        StatusCode::from_u16(result_response.status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+
     Ok(warp::reply::with_status(
         warp::reply::json(&result_response),
-        StatusCode::from_u16(result_response.status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
+        status_code,
     ))
 }
 

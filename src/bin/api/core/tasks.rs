@@ -68,16 +68,11 @@ impl Tasks for Api<HashMap<String, Vec<Node>>, Connection> {
 
         let mut tmp_mem: MemoryCache<HashMap<String, Vec<Node>>, Connection> = MemoryCache::new();
 
-        let user_repo = db.user();
         let node_repo = db.node();
         let conn_repo = db.conn();
 
-        let (users, nodes, conns) =
-            tokio::try_join!(user_repo.all(), node_repo.all(), conn_repo.all(),)?;
+        let (nodes, conns) = tokio::try_join!(node_repo.all(), conn_repo.all(),)?;
 
-        for user in users {
-            tmp_mem.add_user(user).await?;
-        }
         for node in nodes {
             tmp_mem.add_node(node).await?;
         }
@@ -132,21 +127,27 @@ impl Tasks for Api<HashMap<String, Vec<Node>>, Connection> {
                                 }
                                 _ => {
                                     log::debug!(
-                                        "[OFFLINE] Could not parse timestamp from heartbeat: {:?}",
+                                        "Could not parse timestamp from heartbeat: {:?}",
                                         hb.timestamp
                                     );
-                                    NodeStatus::Offline
+                                    return Err(PonyError::Custom(format!(
+                                        "Could not parse timestamp from heartbeat: {:?}",
+                                        hb.timestamp
+                                    )));
                                 }
                             }
                         }
                         None => {
                             log::debug!(
-                                "[OFFLINE] No heartbeat data found for node {} ({}) in env {}",
+                                "No heartbeat data found for node {} ({}) in env {}",
                                 uuid,
                                 hostname,
                                 env
                             );
-                            NodeStatus::Offline
+                            return Err(PonyError::Custom(format!(
+                                "No heartbeat data found for node {} ({}) in env {}",
+                                uuid, hostname, env
+                            )));
                         }
                     };
 

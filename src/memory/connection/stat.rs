@@ -5,7 +5,11 @@ use std::fmt;
 use super::super::stat::Kind;
 use crate::metrics::metrics::Metric;
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+use rkyv::{Archive, Deserialize as RkyvDeserialize, Serialize as RkyvSerialize};
+
+#[derive(
+    Archive, Deserialize, Serialize, RkyvDeserialize, RkyvSerialize, Debug, Clone, PartialEq,
+)]
 pub struct Stat {
     pub downlink: i64,
     pub uplink: i64,

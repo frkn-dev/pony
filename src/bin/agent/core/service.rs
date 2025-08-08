@@ -113,7 +113,7 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
     ));
 
     let snapshot_manager =
-        SnapshotManager::new("snapshots/agent_snapshot.bin".to_string(), memory.clone());
+        SnapshotManager::new(settings.clone().agent.snapshot_path, memory.clone());
 
     let snapshot_timestamp = if Path::new(&snapshot_manager.snapshot_path).exists() {
         match snapshot_manager.load_snapshot().await {
@@ -138,7 +138,9 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
 
     let snapshot_manager = snapshot_manager.clone();
     tokio::spawn(async move {
-        let mut interval = tokio::time::interval(std::time::Duration::from_secs(10));
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(
+            settings.agent.snapshot_interval,
+        ));
         loop {
             interval.tick().await;
             if let Err(e) = snapshot_manager.create_snapshot().await {

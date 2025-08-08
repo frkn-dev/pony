@@ -91,6 +91,14 @@ fn default_stat_job_interval() -> u64 {
     60
 }
 
+fn default_snapshot_interval() -> u64 {
+    300
+}
+
+fn default_snapshot_path() -> String {
+    "snapshots/agent_snapshot.bin".to_string()
+}
+
 fn default_metrics_interval() -> u64 {
     60
 }
@@ -161,6 +169,10 @@ pub struct AgentConfig {
     pub stat_enabled: bool,
     #[serde(default = "default_stat_job_interval")]
     pub stat_job_interval: u64,
+    #[serde(default = "default_snapshot_interval")]
+    pub snapshot_interval: u64,
+    #[serde(default = "default_snapshot_path")]
+    pub snapshot_path: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]

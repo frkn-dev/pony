@@ -127,21 +127,27 @@ impl Tasks for Api<HashMap<String, Vec<Node>>, Connection> {
                                 }
                                 _ => {
                                     log::debug!(
-                                        "[OFFLINE] Could not parse timestamp from heartbeat: {:?}",
+                                        "Could not parse timestamp from heartbeat: {:?}",
                                         hb.timestamp
                                     );
-                                    NodeStatus::Offline
+                                    return Err(PonyError::Custom(format!(
+                                        "Could not parse timestamp from heartbeat: {:?}",
+                                        hb.timestamp
+                                    )));
                                 }
                             }
                         }
                         None => {
                             log::debug!(
-                                "[OFFLINE] No heartbeat data found for node {} ({}) in env {}",
+                                "No heartbeat data found for node {} ({}) in env {}",
                                 uuid,
                                 hostname,
                                 env
                             );
-                            NodeStatus::Offline
+                            return Err(PonyError::Custom(format!(
+                                "No heartbeat data found for node {} ({}) in env {}",
+                                uuid, hostname, env
+                            )));
                         }
                     };
 

@@ -21,7 +21,6 @@ enum Kind {
     Conn,
     Conns,
     Nodes,
-    Users,
 }
 
 impl fmt::Display for Kind {
@@ -30,7 +29,6 @@ impl fmt::Display for Kind {
             Kind::Conn => write!(f, "conn"),
             Kind::Conns => write!(f, "conns"),
             Kind::Nodes => write!(f, "nodes"),
-            Kind::Users => write!(f, "users"),
         }
     }
 }
@@ -165,17 +163,6 @@ pub async fn handle_debug_connection<N, C>(
                     sender.send(Message::text(response_str)).await.unwrap();
                 }
             }
-        } else if req.kind == "get_users" {
-            let memory = memory.read().await;
-            let users: Vec<_> = memory.users.iter().collect();
-            let data = serde_json::to_string(&users).unwrap();
-            let response = Response {
-                kind: Kind::Users.to_string(),
-                data: serde_json::Value::String(data),
-                len: users.len(),
-            };
-            let response_str = serde_json::to_string(&response).unwrap();
-            sender.send(Message::text(response_str)).await.unwrap();
         }
     }
 }

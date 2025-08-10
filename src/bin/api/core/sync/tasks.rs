@@ -1,10 +1,7 @@
-use chrono::Utc;
 use pony::http::requests::ConnUpdateRequest;
-use pony::http::requests::UserUpdateReq;
 use pony::memory::cache::Connections;
 use pony::memory::node::Node;
 use pony::memory::node::Status as NodeStatus;
-use pony::memory::user::User;
 use pony::Connection as Conn;
 use pony::ConnectionApiOp;
 use pony::ConnectionBaseOp;
@@ -15,39 +12,15 @@ use pony::ConnectionStorageBaseOp;
 use pony::NodeStorageOp;
 use pony::OperationStatus;
 use pony::SyncError;
-use pony::UserStorageOp;
 
 use super::MemSync;
 use crate::core::postgres::connection::ConnRow;
-use crate::core::postgres::user::UserRow;
 
 type SyncResult<T> = std::result::Result<T, SyncError>;
 
 // Input validation traits
 trait Validate {
     fn validate(&self) -> SyncResult<()>;
-}
-
-impl Validate for User {
-    fn validate(&self) -> SyncResult<()> {
-        if self.username.trim().is_empty() {
-            return Err(SyncError::Validation(
-                "Username cannot be empty".to_string(),
-            ));
-        }
-
-        if self.username.len() > 255 {
-            return Err(SyncError::Validation("Username too long".to_string()));
-        }
-
-        if let Some(ref password) = self.password {
-            if password.len() < 8 {
-                return Err(SyncError::Validation("Password too short".to_string()));
-            }
-        }
-
-        Ok(())
-    }
 }
 
 impl Validate for Node {
@@ -89,13 +62,6 @@ where
         + From<Conn>
         + std::cmp::PartialEq,
 {
-    async fn add_user(&self, user_id: &uuid::Uuid, user: User) -> SyncResult<OperationStatus>;
-    async fn update_user(
-        &self,
-        user_id: &uuid::Uuid,
-        user: UserUpdateReq,
-    ) -> SyncResult<OperationStatus>;
-    async fn delete_user(&self, user_id: &uuid::Uuid) -> SyncResult<OperationStatus>;
     async fn add_node(&self, node_id: &uuid::Uuid, node: Node) -> SyncResult<OperationStatus>;
     async fn add_conn(&self, conn_id: &uuid::Uuid, conn: Conn) -> SyncResult<OperationStatus>;
     async fn update_conn(
@@ -128,185 +94,6 @@ where
         + std::cmp::PartialEq,
     Conn: From<C>,
 {
-    async fn add_user(&self, user_id: &uuid::Uuid, user: User) -> SyncResult<OperationStatus> {
-        log::info!("Adding user: {}", user_id);
-
-        // Validate input
-        user.validate()?;
-
-        // Check for existing user in memory first (with username uniqueness check)
-        {
-            let memory = self.memory.read().await;
-            if let Some((existing_id, existing_user)) = memory
-                .users
-                .iter()
-                .find(|(_, u)| u.username == user.username)
-            {
-                if existing_user.is_deleted {
-                    log::debug!("User {} was previously deleted", existing_id);
-                    return Ok(OperationStatus::DeletedPreviously(*existing_id));
-                } else {
-                    log::debug!("User {} already exists", existing_id);
-                    return Ok(OperationStatus::AlreadyExist(*existing_id));
-                }
-            }
-        }
-
-        // Create database row
-        let user_row: UserRow = (*user_id, user.clone()).into();
-
-        // Insert into database first
-
-        self.db.user().insert(user_row).await.map_err(|e| {
-            log::error!("Failed to insert user {} into database: {}", user_id, e);
-            e
-        })?;
-        // Insert into memory
-        {
-            let mut memory = self.memory.write().await;
-
-            // Double-check in case another thread inserted while we were waiting
-            if let Some((existing_id, existing_user)) = memory
-                .users
-                .iter()
-                .find(|(_, u)| u.username == user.username)
-            {
-                if existing_user.is_deleted {
-                    return Ok(OperationStatus::DeletedPreviously(*existing_id));
-                } else {
-                    return Ok(OperationStatus::AlreadyExist(*existing_id));
-                }
-            }
-
-            memory.users.insert(*user_id, user);
-        }
-
-        log::info!("Successfully added user: {}", user_id);
-        Ok(OperationStatus::Ok(*user_id))
-    }
-
-    async fn update_user(
-        &self,
-        user_id: &uuid::Uuid,
-        user_req: UserUpdateReq,
-    ) -> SyncResult<OperationStatus> {
-        log::info!("Updating user: {}", user_id);
-
-        // Get current user state
-        let current_user = {
-            let memory = self.memory.read().await;
-            memory.users.get(user_id).cloned()
-        };
-
-        let mut user = match current_user {
-            Some(u) => u,
-            None => {
-                log::warn!("User {} not found for update", user_id);
-                return Ok(OperationStatus::NotFound(*user_id));
-            }
-        };
-
-        // Check if user is deleted and we're not explicitly undeleting
-        if user_req.is_deleted.is_none() && user.is_deleted {
-            return Ok(OperationStatus::NotFound(*user_id));
-        }
-
-        // Apply changes and track if anything changed
-        let mut changed = false;
-        let _original_user = user.clone();
-
-        if let Some(is_deleted) = user_req.is_deleted {
-            if user.is_deleted != is_deleted {
-                user.is_deleted = is_deleted;
-                changed = true;
-            }
-        }
-
-        if let Some(env) = user_req.env {
-            if user.env != env {
-                user.env = env;
-                changed = true;
-            }
-        }
-
-        if let Some(password) = user_req.password {
-            if user.password.as_ref() != Some(&password) {
-                user.password = Some(password);
-                changed = true;
-            }
-        }
-
-        if let Some(limit) = user_req.limit {
-            if user.limit != Some(limit) {
-                user.limit = Some(limit);
-                changed = true;
-            }
-        }
-
-        if !changed {
-            log::debug!("No changes detected for user: {}", user_id);
-            return Ok(OperationStatus::NotModified(*user_id));
-        }
-
-        // Validate updated user
-        user.validate()?;
-
-        // Update timestamp
-        user.modified_at = Utc::now().naive_utc();
-
-        // Update database first
-        if let Err(e) = self.db.user().update(user_id, user.clone()).await {
-            log::error!("Failed to update user {} in database: {}", user_id, e);
-            return Err(SyncError::Database(e));
-        }
-
-        // Update memory
-        {
-            let mut memory = self.memory.write().await;
-
-            // Verify user still exists in memory
-            if !memory.users.contains_key(user_id) {
-                log::warn!("User {} disappeared from memory during update", user_id);
-                return Ok(OperationStatus::NotFound(*user_id));
-            }
-
-            memory.users.insert(*user_id, user);
-        }
-
-        log::info!("Successfully updated user: {}", user_id);
-        Ok(OperationStatus::Updated(*user_id))
-    }
-
-    async fn delete_user(&self, user_id: &uuid::Uuid) -> SyncResult<OperationStatus> {
-        log::info!("Deleting user: {}", user_id);
-
-        // Check if user exists in memory
-        let exists_in_memory = {
-            let memory = self.memory.read().await;
-            memory.users.contains_key(user_id)
-        };
-
-        if !exists_in_memory {
-            log::warn!("User {} not found for deletion", user_id);
-            return Ok(OperationStatus::NotFound(*user_id));
-        }
-
-        // Delete from database first
-        if let Err(e) = self.db.user().delete(user_id).await {
-            log::error!("Failed to delete user {} from database: {}", user_id, e);
-            return Err(SyncError::Database(e));
-        }
-
-        // Delete from memory
-        let status = {
-            let mut memory = self.memory.write().await;
-            memory.users.delete(user_id)
-        };
-
-        log::info!("Successfully deleted user: {}", user_id);
-        Ok(status)
-    }
-
     async fn add_node(&self, node_id: &uuid::Uuid, node: Node) -> SyncResult<OperationStatus> {
         log::info!("Adding node: {}", node_id);
 

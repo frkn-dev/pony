@@ -97,47 +97,6 @@ where
             .and(with_state(self.sync.clone()))
             .and_then(user_conn_stat_handler);
 
-        let get_user_route = warp::get()
-            .and(warp::path("user"))
-            .and(warp::path::end())
-            .and(auth.clone())
-            .and(warp::query::<UserIdQueryParam>())
-            .and(with_state(self.sync.clone()))
-            .and_then(get_user_handler);
-
-        let get_users_route = warp::get()
-            .and(warp::path("users"))
-            .and(warp::path::end())
-            .and(auth.clone())
-            .and(with_state(self.sync.clone()))
-            .and_then(get_users_handler);
-
-        let post_user_register_route = warp::post()
-            .and(warp::path("user"))
-            .and(warp::path::end())
-            .and(auth.clone())
-            .and(warp::body::json::<UserReq>())
-            .and(with_state(self.sync.clone()))
-            .and_then(post_user_register_handler);
-
-        let delete_user_route = warp::delete()
-            .and(warp::path("user"))
-            .and(warp::path::end())
-            .and(auth.clone())
-            .and(warp::query::<UserIdQueryParam>())
-            .and(publisher(self.publisher.clone()))
-            .and(with_state(self.sync.clone()))
-            .and_then(delete_user_handler);
-
-        let put_user_route = warp::put()
-            .and(warp::path("user"))
-            .and(warp::path::end())
-            .and(auth.clone())
-            .and(warp::query::<UserIdQueryParam>())
-            .and(warp::body::json::<UserUpdateReq>())
-            .and(with_state(self.sync.clone()))
-            .and_then(put_user_handler);
-
         let get_user_connections_route = warp::get()
             .and(warp::path("user"))
             .and(warp::path("connections"))
@@ -196,11 +155,6 @@ where
             // User
             .or(get_user_connections_route)
             .or(get_user_stat_route)
-            .or(get_user_route)
-            .or(get_users_route)
-            .or(delete_user_route)
-            .or(post_user_register_route)
-            .or(put_user_route)
             // Node
             .or(get_nodes_route)
             .or(get_node_route)

@@ -1,6 +1,7 @@
 use qrcode::render::unicode;
 use qrcode::QrCode;
 use std::net::Ipv4Addr;
+use std::path::Path;
 use std::sync::Arc;
 use tokio::signal;
 use tokio::sync::broadcast;
@@ -33,6 +34,7 @@ use pony::MemoryCache;
 use pony::NodeStorageOp;
 use pony::Proto;
 use pony::Result;
+use pony::SnapshotManager;
 use pony::Subscriber as ZmqSubscriber;
 use pony::Tag;
 
@@ -109,6 +111,186 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
         xray_handler_client.clone(),
         wg_client.clone(),
     ));
+
+    let snapshot_manager =
+        SnapshotManager::new(settings.clone().agent.snapshot_path, memory.clone());
+
+    let snapshot_timestamp = if Path::new(&snapshot_manager.snapshot_path).exists() {
+        match snapshot_manager.load_snapshot().await {
+            Ok(Some(timestamp)) => {
+                log::info!("Loaded connections snapshot from {}", timestamp);
+                Some(timestamp)
+            }
+            Ok(None) => {
+                log::warn!("Snapshot file exists but couldn't be loaded");
+                None
+            }
+            Err(e) => {
+                log::error!("Failed to load snapshot: {}", e);
+                log::info!("Starting fresh due to snapshot load error");
+                None
+            }
+        }
+    } else {
+        log::info!("No snapshot found, starting fresh");
+        None
+    };
+
+    let snapshot_manager = snapshot_manager.clone();
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(
+            settings.agent.snapshot_interval,
+        ));
+        loop {
+            interval.tick().await;
+            if let Err(e) = snapshot_manager.create_snapshot().await {
+                log::error!("Failed to create snapshot: {}", e);
+            } else {
+                log::info!("Connections snapshot saved successfully");
+            }
+        }
+    });
+
+    let _ = {
+        log::info!("ZMQ listener starting...");
+
+        let zmq_task = tokio::spawn({
+            let agent = agent.clone();
+            let mut shutdown = shutdown_tx.subscribe();
+            async move {
+                tokio::select! {
+                    _ = agent.run_subscriber() => {},
+                    _ = shutdown.recv() => {},
+                }
+            }
+        });
+        tasks.push(zmq_task);
+
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+        let node_type = if settings.wg.enabled && settings.xray.enabled {
+            NodeType::All
+        } else if settings.wg.enabled {
+            NodeType::Wireguard
+        } else if settings.xray.enabled {
+            NodeType::Xray
+        } else {
+            panic!("At least Wg or Xray should be enabled");
+        };
+
+        if !settings.agent.local {
+            let _ = {
+                let settings = settings.clone();
+                log::debug!("Register node task {:?}", node_type);
+                if let Err(e) = agent
+                    .register_node(
+                        settings.api.endpoint.clone(),
+                        settings.api.token.clone(),
+                        node_type,
+                        snapshot_timestamp,
+                    )
+                    .await
+                {
+                    log::error!(
+                        "-->>Cannot register node, use setting local mode for running no deps\n {:?}",
+                        e
+                    );
+                }
+            };
+        }
+    };
+
+    if settings.agent.metrics_enabled {
+        log::info!("Running metrics send task");
+        let carbon_addr = settings.carbon.address.clone();
+        let metrics_handle: JoinHandle<()> = tokio::spawn({
+            let agent = agent.clone();
+            let mut shutdown = shutdown_tx.subscribe();
+            async move {
+                loop {
+                    tokio::select! {
+                        _ = sleep(Duration::from_secs(settings.agent.metrics_interval)) => {
+                            match agent.send_metrics(&carbon_addr).await {
+                                Ok(_) => {},
+                                Err(e) => log::error!("❌ Failed to send metrics: {}", e),
+                            }
+                        },
+                        _ = shutdown.recv() => {
+                            log::info!("🛑 Metrics task received shutdown");
+                            break;
+                        },
+                    }
+                }
+            }
+        });
+        tasks.push(metrics_handle);
+
+        log::info!("Running HB metrics send task");
+        let carbon_addr = settings.carbon.address.clone();
+        let metrics_handle = tokio::spawn({
+            let agent = agent.clone();
+            let mut shutdown = shutdown_tx.subscribe();
+            async move {
+                loop {
+                    tokio::select! {
+                        _ = sleep(Duration::from_secs(settings.agent.metrics_hb_interval)) => {
+                            match agent.send_hb_metric(&carbon_addr).await {
+                                Ok(_) => {},
+                                Err(e) => log::error!("❌ Failed to send heartbeat: {}", e),
+                            }
+                        },
+                        _ = shutdown.recv() => {
+                            log::info!("🛑 Heartbeat task received shutdown");
+                            break;
+                        },
+                    }
+                }
+            }
+        });
+        tasks.push(metrics_handle);
+    }
+
+    if settings.agent.stat_enabled {
+        log::info!("Running Stat Task");
+        let xray_stats_task = tokio::spawn({
+            let agent = Arc::new(agent.clone());
+            let mut shutdown = shutdown_tx.subscribe();
+            async move {
+                loop {
+                    tokio::select! {
+                        _ = sleep(Duration::from_secs(settings.agent.stat_job_interval)) => {
+                            let _ = <Arc<Agent<Node, Connection>> as Clone>::clone(&agent)
+                                .collect_stats()
+                                .await;
+                        },
+                        _ = shutdown.recv() => break,
+                    }
+                }
+            }
+        });
+        tasks.push(xray_stats_task);
+    }
+
+    if settings.agent.stat_enabled {
+        log::info!("Running WG Stat Task");
+        let wg_stats_task = tokio::spawn({
+            let agent = Arc::new(agent.clone());
+            let mut shutdown = shutdown_tx.subscribe();
+            async move {
+                loop {
+                    tokio::select! {
+                        _ = sleep(Duration::from_secs(settings.agent.stat_job_interval)) => {
+                            let _ = <Arc<Agent<Node, Connection>> as Clone>::clone(&agent)
+                                .collect_wireguard_stats()
+                                .await;
+                        },
+                        _ = shutdown.recv() => break,
+                    }
+                }
+            }
+        });
+        tasks.push(wg_stats_task);
+    }
 
     if settings.xray.enabled {
         if let Some(xray_handler_client) = xray_handler_client {
@@ -263,148 +445,7 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
                 }
             }
         });
-
         tasks.push(conn_task);
-    }
-
-    let _ = {
-        log::info!("ZMQ listener starting...");
-
-        let zmq_task = tokio::spawn({
-            let agent = agent.clone();
-            let mut shutdown = shutdown_tx.subscribe();
-            async move {
-                tokio::select! {
-                    _ = agent.run_subscriber() => {},
-                    _ = shutdown.recv() => {},
-                }
-            }
-        });
-        tasks.push(zmq_task);
-
-        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-
-        let node_type = if settings.wg.enabled && settings.xray.enabled {
-            NodeType::All
-        } else if settings.wg.enabled {
-            NodeType::Wireguard
-        } else if settings.xray.enabled {
-            NodeType::Xray
-        } else {
-            panic!("At least Wg or Xray should be enabled");
-        };
-
-        if !settings.agent.local {
-            let _ = {
-                let settings = settings.clone();
-                log::debug!("Register node task {:?}", node_type);
-                if let Err(e) = agent
-                    .register_node(
-                        settings.api.endpoint.clone(),
-                        settings.api.token.clone(),
-                        node_type,
-                    )
-                    .await
-                {
-                    panic!(
-                        "-->>Cannot register node, use setting local mode for running no deps\n {:?}",
-                        e
-                    );
-                }
-            };
-        }
-    };
-
-    if settings.agent.metrics_enabled {
-        log::info!("Running metrics send task");
-        let carbon_addr = settings.carbon.address.clone();
-        let metrics_handle: JoinHandle<()> = tokio::spawn({
-            let agent = agent.clone();
-            let mut shutdown = shutdown_tx.subscribe();
-            async move {
-                loop {
-                    tokio::select! {
-                        _ = sleep(Duration::from_secs(settings.agent.metrics_interval)) => {
-                            match agent.send_metrics(&carbon_addr).await {
-                                Ok(_) => {},
-                                Err(e) => log::error!("❌ Failed to send metrics: {}", e),
-                            }
-                        },
-                        _ = shutdown.recv() => {
-                            log::info!("🛑 Metrics task received shutdown");
-                            break;
-                        },
-                    }
-                }
-            }
-        });
-        tasks.push(metrics_handle);
-
-        log::info!("Running HB metrics send task");
-        let carbon_addr = settings.carbon.address.clone();
-        let metrics_handle = tokio::spawn({
-            let agent = agent.clone();
-            let mut shutdown = shutdown_tx.subscribe();
-            async move {
-                loop {
-                    tokio::select! {
-                        _ = sleep(Duration::from_secs(settings.agent.metrics_hb_interval)) => {
-                            match agent.send_hb_metric(&carbon_addr).await {
-                                Ok(_) => {},
-                                Err(e) => log::error!("❌ Failed to send heartbeat: {}", e),
-                            }
-                        },
-                        _ = shutdown.recv() => {
-                            log::info!("🛑 Heartbeat task received shutdown");
-                            break;
-                        },
-                    }
-                }
-            }
-        });
-        tasks.push(metrics_handle);
-    }
-
-    if settings.agent.stat_enabled {
-        log::info!("Running Stat Task");
-        let xray_stats_task = tokio::spawn({
-            let agent = Arc::new(agent.clone());
-            let mut shutdown = shutdown_tx.subscribe();
-            async move {
-                loop {
-                    tokio::select! {
-                        _ = sleep(Duration::from_secs(settings.agent.stat_job_interval)) => {
-                            let _ = <Arc<Agent<Node, Connection>> as Clone>::clone(&agent)
-                                .collect_stats()
-                                .await;
-                        },
-                        _ = shutdown.recv() => break,
-                    }
-                }
-            }
-        });
-        tasks.push(xray_stats_task);
-    }
-
-    if settings.agent.stat_enabled {
-        log::info!("Running WG Stat Task");
-        let wg_stats_task = tokio::spawn({
-            let agent = Arc::new(agent.clone());
-            let mut shutdown = shutdown_tx.subscribe();
-            async move {
-                loop {
-                    tokio::select! {
-                        _ = sleep(Duration::from_secs(settings.agent.stat_job_interval)) => {
-                            let _ = <Arc<Agent<Node, Connection>> as Clone>::clone(&agent)
-                                .collect_wireguard_stats()
-                                .await;
-                        },
-                        _ = shutdown.recv() => break,
-                    }
-                }
-            }
-        });
-        tasks.push(wg_stats_task);
     }
 
     let token = Arc::new(settings.api.token.clone());

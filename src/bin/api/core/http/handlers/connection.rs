@@ -844,7 +844,7 @@ where
                 continue;
             }
             if let Some(nodes) = mem.nodes.get_by_env(&conn.get_env()) {
-                for node in nodes.iter().filter(|n| n.status == NodeStatus::Online) {
+                for node in nodes.iter() {
                     if let Some(inbound) = &node.inbounds.get(&conn.get_proto().proto()) {
                         inbounds_by_node.push((
                             inbound.as_inbound_response(),

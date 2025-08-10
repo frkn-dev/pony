@@ -17,3 +17,4 @@ xray-config-mk2nl.json
 connection-lines.txt
 dev/data
 deploy/env
+snapshots/*.bin

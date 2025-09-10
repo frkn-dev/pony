@@ -3,6 +3,7 @@ use chrono::NaiveTime;
 use chrono::TimeZone;
 use chrono::Utc;
 use futures::future::join_all;
+use pony::ConnectionBaseOp;
 use rand::Rng;
 use std::collections::HashMap;
 use std::time::Duration;
@@ -10,19 +11,12 @@ use std::time::Duration;
 use pony::memory::node::Node;
 use pony::memory::node::Status as NodeStatus;
 use pony::utils::measure_time;
-use pony::Action;
 use pony::Connection;
-use pony::ConnectionApiOp;
-use pony::ConnectionBaseOp;
 use pony::ConnectionStat;
-use pony::ConnectionStatus;
 use pony::MemoryCache;
-use pony::Message;
 use pony::NodeStorageOp;
-use pony::OperationStatus;
 use pony::PonyError;
 use pony::Result;
-use pony::Tag;
 
 use crate::core::clickhouse::query::Queries;
 use crate::core::postgres::Tasks as MemoryCacheTasks;
@@ -35,8 +29,6 @@ pub trait Tasks {
     async fn periodic_db_sync(&self, interval_sec: u64);
     async fn node_healthcheck(&self) -> Result<()>;
     async fn collect_conn_stat(&self) -> Result<()>;
-    async fn enforce_xray_trial_limits(&self) -> Result<()>;
-    async fn restore_xray_trial_conns(&self) -> Result<()>;
 }
 
 #[async_trait]
@@ -173,7 +165,7 @@ impl Tasks for Api<HashMap<String, Vec<Node>>, Connection> {
             let mem = self.sync.memory.read().await;
             mem.connections
                 .iter()
-                .filter(|(_, conn)| conn.get_status() == ConnectionStatus::Active)
+                .filter(|(_, conn)| !conn.get_deleted())
                 .map(|(k, v)| (k.clone(), v.clone()))
                 .collect::<Vec<_>>()
         };
@@ -204,187 +196,6 @@ impl Tasks for Api<HashMap<String, Vec<Node>>, Connection> {
         for result in results {
             if let Err(e) = result {
                 log::error!("Error during stat update: {:?}", e);
-            }
-        }
-
-        Ok(())
-    }
-
-    async fn enforce_xray_trial_limits(&self) -> Result<()> {
-        let conns: Vec<(uuid::Uuid, Connection)> = {
-            let mem = self.sync.memory.read().await;
-            mem.connections
-                .iter()
-                .filter_map(|(id, conn)| {
-                    if conn.get_trial() && conn.get_status() == ConnectionStatus::Active {
-                        Some((*id, conn.clone()))
-                    } else {
-                        None
-                    }
-                })
-                .collect()
-        };
-
-        let mut grouped: HashMap<Option<uuid::Uuid>, Vec<(uuid::Uuid, Connection)>> =
-            HashMap::new();
-        for (conn_id, conn) in conns {
-            grouped
-                .entry(conn.get_user_id())
-                .or_default()
-                .push((conn_id, conn));
-        }
-
-        let sync = self.sync.clone();
-        let publisher = self.publisher.clone();
-
-        let tasks = grouped.into_iter().map(move |(_user_id, conns)| {
-            let sync = sync.clone();
-            let publisher = publisher.clone();
-
-            async move {
-                let total_downlink: i64 = conns.iter().map(|(_, c)| c.get_downlink()).sum();
-
-                let limit = conns.iter().map(|(_, c)| c.get_limit()).max().unwrap_or(0);
-
-                if (total_downlink as f64 / 1_048_576.0) >= limit as f64 {
-                    for (conn_id, conn) in conns {
-                        self.sync
-                            .db
-                            .conn()
-                            .update_status(&conn_id, ConnectionStatus::Expired)
-                            .await?;
-
-                        let mut mem = sync.memory.write().await;
-                        if let Some(conn_mut) = mem.connections.get_mut(&conn_id) {
-                            conn_mut.set_status(ConnectionStatus::Expired);
-                            conn_mut.set_modified_at();
-                        }
-
-                        let msg = Message {
-                            action: Action::Delete,
-                            conn_id: conn_id.into(),
-                            password: conn.get_password(),
-                            tag: conn.get_proto().proto().into(),
-                            wg: None,
-                        };
-
-                        let bytes = match rkyv::to_bytes::<_, 1024>(&msg) {
-                            Ok(b) => b,
-                            Err(e) => {
-                                log::error!(
-                                    "Failed to serialize delete message for connection {}: {}",
-                                    conn_id,
-                                    e
-                                );
-                                continue;
-                            }
-                        };
-
-                        let _ = publisher.send_binary(&conn.get_env(), bytes.as_ref()).await;
-
-                        log::info!(
-                            "Trial connection {} expired: downlink = {:.2} MB, limit = {} MB",
-                            conn_id,
-                            total_downlink as f64 / 1_048_576.0,
-                            limit
-                        );
-                    }
-                }
-
-                Ok::<_, PonyError>(())
-            }
-        });
-
-        let results = join_all(tasks).await;
-
-        for result in results {
-            if let Err(e) = result {
-                log::error!("Error during enforce_all_trial_limits: {:?}", e);
-            }
-        }
-
-        Ok(())
-    }
-
-    async fn restore_xray_trial_conns(&self) -> Result<()> {
-        let conns_map = {
-            let mem = self.sync.memory.read().await;
-            mem.connections
-                .iter()
-                .filter(|(_, conn)| {
-                    conn.get_trial() && !matches!(conn.get_proto().proto(), Tag::Wireguard)
-                })
-                .map(|(k, v)| (k.clone(), v.clone()))
-                .collect::<Vec<_>>()
-        };
-
-        let tasks = conns_map.into_iter().filter_map(|(conn_id, conn)| {
-            let sync = self.sync.clone();
-            let publisher = self.publisher.clone();
-
-            let tag = conn.get_proto().proto();
-            let wg = conn.get_wireguard();
-            let password = conn.get_password();
-
-            let reset_msg = Message {
-                action: Action::ResetStat,
-                conn_id: conn_id.into(),
-                password: password.clone(),
-                tag: tag,
-                wg: wg.cloned(),
-            };
-
-            let restore_msg = Message {
-                action: Action::Create,
-                conn_id: conn_id.into(),
-                password: password,
-                tag: tag,
-                wg: wg.cloned(),
-            };
-
-            Some(async move {
-                match SyncOp::activate_trial_conn(&sync, &conn_id).await {
-                    Ok(OperationStatus::Updated(_id)) => {
-                        let restore_bytes =
-                            rkyv::to_bytes::<_, 1024>(&restore_msg).map_err(|e| {
-                                PonyError::SerializationError(format!(
-                                    "rkyv serialization failed: {}",
-                                    e
-                                ))
-                            })?;
-                        let reset_bytes = rkyv::to_bytes::<_, 1024>(&reset_msg).map_err(|e| {
-                            PonyError::SerializationError(format!(
-                                "rkyv serialization failed: {}",
-                                e
-                            ))
-                        })?;
-                        publisher
-                            .send_binary(&conn.get_env(), restore_bytes.as_ref())
-                            .await?;
-                        publisher
-                            .send_binary(&conn.get_env(), reset_bytes.as_ref())
-                            .await?;
-
-                        log::info!("Trial connection {} was restored", conn_id);
-                        Ok(())
-                    }
-                    Ok(OperationStatus::UpdatedStat(_id)) => {
-                        log::info!("Trial connection stat {} was restored", conn_id);
-                        Ok(())
-                    }
-                    Ok(_) => Err(PonyError::Custom("Op isn't supported".into())),
-                    Err(_) => Err(PonyError::Custom(
-                        "SyncOp::activate_trial_conn failed".into(),
-                    )),
-                }
-            })
-        });
-
-        let results = join_all(tasks).await;
-
-        for result in results {
-            if let Err(e) = result {
-                log::error!("Error during restore_trial_conns: {:?}", e);
             }
         }
 

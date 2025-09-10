@@ -1,4 +1,3 @@
-use chrono::NaiveTime;
 use fern::Dispatch;
 use std::net::Ipv4Addr;
 use std::sync::Arc;
@@ -160,36 +159,6 @@ async fn main() -> Result<()> {
             }
         }
     });
-
-    let api_for_expire = api.clone();
-    let _ = tokio::spawn({
-        log::info!("enforce_all_trial_limits task started");
-        let api = api_for_expire.clone();
-        let job_interval = Duration::from_secs(settings.api.conn_limit_check_interval);
-
-        async move {
-            loop {
-                if let Err(e) = api.enforce_xray_trial_limits().await {
-                    log::error!("enforce_all_trial_limits task failed: {:?}", e);
-                }
-                tokio::time::sleep(job_interval).await;
-            }
-        }
-    });
-
-    let api_for_restore = api.clone();
-    log::info!("restore_trial_conns task started");
-    let _ = tokio::spawn(run_daily(
-        move || {
-            let api = api_for_restore.clone();
-            async move {
-                if let Err(e) = api.restore_xray_trial_conns().await {
-                    log::error!("Scheduled daily task failed: {:?}", e);
-                }
-            }
-        },
-        NaiveTime::from_hms_opt(3, 0, 0).unwrap(),
-    ));
 
     let api = api.clone();
     let api_handle = tokio::spawn(async move {

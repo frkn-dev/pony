@@ -12,7 +12,6 @@ use pony::http::requests::UserSubQueryParam;
 use pony::http::IdResponse;
 use pony::http::IpParseError;
 use pony::http::ResponseMessage;
-use pony::memory::node::Status as NodeStatus;
 use pony::utils;
 use pony::xray_op::clash::generate_clash_config;
 use pony::xray_op::clash::generate_proxy_config;
@@ -22,7 +21,6 @@ use pony::Connection;
 use pony::ConnectionApiOp;
 use pony::ConnectionBaseOp;
 use pony::ConnectionStat;
-use pony::ConnectionStatus;
 use pony::ConnectionStorageApiOp;
 use pony::NodeStorageOp;
 use pony::OperationStatus as StorageOperationStatus;
@@ -342,10 +340,7 @@ where
     };
 
     let conn: Connection = Connection::new(
-        conn_req.trial.unwrap_or(true),
-        conn_req.limit.unwrap_or(0),
         &env,
-        ConnectionStatus::Active,
         conn_req.user_id,
         ConnectionStat::default(),
         proto,
@@ -447,7 +442,7 @@ where
 }
 
 /// Handler deletes connection
-// DELETE /connection?conn_id=
+// DELETE /connection?id=
 pub async fn delete_connection_handler<N, C>(
     conn_param: ConnQueryParam,
     publisher: ZmqPublisher,
@@ -465,7 +460,7 @@ where
         + PartialEq,
     Connection: From<C>,
 {
-    let conn_id = conn_param.conn_id;
+    let conn_id = conn_param.id;
     let conn_opt = {
         let mem = memory.memory.read().await;
         mem.connections.get(&conn_id).cloned()
@@ -575,9 +570,9 @@ where
 }
 
 /// Handler updates connection
-// PUT /connection?conn_id=
+// PUT /connection?id=
 pub async fn put_connection_handler<N, C>(
-    conn_id: ConnQueryParam,
+    conn_param: ConnQueryParam,
     conn_req: ConnUpdateRequest,
     publisher: ZmqPublisher,
     memory: MemSync<N, C>,
@@ -594,7 +589,7 @@ where
         + PartialEq,
     Connection: From<C>,
 {
-    let conn_id = conn_id.conn_id;
+    let conn_id = conn_param.id;
     log::debug!("Connection to update {}", conn_id);
 
     match SyncOp::update_conn(&memory, &conn_id, conn_req).await {
@@ -709,7 +704,7 @@ where
 
 /// Get list of user connection credentials
 pub async fn get_user_connections_handler<N, C>(
-    user_req: UserIdQueryParam,
+    user_param: UserIdQueryParam,
     memory: MemSync<N, C>,
 ) -> Result<impl warp::Reply, warp::Rejection>
 where
@@ -725,9 +720,9 @@ where
         + serde::ser::Serialize
         + PartialEq,
 {
-    log::debug!("Received: {:?}", user_req);
+    log::debug!("Received: {:?}", user_param);
 
-    let user_id = user_req.user_id;
+    let user_id = user_param.id;
 
     let connections = {
         let mem = memory.memory.read().await;
@@ -768,9 +763,9 @@ where
 }
 
 /// Get connection detaisl
-// GET /connection?conn_id=
+// GET /connection?id=
 pub async fn get_connection_handler<N, C>(
-    conn_req: ConnQueryParam,
+    conn_param: ConnQueryParam,
     memory: MemSync<N, C>,
 ) -> Result<impl warp::Reply, warp::Rejection>
 where
@@ -788,7 +783,7 @@ where
 {
     let mem = memory.memory.read().await;
 
-    let conn_id = conn_req.conn_id;
+    let conn_id = conn_param.id;
 
     if let Some(conn) = mem.connections.get(&conn_id) {
         let message = format!("Connections are found");
@@ -816,9 +811,9 @@ where
 }
 
 /// Gets Subscriprion link
-// GET /sub?user_id=
+// GET /sub?id=
 pub async fn subscription_link_handler<N, C>(
-    user_req: UserSubQueryParam,
+    user_param: UserSubQueryParam,
     memory: MemSync<N, C>,
 ) -> Result<Box<dyn warp::Reply + Send>, warp::Rejection>
 where
@@ -835,12 +830,12 @@ where
 {
     let mem = memory.memory.read().await;
 
-    let conns = mem.connections.get_by_user_id(&user_req.user_id);
+    let conns = mem.connections.get_by_user_id(&user_param.id);
     let mut inbounds_by_node = vec![];
 
     if let Some(conns) = conns {
         for (conn_id, conn) in conns {
-            if conn.get_deleted() || conn.get_status() != ConnectionStatus::Active {
+            if conn.get_deleted() {
                 continue;
             }
             if let Some(nodes) = mem.nodes.get_by_env(&conn.get_env()) {
@@ -871,7 +866,7 @@ where
         )));
     }
 
-    match user_req.format.as_str() {
+    match user_param.format.as_str() {
         "clash" => {
             let mut proxies = vec![];
 

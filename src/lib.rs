@@ -23,7 +23,6 @@ pub use memory::storage::connection::BaseOp as ConnectionStorageBaseOp;
 pub use memory::storage::node::Operations as NodeStorageOp;
 pub use memory::storage::Status as OperationStatus;
 
-pub use memory::connection::conn::Status as ConnectionStatus;
 pub use memory::connection::stat::Stat as ConnectionStat;
 
 pub use memory::connection::proto::Proto;

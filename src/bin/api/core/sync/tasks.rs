@@ -6,7 +6,6 @@ use pony::Connection as Conn;
 use pony::ConnectionApiOp;
 use pony::ConnectionBaseOp;
 use pony::ConnectionStat;
-use pony::ConnectionStatus;
 use pony::ConnectionStorageApiOp as ApiOp;
 use pony::ConnectionStorageBaseOp;
 use pony::NodeStorageOp;
@@ -77,7 +76,6 @@ where
         status: NodeStatus,
     ) -> SyncResult<()>;
     async fn update_conn_stat(&self, conn_id: &uuid::Uuid, stat: ConnectionStat) -> SyncResult<()>;
-    async fn activate_trial_conn(&self, conn_id: &uuid::Uuid) -> SyncResult<OperationStatus>;
 }
 
 #[async_trait::async_trait]
@@ -374,91 +372,5 @@ where
 
         log::debug!("Successfully updated connection {} stats", conn_id);
         Ok(())
-    }
-
-    async fn activate_trial_conn(&self, conn_id: &uuid::Uuid) -> SyncResult<OperationStatus> {
-        log::info!("Activating trial connection: {}", conn_id);
-
-        // Get current connection
-        let current_conn = {
-            let memory = self.memory.read().await;
-            memory.connections.get(conn_id)
-        };
-
-        let mut conn = match current_conn {
-            Some(c) => c,
-            None => {
-                log::error!("Connection {} not found for activation", conn_id);
-                return Err(SyncError::ResourceNotFound {
-                    resource: "connection".to_string(),
-                    id: *conn_id,
-                });
-            }
-        };
-
-        let result = match conn.get_status() {
-            ConnectionStatus::Expired => {
-                // Reset stats and activate
-                if let Err(e) = self
-                    .db
-                    .conn()
-                    .update_stat(conn_id, ConnectionStat::default())
-                    .await
-                {
-                    log::error!("Failed to reset connection {} stats: {}", conn_id, e);
-                    return Err(SyncError::Database(e));
-                }
-
-                if let Err(e) = self
-                    .db
-                    .conn()
-                    .update_status(conn_id, ConnectionStatus::Active)
-                    .await
-                {
-                    log::error!("Failed to activate connection {}: {}", conn_id, e);
-                    return Err(SyncError::Database(e));
-                }
-
-                // Update memory
-                conn.set_uplink(0);
-                conn.set_downlink(0);
-                conn.set_status(ConnectionStatus::Active);
-                conn.set_modified_at();
-
-                {
-                    let mut memory = self.memory.write().await;
-                    memory.connections.insert(*conn_id, conn);
-                }
-
-                OperationStatus::Updated(*conn_id)
-            }
-            ConnectionStatus::Active => {
-                // Just reset stats
-                if let Err(e) = self
-                    .db
-                    .conn()
-                    .update_stat(conn_id, ConnectionStat::default())
-                    .await
-                {
-                    log::error!("Failed to reset connection {} stats: {}", conn_id, e);
-                    return Err(SyncError::Database(e));
-                }
-
-                // Update memory
-                {
-                    let mut memory = self.memory.write().await;
-                    if let Some(c) = memory.connections.get_mut(conn_id) {
-                        c.set_uplink(0);
-                        c.set_downlink(0);
-                        c.set_modified_at();
-                    }
-                }
-
-                OperationStatus::UpdatedStat(*conn_id)
-            }
-        };
-
-        log::info!("Successfully activated trial connection: {}", conn_id);
-        Ok(result)
     }
 }

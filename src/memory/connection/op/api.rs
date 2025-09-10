@@ -1,19 +1,9 @@
 use super::super::conn::Conn;
-use super::super::conn::Status;
 use super::super::proto::Proto;
 use crate::zmq::message::Action;
 use crate::zmq::message::Message;
 
 pub trait Operations {
-    fn get_trial(&self) -> bool;
-    fn set_trial(&mut self, v: bool);
-
-    fn get_limit(&self) -> i32;
-    fn set_limit(&mut self, v: i32);
-
-    fn get_status(&self) -> Status;
-    fn set_status(&mut self, s: Status);
-
     fn get_user_id(&self) -> Option<uuid::Uuid>;
     fn set_user_id(&mut self, user_id: &uuid::Uuid);
 
@@ -26,27 +16,6 @@ pub trait Operations {
 }
 
 impl Operations for Conn {
-    fn get_trial(&self) -> bool {
-        self.trial
-    }
-    fn set_trial(&mut self, v: bool) {
-        self.trial = v;
-    }
-
-    fn get_limit(&self) -> i32 {
-        self.limit
-    }
-    fn set_limit(&mut self, v: i32) {
-        self.limit = v;
-    }
-
-    fn get_status(&self) -> Status {
-        self.status.clone()
-    }
-    fn set_status(&mut self, s: Status) {
-        self.status = s;
-    }
-
     fn get_env(&self) -> String {
         self.env.clone()
     }

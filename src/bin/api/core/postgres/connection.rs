@@ -8,7 +8,6 @@ use tokio::sync::Mutex;
 
 use pony::Connection as Conn;
 use pony::ConnectionStat;
-use pony::ConnectionStatus;
 use pony::Proto;
 use pony::Tag;
 use pony::WgKeys;
@@ -21,8 +20,6 @@ use super::PgClientManager;
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct ConnRow {
     pub conn_id: uuid::Uuid,
-    pub trial: bool,
-    pub limit: i32,
     pub password: Option<String>,
     pub env: String,
     pub created_at: NaiveDateTime,
@@ -31,7 +28,6 @@ pub struct ConnRow {
     pub stat: ConnectionStat,
     pub wg: Option<WgParam>,
     pub node_id: Option<uuid::Uuid>,
-    pub status: ConnectionStatus,
     pub proto: Tag,
     is_deleted: bool,
 }
@@ -46,15 +42,12 @@ impl From<(uuid::Uuid, Conn)> for ConnRow {
 
         ConnRow {
             conn_id: conn_id,
-            trial: conn.trial,
-            limit: conn.limit,
             password: conn.get_password(),
             env: conn.env.clone(),
             created_at: conn.created_at,
             modified_at: conn.modified_at,
             user_id: conn.user_id,
             stat: conn_stat,
-            status: conn.status,
             wg: conn.get_wireguard().cloned(),
             node_id: conn.get_wireguard_node_id(),
             proto: conn.get_proto().proto(),
@@ -92,11 +85,8 @@ impl TryFrom<ConnRow> for Conn {
         };
 
         Ok(Self {
-            trial: row.trial,
-            limit: row.limit,
             env: row.env,
             proto,
-            status: row.status,
             stat: row.stat,
             user_id: row.user_id,
             created_at: row.created_at,
@@ -123,8 +113,6 @@ impl PgConn {
         let query = "
         SELECT 
             id,
-            is_trial,
-            daily_limit_mb,
             password,
             env,
             created_at,
@@ -133,7 +121,6 @@ impl PgConn {
             online, 
             uplink,
             downlink,
-            status,
             proto,
             node_id,
             wg_privkey,
@@ -151,24 +138,21 @@ impl PgConn {
     fn map_rows_to_conns(&self, rows: Vec<tokio_postgres::Row>) -> Vec<ConnRow> {
         rows.into_iter()
             .map(|row| {
-                let conn_id: uuid::Uuid = row.get(0);
-                let trial: bool = row.get(1);
-                let limit: i32 = row.get(2);
-                let password: Option<String> = row.get(3);
-                let env: String = row.get(4);
-                let created_at: NaiveDateTime = row.get(5);
-                let modified_at: NaiveDateTime = row.get(6);
-                let user_id: Option<uuid::Uuid> = row.get(7);
-                let online: i64 = row.get(8);
-                let uplink: i64 = row.get(9);
-                let downlink: i64 = row.get(10);
-                let status: ConnectionStatus = row.get(11);
-                let proto: Tag = row.get(12);
-                let node_id: Option<uuid::Uuid> = row.get(13);
-                let wg_privkey: Option<String> = row.get(14);
-                let wg_pubkey: Option<String> = row.get(15);
-                let wg_address: Option<String> = row.get(16);
-                let is_deleted: bool = row.get(17);
+                let conn_id: uuid::Uuid = row.get("id");
+                let password: Option<String> = row.get("password");
+                let env: String = row.get("env");
+                let created_at: NaiveDateTime = row.get("created_at");
+                let modified_at: NaiveDateTime = row.get("modified_at");
+                let user_id: Option<uuid::Uuid> = row.get("user_id");
+                let online: i64 = row.get("online");
+                let uplink: i64 = row.get("uplink");
+                let downlink: i64 = row.get("downlink");
+                let proto: Tag = row.get("proto");
+                let node_id: Option<uuid::Uuid> = row.get("node_id");
+                let wg_privkey: Option<String> = row.get("wg_privkey");
+                let wg_pubkey: Option<String> = row.get("wg_pubkey");
+                let wg_address: Option<String> = row.get("wg_address");
+                let is_deleted: bool = row.get("is_deleted");
 
                 let wg = match (wg_privkey, wg_pubkey, wg_address) {
                     (Some(privkey), Some(pubkey), Some(address)) => {
@@ -182,8 +166,6 @@ impl PgConn {
 
                 ConnRow {
                     conn_id,
-                    trial,
-                    limit,
                     password,
                     env,
                     created_at,
@@ -194,7 +176,6 @@ impl PgConn {
                         uplink,
                         downlink,
                     },
-                    status,
                     proto,
                     wg,
                     node_id,
@@ -223,21 +204,6 @@ impl PgConn {
         Ok(())
     }
 
-    pub async fn update_status(
-        &self,
-        conn_id: &uuid::Uuid,
-        status: ConnectionStatus,
-    ) -> Result<()> {
-        let mut manager = self.manager.lock().await;
-        let client = manager.get_client().await?;
-
-        let query = format!("UPDATE connections SET status = $1::conn_status WHERE id = $2");
-
-        client.execute(&query, &[&status, conn_id]).await?;
-
-        Ok(())
-    }
-
     pub async fn delete(&self, conn_id: &uuid::Uuid) -> Result<()> {
         let mut manager = self.manager.lock().await;
         let client = manager.get_client().await?;
@@ -256,8 +222,6 @@ impl PgConn {
         let query = "
         INSERT INTO connections (
             id,
-            is_trial,
-            daily_limit_mb,
             password,
             env,
             created_at,
@@ -267,7 +231,6 @@ impl PgConn {
             uplink,
             downlink,
             proto,
-            status,
             is_deleted,
             wg_privkey,
             wg_pubkey,
@@ -276,7 +239,7 @@ impl PgConn {
         )
         VALUES (
             $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-            $11, $12, $13, $14, $15, $16, $17, $18
+            $11, $12, $13, $14, $15
         )
     ";
 
@@ -285,8 +248,6 @@ impl PgConn {
                 query,
                 &[
                     &conn.conn_id,
-                    &conn.trial,
-                    &conn.limit,
                     &conn.password,
                     &conn.env,
                     &conn.created_at,
@@ -296,7 +257,6 @@ impl PgConn {
                     &conn.stat.uplink,
                     &conn.stat.downlink,
                     &conn.proto,
-                    &conn.status,
                     &conn.is_deleted,
                     &conn.wg.as_ref().map(|w| &w.keys.privkey),
                     &conn.wg.as_ref().map(|w| &w.keys.pubkey),
@@ -328,21 +288,18 @@ impl PgConn {
 
         let query = "
         UPDATE connections SET 
-            is_trial = $2,
-            daily_limit_mb = $3,
-            password = $4,
-            env = $5,
-            modified_at = $6,
-            user_id = $7,
-            online = $8,
-            uplink = $9,
-            downlink = $10, 
-            status = $11,
-            is_deleted = $12,
-            wg_privkey = $13,
-            wg_pubkey = $14,
-            wg_address = $15,
-            node_id = $16
+            password = $2,
+            env = $3,
+            modified_at = $4,
+            user_id = $5,
+            online = $6,
+            uplink = $7,
+            downlink = $8, 
+            is_deleted = $9,
+            wg_privkey = $10,
+            wg_pubkey = $11,
+            wg_address = $12,
+            node_id = $13
         WHERE id = $1
     ";
 
@@ -351,8 +308,6 @@ impl PgConn {
                 query,
                 &[
                     &conn.conn_id,
-                    &conn.trial,
-                    &conn.limit,
                     &conn.password,
                     &conn.env,
                     &conn.modified_at,
@@ -360,7 +315,6 @@ impl PgConn {
                     &conn.stat.online,
                     &conn.stat.uplink,
                     &conn.stat.downlink,
-                    &conn.status,
                     &conn.is_deleted,
                     &conn.wg.as_ref().map(|w| &w.keys.privkey),
                     &conn.wg.as_ref().map(|w| &w.keys.pubkey),

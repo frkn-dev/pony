@@ -6,7 +6,6 @@ use pony::Connection;
 use pony::ConnectionApiOp;
 use pony::ConnectionBaseOp;
 use pony::ConnectionStat;
-use pony::ConnectionStatus;
 use pony::ConnectionStorageApiOp;
 use pony::NodeStorageOp;
 use pony::Tag;
@@ -15,7 +14,7 @@ use crate::core::sync::MemSync;
 
 // GET /user/stat?user_id=<>
 pub async fn user_conn_stat_handler<N, C>(
-    user_req: UserIdQueryParam,
+    user_param: UserIdQueryParam,
     memory: MemSync<N, C>,
 ) -> Result<impl warp::Reply, warp::Rejection>
 where
@@ -29,13 +28,12 @@ where
         + From<Connection>
         + PartialEq,
 {
-    log::debug!("Received: {:?}", user_req);
+    log::debug!("Received: {:?}", user_param);
 
     let mem = memory.memory.read().await;
-    let mut result: Vec<(uuid::Uuid, ConnectionStat, Tag, ConnectionStatus, i32, bool)> =
-        Vec::new();
+    let mut result: Vec<(uuid::Uuid, ConnectionStat, Tag)> = Vec::new();
 
-    if let Some(connections) = mem.connections.get_by_user_id(&user_req.user_id) {
+    if let Some(connections) = mem.connections.get_by_user_id(&user_param.id) {
         for (conn_id, conn) in connections {
             let tag = conn.get_proto().proto();
 
@@ -45,14 +43,7 @@ where
                 uplink: conn.get_uplink(),
             };
 
-            result.push((
-                conn_id,
-                stat,
-                tag,
-                conn.get_status(),
-                conn.get_limit(),
-                conn.get_trial(),
-            ));
+            result.push((conn_id, stat, tag));
         }
 
         let response = ResponseMessage {
@@ -66,9 +57,7 @@ where
             StatusCode::OK,
         ))
     } else {
-        let response = ResponseMessage::<
-            Option<Vec<(uuid::Uuid, ConnectionStat, Tag, ConnectionStatus, i32, bool)>>,
-        > {
+        let response = ResponseMessage::<Option<Vec<(uuid::Uuid, ConnectionStat, Tag)>>> {
             status: StatusCode::NOT_FOUND.as_u16(),
             message: "Connections not found".to_string(),
             response: Some(vec![]),

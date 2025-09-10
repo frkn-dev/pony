@@ -1,8 +1,6 @@
 use std::collections::hash_map::Entry;
-use std::collections::HashMap;
 
 use super::super::cache::Connections;
-use super::super::connection::conn::Status as ConnectionStatus;
 use super::super::connection::op::api::Operations as ConnectionApiOp;
 use super::super::connection::op::base::Operations as ConnectionBaseOp;
 use super::super::connection::stat::Stat as ConnectionStat;
@@ -19,12 +17,7 @@ where
 {
     fn add(&mut self, conn_id: &uuid::Uuid, new_conn: C) -> Result<OperationStatus>;
     fn update(&mut self, conn_id: &uuid::Uuid, conn_req: ConnUpdateRequest) -> OperationStatus;
-    fn restore(&mut self, conn_id: &uuid::Uuid) -> Result<()>;
-    fn expire(&mut self, conn_id: &uuid::Uuid) -> Result<()>;
-    fn update_limit(&mut self, conn_id: &uuid::Uuid, new_limit: i32) -> Result<()>;
-    fn update_trial(&mut self, conn_id: &uuid::Uuid, new_trial: bool) -> Result<()>;
     fn reset_stat(&mut self, conn_id: &uuid::Uuid, stat: StatKind);
-    fn all_trial(&self, status: ConnectionStatus) -> HashMap<uuid::Uuid, C>;
     fn get_by_user_id(&self, user_id: &uuid::Uuid) -> Option<Vec<(uuid::Uuid, C)>>;
     fn apply_update(conn: &mut Connection, conn_req: ConnUpdateRequest) -> Option<Connection>;
 }
@@ -186,30 +179,13 @@ where
                         changed = true;
                     }
                 }
-                if let Some(trial) = &conn_req.trial {
-                    if conn.get_trial() != *trial {
-                        conn.set_trial(*trial);
-                        changed = true;
-                    }
-                }
-                if let Some(limit) = &conn_req.limit {
-                    if conn.get_limit() != *limit {
-                        conn.set_limit(*limit);
-                        changed = true;
-                    }
-                }
                 if let Some(password) = &conn_req.password {
                     if conn.get_password() != Some(password.clone()) {
                         let _ = conn.set_password(Some(password.to_string()));
                         changed = true;
                     }
                 }
-                if let Some(status) = &conn_req.status {
-                    if conn.get_status() != *status {
-                        conn.set_status(*status);
-                        changed = true;
-                    }
-                }
+
                 if changed {
                     conn.set_modified_at();
                     OperationStatus::Updated(*conn_id)
@@ -249,30 +225,13 @@ where
                 changed = true;
             }
         }
-        if let Some(trial) = &conn_req.trial {
-            if conn.get_trial() != *trial {
-                conn.set_trial(*trial);
-                changed = true;
-            }
-        }
-        if let Some(limit) = &conn_req.limit {
-            if conn.get_limit() != *limit {
-                conn.set_limit(*limit);
-                changed = true;
-            }
-        }
         if let Some(password) = &conn_req.password {
             if conn.get_password() != Some(password.clone()) {
                 let _ = conn.set_password(Some(password.to_string()));
                 changed = true;
             }
         }
-        if let Some(status) = &conn_req.status {
-            if conn.get_status() != *status {
-                conn.set_status(*status);
-                changed = true;
-            }
-        }
+
         if changed {
             conn.set_modified_at();
             Some(conn.clone())
@@ -295,42 +254,6 @@ where
         }
     }
 
-    fn restore(&mut self, conn_id: &uuid::Uuid) -> Result<()> {
-        if let Some(conn) = self.get_mut(conn_id) {
-            conn.set_status(ConnectionStatus::Active);
-            conn.set_modified_at();
-            Ok(())
-        } else {
-            Err(PonyError::Custom("Conn not found".into()))
-        }
-    }
-
-    fn expire(&mut self, conn_id: &uuid::Uuid) -> Result<()> {
-        if let Some(conn) = self.get_mut(conn_id) {
-            conn.set_status(ConnectionStatus::Expired);
-            conn.set_modified_at();
-            Ok(())
-        } else {
-            Err(PonyError::Custom("Conn not found".into()))
-        }
-    }
-
-    fn update_limit(&mut self, conn_id: &uuid::Uuid, new_limit: i32) -> Result<()> {
-        if let Some(conn) = self.get_mut(conn_id) {
-            conn.set_limit(new_limit);
-            conn.set_modified_at();
-        }
-        Ok(())
-    }
-
-    fn update_trial(&mut self, conn_id: &uuid::Uuid, new_trial: bool) -> Result<()> {
-        if let Some(conn) = self.get_mut(conn_id) {
-            conn.set_trial(new_trial);
-            conn.set_modified_at();
-        }
-        Ok(())
-    }
-
     fn reset_stat(&mut self, conn_id: &uuid::Uuid, stat: StatKind) {
         if let Some(conn) = self.get_mut(conn_id) {
             match stat {
@@ -339,12 +262,5 @@ where
                 StatKind::Online | StatKind::Unknown => {}
             }
         }
-    }
-
-    fn all_trial(&self, status: ConnectionStatus) -> HashMap<uuid::Uuid, C> {
-        self.iter()
-            .filter(|(_, conn)| conn.get_status() == status && conn.get_trial())
-            .map(|(conn_id, conn)| (*conn_id, conn.clone()))
-            .collect()
     }
 }

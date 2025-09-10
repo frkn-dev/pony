@@ -10,7 +10,6 @@ use crate::memory::connection::wireguard::Param as WgParam;
 use crate::memory::node::Node;
 use crate::memory::node::Status as NodeStatus;
 use crate::memory::tag::ProtoTag as Tag;
-use crate::ConnectionStatus;
 
 fn default_format() -> String {
     "txt".to_string()
@@ -18,11 +17,11 @@ fn default_format() -> String {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct UserIdQueryParam {
-    pub user_id: uuid::Uuid,
+    pub id: uuid::Uuid,
 }
 #[derive(Debug, Deserialize)]
 pub struct UserSubQueryParam {
-    pub user_id: uuid::Uuid,
+    pub id: uuid::Uuid,
     #[serde(default = "default_format")]
     pub format: String,
 }
@@ -41,12 +40,12 @@ pub struct NodesQueryParams {
 }
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct NodeIdParam {
-    pub node_id: uuid::Uuid,
+    pub id: uuid::Uuid,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct ConnQueryParam {
-    pub conn_id: uuid::Uuid,
+    pub id: uuid::Uuid,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -119,8 +118,6 @@ pub struct InboundResponse {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct ConnCreateRequest {
     pub env: String,
-    pub trial: Option<bool>,
-    pub limit: Option<i32>,
     pub password: Option<String>,
     pub user_id: Option<uuid::Uuid>,
     pub proto: Tag,
@@ -131,9 +128,6 @@ pub struct ConnCreateRequest {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct ConnUpdateRequest {
     pub env: Option<String>,
-    pub trial: Option<bool>,
-    pub limit: Option<i32>,
     pub password: Option<String>,
     pub is_deleted: Option<bool>,
-    pub status: Option<ConnectionStatus>,
 }

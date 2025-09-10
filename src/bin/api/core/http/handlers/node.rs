@@ -15,7 +15,6 @@ use pony::memory::node::Status as NodeStatus;
 use pony::Connection;
 use pony::ConnectionApiOp;
 use pony::ConnectionBaseOp;
-use pony::ConnectionStatus;
 use pony::NodeStorageOp;
 use pony::OperationStatus as StorageOperationStatus;
 use pony::Publisher as ZmqPublisher;
@@ -69,7 +68,6 @@ where
                 .iter()
                 .filter(|(_, conn)| {
                     let matches_type = !conn.get_deleted()
-                        && conn.get_status() == ConnectionStatus::Active
                         && match node_type {
                             NodeType::Wireguard => {
                                 conn.get_proto().proto() == Tag::Wireguard
@@ -156,7 +154,7 @@ where
 
 /// List of nodes handler
 pub async fn get_nodes_handler<N, C>(
-    node_req: NodesQueryParams,
+    node_param: NodesQueryParams,
     memory: MemSync<N, C>,
 ) -> Result<impl warp::Reply, warp::Rejection>
 where
@@ -172,7 +170,7 @@ where
 {
     let mem = memory.memory.read().await;
 
-    let nodes = if let Some(env) = node_req.env {
+    let nodes = if let Some(env) = node_param.env {
         mem.nodes.get_by_env(&env)
     } else {
         mem.nodes.all()
@@ -210,9 +208,9 @@ where
 }
 
 /// Get of a node handler
-// GET /node?node_id=
+// GET /node?id=
 pub async fn get_node_handler<N, C>(
-    node_req: NodeIdParam,
+    node_param: NodeIdParam,
     memory: MemSync<N, C>,
 ) -> Result<impl warp::Reply, warp::Rejection>
 where
@@ -228,10 +226,10 @@ where
 {
     let mem = memory.memory.read().await;
 
-    if let Some(node) = mem.nodes.get_by_id(&node_req.node_id) {
+    if let Some(node) = mem.nodes.get_by_id(&node_param.id) {
         let response = ResponseMessage::<Option<NodeResponse>> {
             status: StatusCode::OK.as_u16(),
-            message: format!("Node {}", node_req.node_id),
+            message: format!("Node {}", node_param.id),
             response: Some(node.as_node_response()),
         };
         Ok(warp::reply::with_status(
@@ -252,9 +250,9 @@ where
 }
 
 /// Get score of load a node handler
-// GET /node/score?node_id=
+// GET /node/score?id=
 pub async fn get_node_score_handler<N, C>(
-    node_req: NodeIdParam,
+    node_param: NodeIdParam,
     memory: MemSync<N, C>,
     ch: ChContext,
 ) -> Result<impl warp::Reply, warp::Rejection>
@@ -271,7 +269,7 @@ where
 {
     let mem = memory.memory.read().await;
 
-    if let Some(node) = mem.nodes.get_by_id(&node_req.node_id) {
+    if let Some(node) = mem.nodes.get_by_id(&node_param.id) {
         let interface = node.interface.clone();
         let env = node.env.clone();
         let hostname = node.hostname.clone();
@@ -284,7 +282,7 @@ where
         {
             let response = ResponseMessage::<Option<NodeScore>> {
                 status: StatusCode::OK.as_u16(),
-                message: format!("Node score for {}", node_req.node_id),
+                message: format!("Node score for {}", node_param.id),
                 response: Some(score),
             };
             Ok(warp::reply::with_status(

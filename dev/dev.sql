@@ -113,4 +113,10 @@ ALTER TABLE nodes ADD COLUMN max_bandwidth_bps BIGINT NOT NULL DEFAULT 100000000
 
 DROP TABLE users;
 
+ALTER TABLE connections
+DROP COLUMN is_trial,
+DROP COLUMN daily_limit_mb,
+DROP COLUMN status; 
+
+
 

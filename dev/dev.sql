@@ -3,13 +3,6 @@ CREATE TYPE node_status AS ENUM ('online', 'offline');
 CREATE TYPE conn_status AS ENUM ('active', 'expired');
 CREATE TYPE proto AS ENUM ('vless_grpc', 'vless_xtls', 'vmess', 'shadowsocks');
 
-CREATE TABLE users (
-    id UUID PRIMARY KEY,  
-    username TEXT UNIQUE,
-    created_at TIMESTAMP DEFAULT NOW(),
-    modified_at TIMESTAMP DEFAULT NOW()
-);
-
 CREATE TABLE connections (
     id UUID PRIMARY KEY,
     user_id UUID REFERENCES users(id) ON DELETE CASCADE,
@@ -85,9 +78,9 @@ ALTER TYPE proto ADD VALUE 'wireguard';
 
 ALTER TABLE connections
 ADD COLUMN wg_privkey TEXT,
-ADD COLUMN wg_pubkey TEXT
-ADD COLUMN wg_address TEXT
-ADD COLUMN node_id UUID
+ADD COLUMN wg_pubkey TEXT,
+ADD COLUMN wg_address TEXT,
+ADD COLUMN node_id UUID;
 
 ALTER TABLE nodes DROP COLUMN inbounds;
 
@@ -104,14 +97,8 @@ ALTER TABLE inbounds ADD COLUMN modified_at TIMESTAMP WITH TIME ZONE DEFAULT NOW
 CREATE UNIQUE INDEX inbounds_node_id_tag_key
 ON inbounds (node_id, tag);
 
-ALTER TABLE users
-ALTER COLUMN daily_limit_mb DROP NOT NULL;
-
-
 ALTER TABLE nodes ADD COLUMN cores INTEGER NOT NULL DEFAULT 1;
 ALTER TABLE nodes ADD COLUMN max_bandwidth_bps BIGINT NOT NULL DEFAULT 100000000;
-
-DROP TABLE users;
 
 ALTER TABLE connections
 DROP COLUMN is_trial,

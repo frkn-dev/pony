@@ -244,7 +244,39 @@ impl NodeConfig {
             raw.hostname.unwrap()
         };
 
-        let (address, interface) = if let Some(ref interface_name) = raw.default_interface {
+        // Если указан адрес - используем его
+        let (address, interface) = if let Some(user_address) = raw.address {
+            // Пользователь указал адрес (скорее всего внешний/публичный)
+
+            // Для интерфейса используем либо указанный, либо дефолтный
+            let interface = if let Some(ref interface_name) = raw.default_interface {
+                // Проверяем существование интерфейса
+                let interfaces = get_interfaces();
+                if let Some(_interface) = interfaces.iter().find(|i| &i.name == interface_name) {
+                    interface_name.clone()
+                } else {
+                    return Err(PonyError::Custom(
+                        format!("Validation error: Interface {} not found", interface_name).into(),
+                    ));
+                }
+            } else {
+                // Используем дефолтный интерфейс
+                match get_default_interface() {
+                    Ok(interface) => interface.name,
+                    Err(e) => {
+                        // Если не можем получить дефолтный интерфейс, используем placeholder
+                        eprintln!(
+                            "Warning: Cannot get default interface: {}. Using 'default'.",
+                            e
+                        );
+                        "default".to_string()
+                    }
+                }
+            };
+
+            (user_address, interface)
+        } else if let Some(ref interface_name) = raw.default_interface {
+            // Пользователь указал только интерфейс, адрес берем с интерфейса
             let interfaces = get_interfaces();
             if let Some(interface) = interfaces.iter().find(|i| &i.name == interface_name) {
                 match interface.ipv4.first() {
@@ -262,6 +294,7 @@ impl NodeConfig {
                 ));
             }
         } else {
+            // Ни адрес, ни интерфейс не указаны - используем дефолтный интерфейс
             match get_default_interface() {
                 Ok(interface) => {
                     if interface.ipv4.is_empty() {

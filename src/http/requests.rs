@@ -15,6 +15,10 @@ fn default_format() -> String {
     "txt".to_string()
 }
 
+fn default_env() -> String {
+    "dev".to_string()
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct UserIdQueryParam {
     pub id: uuid::Uuid,
@@ -24,6 +28,8 @@ pub struct UserSubQueryParam {
     pub id: uuid::Uuid,
     #[serde(default = "default_format")]
     pub format: String,
+    #[serde(default = "default_env")]
+    pub env: String,
 }
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct UserConnQueryParam {

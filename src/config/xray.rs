@@ -16,6 +16,8 @@ pub struct StreamSettings {
     pub reality_settings: Option<RealitySettings>,
     #[serde(rename = "grpcSettings")]
     pub grpc_settings: Option<GrpcSettings>,
+    #[serde(rename = "xhttpSettings")]
+    pub xhttp_settings: Option<XhttpSettings>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -34,7 +36,12 @@ pub struct RealitySettings {
     pub public_key: String,
     #[serde(rename = "shortIds")]
     pub short_ids: Vec<String>,
-    pub dest: String,
+    pub target: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct XhttpSettings {
+    pub path: String,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]

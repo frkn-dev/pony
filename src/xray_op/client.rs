@@ -78,13 +78,19 @@ pub trait HandlerActions {
 impl HandlerActions for Arc<Mutex<HandlerClient>> {
     async fn create(&self, conn_id: &uuid::Uuid, tag: Tag, password: Option<String>) -> Result<()> {
         match tag {
-            Tag::VlessXtls => {
-                let user_info = VlessConnInfo::new(conn_id, ConnFlow::Vision);
+            Tag::VlessTcpReality => {
+                let user_info = VlessConnInfo::new(conn_id, ConnFlow::Vision, Tag::VlessTcpReality);
                 let _ = user_info.create(self.clone()).await;
                 Ok(())
             }
-            Tag::VlessGrpc => {
-                let user_info = VlessConnInfo::new(conn_id, ConnFlow::Direct);
+            Tag::VlessGrpcReality => {
+                let user_info =
+                    VlessConnInfo::new(conn_id, ConnFlow::Direct, Tag::VlessGrpcReality);
+                let _ = user_info.create(self.clone()).await;
+                Ok(())
+            }
+            Tag::VlessXhttpReality => {
+                let user_info = VlessConnInfo::new(conn_id, ConnFlow::None, Tag::VlessXhttpReality);
                 let _ = user_info.create(self.clone()).await;
                 Ok(())
             }
@@ -109,13 +115,18 @@ impl HandlerActions for Arc<Mutex<HandlerClient>> {
 
     async fn remove(&self, conn_id: &uuid::Uuid, tag: Tag, password: Option<String>) -> Result<()> {
         match tag {
-            Tag::VlessXtls => {
-                let user_info = VlessConnInfo::new(conn_id, ConnFlow::Vision);
+            Tag::VlessTcpReality => {
+                let user_info = VlessConnInfo::new(conn_id, ConnFlow::Vision, tag);
                 let _ = user_info.remove(self.clone()).await;
                 Ok(())
             }
-            Tag::VlessGrpc => {
-                let user_info = VlessConnInfo::new(conn_id, ConnFlow::Direct);
+            Tag::VlessGrpcReality => {
+                let user_info = VlessConnInfo::new(conn_id, ConnFlow::Direct, tag);
+                let _ = user_info.remove(self.clone()).await;
+                Ok(())
+            }
+            Tag::VlessXhttpReality => {
+                let user_info = VlessConnInfo::new(conn_id, ConnFlow::None, tag);
                 let _ = user_info.remove(self.clone()).await;
                 Ok(())
             }

@@ -3,11 +3,79 @@
     "loglevel": "debug"
   },
   "inbounds": [
+    {
+      "tag": "VlessXhttpReality",
+      "listen": "0.0.0.0",
+      "port": 443,
+      "protocol": "vless",
+      "settings": {
+        "clients": [
+          {
+            "id": "ff9a7bc1-dd25-4217-a7f1-208cff4692ab",
+            "email": "wl-test-xhttp@main",
+            "flow": ""
+          }
+        ],
+        "decryption": "none"
+      },
+      "streamSettings": {
+        "network": "xhttp",
+        "security": "reality",
+        "realitySettings": {
+          "xver": 0,
+          "target": "ya.ru:443",
+          "serverNames": ["ya.ru"],
+          "privateKey": "0EtqcOKG4wJsURvTfzSWRvH0dPeECVL1TXY21Ydx6Ho",
+          "publicKey": "jgdqVgUnunocvov5MtuGKh9fVHCpSXIWega-VsHGXAE",
+          "shortIds": ["0498897564df"]
+        },
+        "xhttpSettings": {
+          "path": "/"
+        }
+      },
+      "sniffing": {
+        "enabled": true,
+        "destOverride": ["http", "tls", "quic"]
+      }
+    },
+    {
+      "tag": "VlessGrpcReality",
+      "listen": "0.0.0.0",
+      "port": 8443,
+      "protocol": "vless",
+      "settings": {
+        "clients": [
+          {
+            "id": "ff9a7bc1-dd25-4217-a7f1-208cff4692ab",
+            "email": "wl-test-grpc@main"
+          }
+        ],
+        "decryption": "none"
+      },
+      "streamSettings": {
+        "network": "grpc",
+        "security": "reality",
+        
+    
+        "realitySettings": {
+          "xver": 0,
+          "target": "ya.ru:443",
+          "serverNames": ["ya.ru"],
+          "privateKey": "0EtqcOKG4wJsURvTfzSWRvH0dPeECVL1TXY21Ydx6Ho",
+          "publicKey": "jgdqVgUnunocvov5MtuGKh9fVHCpSXIWega-VsHGXAE",
+          "shortIds": ["0498897564df"]
+        },
+        "grpcSettings": {
+          "serviceName": "api.v1"
+        }
+      }
+    },
+    
    
     {
-      "tag": "VlessXtls",
+      "tag": "VlessTcpReality",
       "listen": "0.0.0.0",
-      "port": 8433,
+      "port": 8444,
       "protocol": "vless",
       "settings": {
         "clients": [],
@@ -21,12 +89,12 @@
             "cdn.discordapp.com",
             "discordapp.com"
           ],
-          "privateKey": "SPszL9moRyKwBGxCoh5wWr0x0Q8LrBSEim1DJPbdFVo",
-          "publicKey": "nrNLX_NWXexpqdjVEmfkCHV_OCdTf9OyBYi59hNfpxo",  
+          "privateKey": "0EtqcOKG4wJsURvTfzSWRvH0dPeECVL1TXY21Ydx6Ho",
+          "publicKey": "jgdqVgUnunocvov5MtuGKh9fVHCpSXIWega-VsHGXAE",  
           "shortIds": [
             "e5c4d84fb339fb92"
           ],
-          "dest": "discordapp.com:443"
+          "target": "discordapp.com:443"
         }
       }
     }

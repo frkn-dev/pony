@@ -24,10 +24,12 @@ use tokio_postgres::types::ToSql;
 #[archive(check_bytes)]
 #[postgres(name = "proto", rename_all = "snake_case")]
 pub enum ProtoTag {
-    #[serde(rename = "VlessXtls")]
-    VlessXtls,
-    #[serde(rename = "VlessGrpc")]
-    VlessGrpc,
+    #[serde(rename = "VlessTcpReality")]
+    VlessTcpReality,
+    #[serde(rename = "VlessGrpcReality")]
+    VlessGrpcReality,
+    #[serde(rename = "VlessXhttpReality")]
+    VlessXhttpReality,
     #[serde(rename = "Vmess")]
     Vmess,
     #[serde(rename = "Shadowsocks")]
@@ -39,8 +41,9 @@ pub enum ProtoTag {
 impl fmt::Display for ProtoTag {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            ProtoTag::VlessXtls => write!(f, "VlessXtls"),
-            ProtoTag::VlessGrpc => write!(f, "VlessGrpc"),
+            ProtoTag::VlessTcpReality => write!(f, "VlessTcpReality"),
+            ProtoTag::VlessGrpcReality => write!(f, "VlessGrpcReality"),
+            ProtoTag::VlessXhttpReality => write!(f, "VlessXhttpReality"),
             ProtoTag::Vmess => write!(f, "Vmess"),
             ProtoTag::Shadowsocks => write!(f, "Shadowsocks"),
             ProtoTag::Wireguard => write!(f, "Wireguard"),
@@ -63,8 +66,9 @@ impl std::str::FromStr for ProtoTag {
 
     fn from_str(input: &str) -> Result<Self, Self::Err> {
         match input {
-            "VlessXtls" => Ok(ProtoTag::VlessXtls),
-            "VlessGrpc" => Ok(ProtoTag::VlessGrpc),
+            "VlessTcpReality" => Ok(ProtoTag::VlessTcpReality),
+            "VlessGrpcReality" => Ok(ProtoTag::VlessGrpcReality),
+            "VlessXhttpReality" => Ok(ProtoTag::VlessXhttpReality),
             "Vmess" => Ok(ProtoTag::Vmess),
             "Shadowsocks" => Ok(ProtoTag::Shadowsocks),
             "Wireguard" => Ok(ProtoTag::Wireguard),

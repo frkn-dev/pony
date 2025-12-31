@@ -14,6 +14,7 @@ use url::Url;
 use crate::http::requests::InboundResponse;
 use crate::memory::tag::ProtoTag as Tag;
 use crate::xray_op::vless::vless_grpc_conn;
+use crate::xray_op::vless::vless_xhttp_conn;
 use crate::xray_op::vless::vless_xtls_conn;
 use crate::xray_op::vmess::vmess_tcp_conn;
 use crate::{PonyError, Result};
@@ -147,8 +148,9 @@ pub fn create_conn_link(
     address: Ipv4Addr,
 ) -> Result<String> {
     let raw_link = match tag {
-        Tag::VlessXtls => vless_xtls_conn(conn_id, address, inbound.clone(), label),
-        Tag::VlessGrpc => vless_grpc_conn(conn_id, address, inbound.clone(), label),
+        Tag::VlessTcpReality => vless_xtls_conn(conn_id, address, inbound.clone(), label),
+        Tag::VlessGrpcReality => vless_grpc_conn(conn_id, address, inbound.clone(), label),
+        Tag::VlessXhttpReality => vless_xhttp_conn(conn_id, address, inbound.clone(), label),
         Tag::Vmess => vmess_tcp_conn(conn_id, address, inbound.clone(), label),
         _ => return Err(PonyError::Custom("Cannot complete conn line".into())),
     }?;

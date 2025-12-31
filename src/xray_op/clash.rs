@@ -130,7 +130,7 @@ pub fn generate_proxy_config(
                 },
             })
         }
-        Tag::VlessGrpc | Tag::VlessXtls => {
+        Tag::VlessGrpcReality | Tag::VlessTcpReality | Tag::VlessXhttpReality => {
             let reality = stream.reality_settings.as_ref()?;
 
             let (network, grpc_opts, flow) = if let Some(grpc) = &stream.grpc_settings {

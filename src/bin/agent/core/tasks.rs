@@ -145,7 +145,10 @@ where
                         Ok(())
                     }
 
-                    Tag::VlessXtls | Tag::VlessGrpc | Tag::Vmess => {
+                    Tag::VlessTcpReality
+                    | Tag::VlessGrpcReality
+                    | Tag::VlessXhttpReality
+                    | Tag::Vmess => {
                         let proto = Proto::new_xray(&tag);
                         let conn = Connection::new(proto);
 
@@ -237,7 +240,11 @@ where
 
                         Ok(())
                     }
-                    Tag::VlessXtls | Tag::VlessGrpc | Tag::Vmess | Tag::Shadowsocks => {
+                    Tag::VlessTcpReality
+                    | Tag::VlessGrpcReality
+                    | Tag::VlessXhttpReality
+                    | Tag::Vmess
+                    | Tag::Shadowsocks => {
                         let client = self.xray_handler_client.as_ref().ok_or_else(|| {
                             PonyError::Grpc(Status::unavailable("Xray handler unavailable"))
                         })?;

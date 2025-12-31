@@ -107,3 +107,40 @@ DROP COLUMN status;
 
 
 
+CREATE TYPE proto_new AS ENUM (
+    'vless_tcp_reality',
+    'vless_grpc_reality', 
+    'vless_xhttp_reality',
+    'vmess',
+    'shadowsocks',
+    'wireguard'
+);
+
+
+ALTER TABLE connections 
+ALTER COLUMN proto TYPE proto_new 
+USING CASE proto::text
+    WHEN 'vless_grpc' THEN 'vless_grpc_reality'::proto_new
+    WHEN 'vless_xtls' THEN 'vless_tcp_reality'::proto_new
+    WHEN 'vmess' THEN 'vmess'::proto_new
+    WHEN 'shadowsocks' THEN 'shadowsocks'::proto_new
+    ELSE 'vmess'::proto_new
+END;
+
+ALTER TABLE inbounds 
+ALTER COLUMN tag TYPE proto_new 
+USING CASE tag::text
+    WHEN 'vless_grpc' THEN 'vless_grpc_reality'::proto_new
+    WHEN 'vless_xtls' THEN 'vless_tcp_reality'::proto_new
+    WHEN 'vmess' THEN 'vmess'::proto_new
+    WHEN 'shadowsocks' THEN 'shadowsocks'::proto_new
+    ELSE 'vmess'::proto_new
+END;
+
+DROP TYPE proto CASCADE;
+ALTER TYPE proto_new RENAME TO proto;
+SELECT DISTINCT proto FROM connections;
+
+CREATE UNIQUE INDEX IF NOT EXISTS inbounds_node_tag_unique 
+ON inbounds (node_id, tag);
+

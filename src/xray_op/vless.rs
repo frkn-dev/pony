@@ -20,12 +20,7 @@ pub struct ConnInfo {
 }
 
 impl ConnInfo {
-    pub fn new(uuid: &uuid::Uuid, flow: ConnFlow) -> Self {
-        let tag = match flow {
-            ConnFlow::Vision => Tag::VlessXtls,
-            ConnFlow::Direct => Tag::VlessGrpc,
-        };
-
+    pub fn new(uuid: &uuid::Uuid, flow: ConnFlow, tag: Tag) -> Self {
         Self {
             in_tag: tag,
             level: 0,
@@ -41,6 +36,7 @@ impl ConnInfo {
 pub enum ConnFlow {
     Vision,
     Direct,
+    None,
 }
 
 impl fmt::Display for ConnFlow {
@@ -48,6 +44,7 @@ impl fmt::Display for ConnFlow {
         match self {
             ConnFlow::Vision => write!(f, "xtls-rprx-vision"),
             ConnFlow::Direct => write!(f, "xtls-rprx-direct"),
+            ConnFlow::None => write!(f, ""),
         }
     }
 }
@@ -158,6 +155,51 @@ pub fn vless_grpc_conn(
         .append_pair("sid", sid);
 
     url.set_fragment(Some(&format!("{label} GRPC")));
+
+    Ok(url.to_string())
+}
+
+pub fn vless_xhttp_conn(
+    conn_id: &uuid::Uuid,
+    ipv4: Ipv4Addr,
+    inbound: InboundResponse,
+    label: &str,
+) -> PonyResult<String> {
+    let port = inbound.port;
+    let stream_settings = inbound.stream_settings.ok_or(PonyError::Custom(
+        "VLESS XHTTP: stream settings error".into(),
+    ))?;
+    let reality_settings = stream_settings.reality_settings.ok_or(PonyError::Custom(
+        "VLESS XHTTP: reality settings error".into(),
+    ))?;
+    let xhttp_settings = stream_settings.xhttp_settings.ok_or(PonyError::Custom(
+        "VLESS XHTTP: xhttp settings error".into(),
+    ))?;
+
+    let path = xhttp_settings.path;
+    let pbk = reality_settings.public_key;
+    let sid = reality_settings.short_ids.first().ok_or(PonyError::Custom(
+        "VLESS XHTTP: reality settings SID error".into(),
+    ))?;
+    let sni = reality_settings
+        .server_names
+        .first()
+        .ok_or(PonyError::Custom(
+            "VLESS XHTTP: reality settings SNI error".into(),
+        ))?;
+
+    let mut url = Url::parse(&format!("vless://{conn_id}@{ipv4}:{port}"))?;
+
+    url.query_pairs_mut()
+        .append_pair("security", "reality")
+        .append_pair("type", "xhttp")
+        .append_pair("path", &path)
+        .append_pair("fp", "chrome")
+        .append_pair("sni", sni)
+        .append_pair("pbk", &pbk)
+        .append_pair("sid", sid);
+
+    url.set_fragment(Some(&format!("{label} XHTTP")));
 
     Ok(url.to_string())
 }

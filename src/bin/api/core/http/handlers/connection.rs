@@ -833,11 +833,17 @@ where
     let conns = mem.connections.get_by_user_id(&user_param.id);
     let mut inbounds_by_node = vec![];
 
+    let env = user_param.env;
+
     if let Some(conns) = conns {
         for (conn_id, conn) in conns {
             if conn.get_deleted() {
                 continue;
             }
+            if conn.get_env() != env {
+                continue;
+            }
+
             if let Some(nodes) = mem.nodes.get_by_env(&conn.get_env()) {
                 for node in nodes.iter() {
                     if let Some(inbound) = &node.inbounds.get(&conn.get_proto().proto()) {

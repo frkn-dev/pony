@@ -67,11 +67,7 @@ pub struct HttpOpts {
 
 #[derive(Serialize)]
 pub struct XHttpOpts {
-    method: &'static str,
     path: Vec<String>,
-    #[serde(rename = "ip-version")]
-    ip_version: &'static str,
-    host: String,
 }
 
 #[derive(Serialize, Default)]
@@ -163,17 +159,14 @@ pub fn generate_proxy_config(
                 ),
                 StreamSettings {
                     xhttp_settings: Some(xhttp),
-                    reality_settings: Some(reality),
+                    reality_settings: Some(_reality),
                     ..
                 } => (
-                    "http".to_string(), // для Clash Verge / XHTTP Reality используем http
+                    "xhttp".to_string(),
                     None,
                     None,
                     Some(XHttpOpts {
-                        method: "GET",
                         path: vec![xhttp.path.clone()],
-                        ip_version: "dual",
-                        host: reality.server_names.get(0).cloned().unwrap_or_default(),
                     }),
                 ),
                 StreamSettings {

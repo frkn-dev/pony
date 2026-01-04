@@ -9,7 +9,17 @@ use crate::memory::tag::ProtoTag as Tag;
 use crate::Result;
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum Network {
+    Xhttp,
+    Grpc,
+    Tcp,
+    Ws,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct StreamSettings {
+    pub network: Network,
     #[serde(rename = "tcpSettings")]
     pub tcp_settings: Option<TcpSettings>,
     #[serde(rename = "realitySettings")]

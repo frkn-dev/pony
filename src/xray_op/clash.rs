@@ -1,8 +1,11 @@
-use crate::http::requests::InboundResponse;
-use crate::Tag;
+use crate::config::xray::StreamSettings;
 use serde::Serialize;
 use std::net::Ipv4Addr;
 use uuid::Uuid;
+
+use crate::config::xray::Network;
+use crate::http::requests::InboundResponse;
+use crate::Tag;
 
 #[derive(Serialize)]
 pub struct ClashConfig {
@@ -144,8 +147,12 @@ pub fn generate_proxy_config(
         Tag::VlessGrpcReality | Tag::VlessTcpReality | Tag::VlessXhttpReality => {
             let reality = stream.reality_settings.as_ref()?;
 
-            let (network, grpc_opts, flow, http_opts) = if let Some(grpc) = &stream.grpc_settings {
-                (
+            // Определяем network, grpc_opts, flow и http_opts
+            let (network, grpc_opts, flow, http_opts) = match stream {
+                StreamSettings {
+                    grpc_settings: Some(grpc),
+                    ..
+                } => (
                     "grpc".to_string(),
                     Some(GrpcOpts {
                         grpc_service_name: grpc.service_name.clone(),
@@ -153,10 +160,13 @@ pub fn generate_proxy_config(
                     }),
                     None,
                     None,
-                )
-            } else if let Some(xhttp) = &stream.xhttp_settings {
-                (
-                    "http".to_string(),
+                ),
+                StreamSettings {
+                    xhttp_settings: Some(xhttp),
+                    reality_settings: Some(reality),
+                    ..
+                } => (
+                    "http".to_string(), // для Clash Verge / XHTTP Reality используем http
                     None,
                     None,
                     Some(XHttpOpts {
@@ -165,16 +175,17 @@ pub fn generate_proxy_config(
                         ip_version: "dual",
                         host: reality.server_names.get(0).cloned().unwrap_or_default(),
                     }),
-                )
-            } else if stream.tcp_settings.is_some() {
-                (
+                ),
+                StreamSettings {
+                    network: Network::Tcp,
+                    ..
+                } => (
                     "tcp".to_string(),
                     None,
                     Some("xtls-rprx-vision".to_string()),
                     None,
-                )
-            } else {
-                return None;
+                ),
+                _ => return None,
             };
 
             let name = format!("{} [{}]", label, inbound.tag);
@@ -185,18 +196,14 @@ pub fn generate_proxy_config(
                 port,
                 uuid: conn_id.to_string(),
                 udp: true,
-
                 tls: true,
                 network,
                 servername: reality.server_names.get(0).cloned().unwrap_or_default(),
-
                 client_fingerprint: "chrome".to_string(),
-
                 reality_opts: RealityOpts {
                     public_key: reality.public_key.clone(),
                     short_id: reality.short_ids.get(0).cloned().unwrap_or_default(),
                 },
-
                 grpc_opts,
                 http_opts,
                 flow,

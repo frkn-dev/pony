@@ -43,6 +43,8 @@ pub enum ClashProxy {
         reality_opts: RealityOpts,
         #[serde(rename = "grpc-opts", skip_serializing_if = "Option::is_none")]
         grpc_opts: Option<GrpcOpts>,
+        #[serde(rename = "http-opts", skip_serializing_if = "Option::is_none")]
+        http_opts: Option<XHttpOpts>,
         #[serde(rename = "client-fingerprint")]
         client_fingerprint: String,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -61,6 +63,15 @@ pub struct HttpOpts {
 }
 
 #[derive(Serialize)]
+pub struct XHttpOpts {
+    method: &'static str,
+    path: Vec<String>,
+    #[serde(rename = "ip-version")]
+    ip_version: &'static str,
+    host: String,
+}
+
+#[derive(Serialize, Default)]
 pub struct HttpHeaders {
     connection: Vec<&'static str>,
 }
@@ -133,7 +144,7 @@ pub fn generate_proxy_config(
         Tag::VlessGrpcReality | Tag::VlessTcpReality | Tag::VlessXhttpReality => {
             let reality = stream.reality_settings.as_ref()?;
 
-            let (network, grpc_opts, flow) = if let Some(grpc) = &stream.grpc_settings {
+            let (network, grpc_opts, flow, http_opts) = if let Some(grpc) = &stream.grpc_settings {
                 (
                     "grpc".to_string(),
                     Some(GrpcOpts {
@@ -141,13 +152,29 @@ pub fn generate_proxy_config(
                         ip_version: "dual",
                     }),
                     None,
+                    None,
                 )
-            } else {
+            } else if let Some(xhttp) = &stream.xhttp_settings {
+                (
+                    "http".to_string(),
+                    None,
+                    None,
+                    Some(XHttpOpts {
+                        method: "GET",
+                        path: vec![xhttp.path.clone()],
+                        ip_version: "dual",
+                        host: reality.server_names.get(0).cloned().unwrap_or_default(),
+                    }),
+                )
+            } else if stream.tcp_settings.is_some() {
                 (
                     "tcp".to_string(),
                     None,
                     Some("xtls-rprx-vision".to_string()),
+                    None,
                 )
+            } else {
+                return None;
             };
 
             let name = format!("{} [{}]", label, inbound.tag);
@@ -158,18 +185,24 @@ pub fn generate_proxy_config(
                 port,
                 uuid: conn_id.to_string(),
                 udp: true,
+
                 tls: true,
                 network,
                 servername: reality.server_names.get(0).cloned().unwrap_or_default(),
+
                 client_fingerprint: "chrome".to_string(),
+
                 reality_opts: RealityOpts {
                     public_key: reality.public_key.clone(),
                     short_id: reality.short_ids.get(0).cloned().unwrap_or_default(),
                 },
+
                 grpc_opts,
+                http_opts,
                 flow,
             })
         }
+
         _ => return None,
     };
 

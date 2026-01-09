@@ -894,6 +894,22 @@ where
             return Ok(Box::new(response));
         }
 
+        "txt" => {
+            let links = inbounds_by_node
+                .iter()
+                .filter_map(|(inbound, conn_id, label, ip)| {
+                    utils::create_conn_link(inbound.tag, conn_id, inbound.clone(), label, *ip).ok()
+                })
+                .collect::<Vec<_>>();
+
+            let body = links.join("\n");
+
+            return Ok(Box::new(warp::reply::with_status(
+                warp::reply::with_header(body, "Content-Type", "text/plain"),
+                StatusCode::OK,
+            )));
+        }
+
         _ => {
             let links = inbounds_by_node
                 .iter()

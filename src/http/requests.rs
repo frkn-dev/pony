@@ -31,14 +31,6 @@ pub struct UserSubQueryParam {
     #[serde(default = "default_env")]
     pub env: String,
 }
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct UserConnQueryParam {
-    pub user_id: uuid::Uuid,
-    pub limit: i32,
-    pub trial: bool,
-    pub password: Option<String>,
-    pub env: String,
-}
 
 #[derive(Serialize, Deserialize)]
 pub struct NodesQueryParams {
@@ -129,6 +121,7 @@ pub struct ConnCreateRequest {
     pub proto: Tag,
     pub wg: Option<WgParam>,
     pub node_id: Option<uuid::Uuid>,
+    pub days: Option<u16>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -136,4 +129,5 @@ pub struct ConnUpdateRequest {
     pub env: Option<String>,
     pub password: Option<String>,
     pub is_deleted: Option<bool>,
+    pub days: Option<i64>,
 }

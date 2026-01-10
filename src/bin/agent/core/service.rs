@@ -306,7 +306,7 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
                                 let mut mem = agent.memory.write().await;
                                 for (tag, _) in node.inbounds {
                                     let proto = Proto::new_xray(&tag);
-                                    let conn = Connection::new(proto);
+                                    let conn = Connection::new(proto, None);
                                     let _ = mem.connections.insert(conn_id, conn.into());
                                     let _ = xray_handler_client.create(&conn_id, tag, None).await;
                                 }
@@ -381,7 +381,7 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
                                     };
                                     let wg_params = WgParam::new(next.clone());
                                     let proto = Proto::new_wg(&wg_params, &node.uuid);
-                                    let conn = Connection::new(proto);
+                                    let conn = Connection::new(proto, None);
                                     let _ = mem.connections.insert(conn_id, conn.clone().into());
 
                                     if let Err(e) = wg_api.create(&wg_params.keys.pubkey, next) {

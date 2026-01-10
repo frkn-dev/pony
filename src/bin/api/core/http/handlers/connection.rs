@@ -1,4 +1,6 @@
 use base64::Engine;
+use chrono::DateTime;
+use chrono::Utc;
 use defguard_wireguard_rs::net::IpAddrMask;
 use warp::http::Response;
 use warp::http::StatusCode;
@@ -53,6 +55,10 @@ where
     let env = conn_req.env.clone();
     let conn_id = uuid::Uuid::new_v4();
     let mem = memory.memory.read().await;
+
+    let expired_at: Option<DateTime<Utc>> = conn_req
+        .days
+        .map(|days| Utc::now() + chrono::Duration::days(days.into()));
 
     if conn_req.password.is_some() && conn_req.wg.is_some() {
         let response = ResponseMessage::<Option<String>> {
@@ -345,6 +351,7 @@ where
         ConnectionStat::default(),
         proto,
         node_id,
+        expired_at,
     )
     .into();
 

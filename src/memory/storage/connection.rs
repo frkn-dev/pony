@@ -1,3 +1,4 @@
+use chrono::Utc;
 use std::collections::hash_map::Entry;
 
 use super::super::cache::Connections;
@@ -228,6 +229,14 @@ where
         if let Some(password) = &conn_req.password {
             if conn.get_password() != Some(password.clone()) {
                 let _ = conn.set_password(Some(password.to_string()));
+                changed = true;
+            }
+        }
+
+        if let Some(days) = conn_req.days {
+            let new_expired_at = Utc::now() + chrono::Duration::days(days);
+            if conn.get_expired_at() != Some(new_expired_at) {
+                conn.set_expired_at(Some(new_expired_at));
                 changed = true;
             }
         }

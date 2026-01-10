@@ -1,3 +1,4 @@
+use chrono::DateTime;
 use chrono::NaiveDateTime;
 use chrono::Utc;
 
@@ -18,6 +19,7 @@ pub struct Conn {
     pub user_id: Option<uuid::Uuid>,
     pub created_at: NaiveDateTime,
     pub modified_at: NaiveDateTime,
+    pub expired_at: Option<DateTime<Utc>>,
     pub is_deleted: bool,
     pub node_id: Option<uuid::Uuid>,
 }
@@ -56,6 +58,7 @@ impl fmt::Display for Conn {
         write!(f, " conn stat: {}\n", self.stat)?;
         write!(f, "  created_at: {},\n", self.created_at)?;
         write!(f, "  modified_at: {},\n", self.modified_at)?;
+        write!(f, "  expired_at: {:?},\n", self.expired_at)?;
         write!(f, "  proto: {:?},\n", self.proto)?;
         write!(f, "deleted: {}\n", self.is_deleted)?;
         write!(f, "}}")
@@ -69,6 +72,7 @@ impl Conn {
         stat: Stat,
         proto: Proto,
         node_id: Option<uuid::Uuid>,
+        expired_at: Option<DateTime<Utc>>,
     ) -> Self {
         let now = Utc::now().naive_utc();
 
@@ -77,6 +81,7 @@ impl Conn {
             stat: stat,
             created_at: now,
             modified_at: now,
+            expired_at: expired_at,
             proto: proto,
             user_id: user_id,
             is_deleted: false,

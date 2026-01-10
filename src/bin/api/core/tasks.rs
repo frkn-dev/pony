@@ -1,8 +1,10 @@
+use crate::ZmqPublisher;
 use async_trait::async_trait;
 use chrono::NaiveTime;
 use chrono::TimeZone;
 use chrono::Utc;
 use futures::future::join_all;
+use pony::ConnectionApiOp;
 use pony::ConnectionBaseOp;
 use rand::Rng;
 use std::collections::HashMap;
@@ -15,6 +17,7 @@ use pony::Connection;
 use pony::ConnectionStat;
 use pony::MemoryCache;
 use pony::NodeStorageOp;
+use pony::OperationStatus as StorageOperationStatus;
 use pony::PonyError;
 use pony::Result;
 
@@ -29,10 +32,77 @@ pub trait Tasks {
     async fn periodic_db_sync(&self, interval_sec: u64);
     async fn node_healthcheck(&self) -> Result<()>;
     async fn collect_conn_stat(&self) -> Result<()>;
+    async fn cleanup_expired_connections(&self, interval_sec: u64, publisher: ZmqPublisher);
 }
 
 #[async_trait]
 impl Tasks for Api<HashMap<String, Vec<Node>>, Connection> {
+    async fn cleanup_expired_connections(&self, interval_sec: u64, publisher: ZmqPublisher) {
+        let mut interval = tokio::time::interval(Duration::from_secs(interval_sec));
+
+        loop {
+            interval.tick().await;
+
+            log::debug!("Run cleanup task");
+
+            let now = Utc::now();
+            let expired_conns: Vec<uuid::Uuid> = {
+                let memory = self.sync.memory.read().await;
+                memory
+                    .connections
+                    .iter()
+                    .filter_map(|(id, conn)| {
+                        if let Some(expired_at) = conn.get_expired_at() {
+                            if expired_at <= now && !conn.get_deleted() {
+                                Some(*id)
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        }
+                    })
+                    .collect()
+            };
+
+            for conn_id in expired_conns {
+                match SyncOp::delete_connection(&self.sync, &conn_id).await {
+                    Ok(StorageOperationStatus::Ok(_)) => {
+                        log::info!("Expired connection {} deleted", conn_id);
+
+                        if let Some(conn) = self.sync.memory.read().await.connections.get(&conn_id)
+                        {
+                            let msg = conn.as_delete_message(&conn_id);
+                            let bytes = match rkyv::to_bytes::<_, 1024>(&msg) {
+                                Ok(b) => b,
+                                Err(e) => {
+                                    log::error!(
+                                        "Serialization error for DELETE {}: {}",
+                                        conn_id,
+                                        e
+                                    );
+                                    continue;
+                                }
+                            };
+
+                            let key = conn
+                                .node_id
+                                .map(|id| id.to_string())
+                                .unwrap_or_else(|| conn.get_env());
+
+                            let _ = publisher.send_binary(&key, bytes.as_ref()).await;
+                        }
+                    }
+                    Ok(status) => {
+                        log::warn!("Connection {} could not be deleted: {:?}", conn_id, status);
+                    }
+                    Err(e) => {
+                        log::error!("Failed to delete expired connection {}: {:?}", conn_id, e);
+                    }
+                }
+            }
+        }
+    }
     async fn periodic_db_sync(&self, interval_sec: u64) {
         let base = Duration::from_secs(interval_sec);
 

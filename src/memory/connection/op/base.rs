@@ -1,3 +1,4 @@
+use chrono::DateTime;
 use chrono::NaiveDateTime;
 use chrono::Utc;
 
@@ -22,6 +23,9 @@ pub trait Operations {
 
     fn get_modified_at(&self) -> NaiveDateTime;
     fn set_modified_at(&mut self);
+
+    fn get_expired_at(&self) -> Option<DateTime<Utc>>;
+    fn set_expired_at(&mut self, dt: Option<DateTime<Utc>>);
 
     fn set_proto(&mut self, proto: Proto);
     fn get_proto(&self) -> Proto;
@@ -70,6 +74,14 @@ impl Operations for Base {
     }
     fn set_modified_at(&mut self) {
         self.modified_at = Utc::now().naive_utc();
+    }
+
+    fn get_expired_at(&self) -> Option<DateTime<Utc>> {
+        self.expired_at
+    }
+
+    fn set_expired_at(&mut self, dt: Option<DateTime<Utc>>) {
+        self.expired_at = dt;
     }
 
     fn set_proto(&mut self, proto: Proto) {
@@ -161,6 +173,14 @@ impl Operations for Conn {
     }
     fn set_modified_at(&mut self) {
         self.modified_at = Utc::now().naive_utc();
+    }
+
+    fn get_expired_at(&self) -> Option<DateTime<Utc>> {
+        self.expired_at
+    }
+
+    fn set_expired_at(&mut self, dt: Option<DateTime<Utc>>) {
+        self.expired_at = dt;
     }
 
     fn set_proto(&mut self, proto: Proto) {

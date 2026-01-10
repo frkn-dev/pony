@@ -160,6 +160,18 @@ async fn main() -> Result<()> {
         }
     });
 
+    let _ = tokio::spawn({
+        let api = api.clone();
+        let publisher = publisher.clone();
+        let job_interval = Duration::from_secs(60);
+        log::info!("cleanup_expired_connections task started");
+
+        async move {
+            api.cleanup_expired_connections(job_interval.as_secs(), publisher)
+                .await;
+        }
+    });
+
     let api = api.clone();
     let api_handle = tokio::spawn(async move {
         if let Err(e) = api.run().await {

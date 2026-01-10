@@ -144,3 +144,7 @@ SELECT DISTINCT proto FROM connections;
 CREATE UNIQUE INDEX IF NOT EXISTS inbounds_node_tag_unique 
 ON inbounds (node_id, tag);
 
+
+ALTER TABLE connections
+ADD COLUMN expired_at TIMESTAMP WITH TIME ZONE;
+

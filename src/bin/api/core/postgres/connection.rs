@@ -1,4 +1,6 @@
+use chrono::DateTime;
 use chrono::NaiveDateTime;
+use chrono::Utc;
 use defguard_wireguard_rs::net::IpAddrMask;
 use pony::ConnectionBaseOp;
 use serde::Deserialize;
@@ -24,6 +26,7 @@ pub struct ConnRow {
     pub env: String,
     pub created_at: NaiveDateTime,
     pub modified_at: NaiveDateTime,
+    pub expired_at: Option<DateTime<Utc>>,
     pub user_id: Option<uuid::Uuid>,
     pub stat: ConnectionStat,
     pub wg: Option<WgParam>,
@@ -46,6 +49,7 @@ impl From<(uuid::Uuid, Conn)> for ConnRow {
             env: conn.env.clone(),
             created_at: conn.created_at,
             modified_at: conn.modified_at,
+            expired_at: conn.expired_at,
             user_id: conn.user_id,
             stat: conn_stat,
             wg: conn.get_wireguard().cloned(),
@@ -91,6 +95,7 @@ impl TryFrom<ConnRow> for Conn {
             user_id: row.user_id,
             created_at: row.created_at,
             modified_at: row.modified_at,
+            expired_at: row.expired_at,
             is_deleted: row.is_deleted,
             node_id: row.node_id,
         })
@@ -117,6 +122,7 @@ impl PgConn {
             env,
             created_at,
             modified_at,
+            expired_at,
             user_id,
             online, 
             uplink,
@@ -143,6 +149,7 @@ impl PgConn {
                 let env: String = row.get("env");
                 let created_at: NaiveDateTime = row.get("created_at");
                 let modified_at: NaiveDateTime = row.get("modified_at");
+                let expired_at: Option<DateTime<Utc>> = row.get("expired_at");
                 let user_id: Option<uuid::Uuid> = row.get("user_id");
                 let online: i64 = row.get("online");
                 let uplink: i64 = row.get("uplink");
@@ -170,6 +177,7 @@ impl PgConn {
                     env,
                     created_at,
                     modified_at,
+                    expired_at,
                     user_id,
                     stat: ConnectionStat {
                         online,
@@ -215,6 +223,17 @@ impl PgConn {
         Ok(())
     }
 
+    pub async fn expired_at(&self, conn_id: &uuid::Uuid, expired_at: NaiveDateTime) -> Result<()> {
+        let mut manager = self.manager.lock().await;
+        let client = manager.get_client().await?;
+
+        let query = format!("UPDATE connections SET expired_at = $2 WHERE id = $1");
+
+        client.execute(&query, &[conn_id, &expired_at]).await?;
+
+        Ok(())
+    }
+
     pub async fn insert(&self, conn: ConnRow) -> Result<()> {
         let mut manager = self.manager.lock().await;
         let client = manager.get_client().await?;
@@ -226,6 +245,7 @@ impl PgConn {
             env,
             created_at,
             modified_at,
+            expired_at,
             user_id,
             online,
             uplink,
@@ -239,7 +259,7 @@ impl PgConn {
         )
         VALUES (
             $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-            $11, $12, $13, $14, $15
+            $11, $12, $13, $14, $15, $16
         )
     ";
 
@@ -252,6 +272,7 @@ impl PgConn {
                     &conn.env,
                     &conn.created_at,
                     &conn.modified_at,
+                    &conn.expired_at,
                     &conn.user_id,
                     &conn.stat.online,
                     &conn.stat.uplink,
@@ -299,7 +320,8 @@ impl PgConn {
             wg_privkey = $10,
             wg_pubkey = $11,
             wg_address = $12,
-            node_id = $13
+            node_id = $13,
+            expired_at = $14
         WHERE id = $1
     ";
 
@@ -320,6 +342,7 @@ impl PgConn {
                     &conn.wg.as_ref().map(|w| &w.keys.pubkey),
                     &conn.wg.as_ref().map(|w| w.address.to_string()),
                     &conn.node_id,
+                    &conn.expired_at,
                 ],
             )
             .await?;

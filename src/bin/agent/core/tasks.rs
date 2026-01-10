@@ -110,7 +110,7 @@ where
                         };
                         let proto = Proto::new_wg(&wg, &node_id);
 
-                        let conn = Connection::new(proto);
+                        let conn = Connection::new(proto, None);
 
                         {
                             let mut mem = self.memory.write().await;
@@ -150,7 +150,7 @@ where
                     | Tag::VlessXhttpReality
                     | Tag::Vmess => {
                         let proto = Proto::new_xray(&tag);
-                        let conn = Connection::new(proto);
+                        let conn = Connection::new(proto, None);
 
                         let client = self.xray_handler_client.as_ref().ok_or_else(|| {
                             PonyError::Grpc(Status::unavailable("Xray handler unavailable"))
@@ -182,7 +182,7 @@ where
                     Tag::Shadowsocks => {
                         if let Some(password) = msg.password {
                             let proto = Proto::new_ss(&password);
-                            let conn = Connection::new(proto);
+                            let conn = Connection::new(proto, None);
 
                             let client = self.xray_handler_client.as_ref().ok_or_else(|| {
                                 PonyError::Grpc(Status::unavailable("Xray handler unavailable"))

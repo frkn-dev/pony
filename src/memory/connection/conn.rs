@@ -16,7 +16,7 @@ pub struct Conn {
     pub env: String,
     pub proto: Proto,
     pub stat: Stat,
-    pub user_id: Option<uuid::Uuid>,
+    pub subscription_id: Option<uuid::Uuid>,
     pub created_at: NaiveDateTime,
     pub modified_at: NaiveDateTime,
     pub expired_at: Option<DateTime<Utc>>,
@@ -26,7 +26,7 @@ pub struct Conn {
 
 impl PartialEq for Conn {
     fn eq(&self, other: &Self) -> bool {
-        self.get_user_id() == other.get_user_id()
+        self.get_subscription_id() == other.get_subscription_id()
             && self.get_proto() == other.get_proto()
             && self.get_deleted() == other.get_deleted()
             && self.get_env() == other.get_env()
@@ -44,10 +44,10 @@ impl fmt::Display for Conn {
         // COMMENT(qezz): there's `writeln!()`
         write!(f, "Connection {{\n")?;
 
-        if let Some(user_id) = self.user_id {
-            write!(f, "  user_id: {},\n", user_id)?;
+        if let Some(subscription_id) = self.subscription_id {
+            write!(f, "  subscription_id: {},\n", subscription_id)?;
         } else {
-            write!(f, "  user_id: None,\n")?;
+            write!(f, "  subscription_id: None,\n")?;
         }
         write!(
             f,
@@ -68,7 +68,7 @@ impl fmt::Display for Conn {
 impl Conn {
     pub fn new(
         env: &str,
-        user_id: Option<uuid::Uuid>,
+        subscription_id: Option<uuid::Uuid>,
         stat: Stat,
         proto: Proto,
         node_id: Option<uuid::Uuid>,
@@ -83,7 +83,7 @@ impl Conn {
             modified_at: now,
             expired_at: expired_at,
             proto: proto,
-            user_id: user_id,
+            subscription_id: subscription_id,
             is_deleted: false,
             node_id: node_id,
         }

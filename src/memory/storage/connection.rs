@@ -19,7 +19,7 @@ where
     fn add(&mut self, conn_id: &uuid::Uuid, new_conn: C) -> Result<OperationStatus>;
     fn update(&mut self, conn_id: &uuid::Uuid, conn_req: ConnUpdateRequest) -> OperationStatus;
     fn reset_stat(&mut self, conn_id: &uuid::Uuid, stat: StatKind);
-    fn get_by_user_id(&self, user_id: &uuid::Uuid) -> Option<Vec<(uuid::Uuid, C)>>;
+    fn get_by_subscription_id(&self, subscription_id: &uuid::Uuid) -> Option<Vec<(uuid::Uuid, C)>>;
     fn apply_update(conn: &mut Connection, conn_req: ConnUpdateRequest) -> Option<Connection>;
 }
 
@@ -249,10 +249,10 @@ where
         }
     }
 
-    fn get_by_user_id(&self, user_id: &uuid::Uuid) -> Option<Vec<(uuid::Uuid, C)>> {
+    fn get_by_subscription_id(&self, subscription_id: &uuid::Uuid) -> Option<Vec<(uuid::Uuid, C)>> {
         let conns: Vec<(uuid::Uuid, C)> = self
             .iter()
-            .filter(|(_, conn)| conn.get_user_id() == Some(*user_id))
+            .filter(|(_, conn)| conn.get_subscription_id() == Some(*subscription_id))
             .map(|(conn_id, conn)| (*conn_id, conn.clone()))
             .collect();
 

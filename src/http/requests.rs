@@ -20,11 +20,11 @@ fn default_env() -> String {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct UserIdQueryParam {
+pub struct SubIdQueryParam {
     pub id: uuid::Uuid,
 }
 #[derive(Debug, Deserialize)]
-pub struct UserSubQueryParam {
+pub struct SubQueryParam {
     pub id: uuid::Uuid,
     #[serde(default = "default_format")]
     pub format: String,
@@ -117,7 +117,7 @@ pub struct InboundResponse {
 pub struct ConnCreateRequest {
     pub env: String,
     pub password: Option<String>,
-    pub user_id: Option<uuid::Uuid>,
+    pub subscription_id: Option<uuid::Uuid>,
     pub proto: Tag,
     pub wg: Option<WgParam>,
     pub node_id: Option<uuid::Uuid>,

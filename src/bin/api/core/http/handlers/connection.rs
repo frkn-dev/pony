@@ -9,8 +9,8 @@ use pony::http::requests::ConnCreateRequest;
 use pony::http::requests::ConnQueryParam;
 
 use pony::http::requests::ConnUpdateRequest;
-use pony::http::requests::UserIdQueryParam;
-use pony::http::requests::UserSubQueryParam;
+use pony::http::requests::SubIdQueryParam;
+use pony::http::requests::SubQueryParam;
 use pony::http::IdResponse;
 use pony::http::IpParseError;
 use pony::http::ResponseMessage;
@@ -347,7 +347,7 @@ where
 
     let conn: Connection = Connection::new(
         &env,
-        conn_req.user_id,
+        conn_req.subscription_id,
         ConnectionStat::default(),
         proto,
         node_id,
@@ -709,9 +709,9 @@ where
     }
 }
 
-/// Get list of user connection credentials
-pub async fn get_user_connections_handler<N, C>(
-    user_param: UserIdQueryParam,
+/// Get list of subscription connection credentials
+pub async fn get_subscription_connections_handler<N, C>(
+    subscription_param: SubIdQueryParam,
     memory: MemSync<N, C>,
 ) -> Result<impl warp::Reply, warp::Rejection>
 where
@@ -727,13 +727,13 @@ where
         + serde::ser::Serialize
         + PartialEq,
 {
-    log::debug!("Received: {:?}", user_param);
+    log::debug!("Received: {:?}", subscription_param);
 
-    let user_id = user_param.id;
+    let sub_id = subscription_param.id;
 
     let connections = {
         let mem = memory.memory.read().await;
-        mem.connections.get_by_user_id(&user_id)
+        mem.connections.get_by_subscription_id(&sub_id)
     };
 
     match connections {
@@ -755,7 +755,7 @@ where
                 .filter(|(_id, conn)| conn.get_deleted() == false)
                 .collect();
 
-            let message = format!("Connections are found for {}", user_id);
+            let message = format!("Connections are found for {}", sub_id);
             let response = ResponseMessage::<Option<Vec<&(uuid::Uuid, C)>>> {
                 status: StatusCode::OK.as_u16(),
                 message,
@@ -820,7 +820,7 @@ where
 /// Gets Subscriprion link
 // GET /sub?id=
 pub async fn subscription_link_handler<N, C>(
-    user_param: UserSubQueryParam,
+    sub_param: SubQueryParam,
     memory: MemSync<N, C>,
 ) -> Result<Box<dyn warp::Reply + Send>, warp::Rejection>
 where
@@ -837,10 +837,10 @@ where
 {
     let mem = memory.memory.read().await;
 
-    let conns = mem.connections.get_by_user_id(&user_param.id);
+    let conns = mem.connections.get_by_subscription_id(&sub_param.id);
     let mut inbounds_by_node = vec![];
 
-    let env = user_param.env;
+    let env = sub_param.env;
 
     if let Some(conns) = conns {
         for (conn_id, conn) in conns {
@@ -879,7 +879,7 @@ where
         )));
     }
 
-    match user_param.format.as_str() {
+    match sub_param.format.as_str() {
         "clash" => {
             let mut proxies = vec![];
 

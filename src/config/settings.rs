@@ -121,6 +121,10 @@ fn default_max_bandwidth_bps() -> i64 {
     100_000_000
 }
 
+fn default_hostname() -> String {
+    "http://localhost".to_string()
+}
+
 #[derive(Clone, Debug, Deserialize, Default)]
 pub struct ApiServiceConfig {
     #[serde(default = "default_api_web_listen")]
@@ -145,6 +149,8 @@ pub struct ApiServiceConfig {
     pub metrics_hb_interval: u64,
     #[serde(default = "default_db_sync_interval_sec")]
     pub db_sync_interval_sec: u64,
+    #[serde(default = "default_hostname")]
+    pub hostname: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]

@@ -20,7 +20,7 @@ pub struct Base {
     pub modified_at: NaiveDateTime,
     pub expired_at: Option<DateTime<Utc>>,
     pub proto: Proto,
-    pub user_id: Option<uuid::Uuid>,
+    pub subscription_id: Option<uuid::Uuid>,
     pub is_deleted: bool,
 }
 
@@ -33,7 +33,7 @@ impl Base {
             created_at: now,
             modified_at: now,
             expired_at: expired_at,
-            user_id: None,
+            subscription_id: None,
             proto,
             is_deleted: false,
         }
@@ -53,7 +53,7 @@ impl From<Conn> for Base {
             modified_at: conn.modified_at,
             expired_at: conn.expired_at,
             proto: conn.proto,
-            user_id: conn.user_id,
+            subscription_id: conn.subscription_id,
             is_deleted: conn.is_deleted,
         }
     }
@@ -72,7 +72,7 @@ impl From<&Conn> for Base {
             modified_at: conn.modified_at,
             expired_at: conn.expired_at,
             proto: conn.proto.clone(),
-            user_id: conn.user_id,
+            subscription_id: conn.subscription_id,
             is_deleted: conn.is_deleted,
         }
     }
@@ -89,8 +89,9 @@ impl fmt::Display for Base {
         writeln!(f, "  proto: {:?},", self.proto)?;
         writeln!(
             f,
-            "  user_id: {},",
-            self.user_id.map_or("None".to_string(), |id| id.to_string())
+            "  subscription_id: {},",
+            self.subscription_id
+                .map_or("None".to_string(), |id| id.to_string())
         )?;
         write!(f, "}}")
     }

@@ -174,7 +174,7 @@ async fn main() -> Result<()> {
 
     let api = api.clone();
     let api_handle = tokio::spawn(async move {
-        if let Err(e) = api.run().await {
+        if let Err(e) = api.run(settings.api.hostname).await {
             eprintln!("API server exited with error: {}", e);
         }
     });

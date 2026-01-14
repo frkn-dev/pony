@@ -160,3 +160,7 @@ pub fn create_conn_link(
 
     Ok(parsed.to_string())
 }
+
+pub fn get_uuid_last_octet_simple(uuid: &uuid::Uuid) -> String {
+    uuid.as_hyphenated().to_string()[25..].to_string()
+}

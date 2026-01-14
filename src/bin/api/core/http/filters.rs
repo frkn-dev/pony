@@ -33,3 +33,9 @@ pub fn publisher(
 ) -> impl Filter<Extract = (ZmqPublisher,), Error = std::convert::Infallible> + Clone {
     warp::any().map(move || publisher.clone())
 }
+
+pub fn with_param_string(
+    param: String,
+) -> impl Filter<Extract = (String,), Error = std::convert::Infallible> + Clone {
+    warp::any().map(move || param.clone())
+}

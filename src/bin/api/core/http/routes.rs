@@ -14,14 +14,14 @@ use super::super::Api;
 use super::filters::*;
 use super::handlers::connection::*;
 use super::handlers::node::*;
-use super::handlers::user::*;
+use super::handlers::sub::*;
 use super::rejection;
 
 use crate::core::http::handlers::healthcheck_handler;
 
 #[async_trait]
 pub trait Http {
-    async fn run(&self) -> Result<()>;
+    async fn run(&self, host: String) -> Result<()>;
 }
 
 #[async_trait]
@@ -40,7 +40,7 @@ where
     N: NodeStorageOp + Send + Sync + Clone,
     Connection: From<C>,
 {
-    async fn run(&self) -> Result<()> {
+    async fn run(&self, host: String) -> Result<()> {
         let auth = auth(Arc::new(self.settings.api.token.clone()));
 
         let get_healthcheck_route = warp::get()
@@ -86,25 +86,40 @@ where
             .and(with_state(self.sync.clone()))
             .and_then(get_node_handler);
 
-        // Users Routes
+        // Subscription Routes
 
-        let get_user_stat_route = warp::get()
-            .and(warp::path("user"))
+        let get_subscription_stat_route = warp::get()
+            .and(warp::path("sub"))
             .and(warp::path("stat"))
             .and(warp::path::end())
             .and(auth.clone())
-            .and(warp::query::<UserIdQueryParam>())
+            .and(warp::query::<SubIdQueryParam>())
             .and(with_state(self.sync.clone()))
-            .and_then(user_conn_stat_handler);
+            .and_then(subscription_conn_stat_handler);
 
-        let get_user_connections_route = warp::get()
-            .and(warp::path("user"))
+        let get_subscription_connections_route = warp::get()
+            .and(warp::path("sub"))
             .and(warp::path("connections"))
             .and(warp::path::end())
             .and(auth.clone())
-            .and(warp::query::<UserIdQueryParam>())
+            .and(warp::query::<SubIdQueryParam>())
             .and(with_state(self.sync.clone()))
-            .and_then(get_user_connections_handler);
+            .and_then(get_subscription_connections_handler);
+
+        let get_subscription_route = warp::get()
+            .and(warp::path("sub"))
+            .and(warp::path::end())
+            .and(warp::query::<SubQueryParam>())
+            .and(with_state(self.sync.clone()))
+            .and_then(subscription_link_handler);
+
+        let get_subscription_info_route = warp::get()
+            .and(warp::path("sub"))
+            .and(warp::path("info"))
+            .and(warp::path::end())
+            .and(warp::query::<SubQueryParam>())
+            .and(with_param_string(host))
+            .and_then(subscription_info_handler::<C>);
 
         // Connections Routes
 
@@ -115,13 +130,6 @@ where
             .and(warp::query::<ConnQueryParam>())
             .and(with_state(self.sync.clone()))
             .and_then(get_connection_handler);
-
-        let get_subscription_route = warp::get()
-            .and(warp::path("sub"))
-            .and(warp::path::end())
-            .and(warp::query::<UserSubQueryParam>())
-            .and(with_state(self.sync.clone()))
-            .and_then(subscription_link_handler);
 
         let post_connection_route = warp::post()
             .and(warp::path("connection"))
@@ -152,9 +160,11 @@ where
             .and_then(put_connection_handler);
 
         let routes = get_healthcheck_route
-            // User
-            .or(get_user_connections_route)
-            .or(get_user_stat_route)
+            // Subscription
+            .or(get_subscription_connections_route)
+            .or(get_subscription_stat_route)
+            .or(get_subscription_route)
+            .or(get_subscription_info_route)
             // Node
             .or(get_nodes_route)
             .or(get_node_route)
@@ -162,7 +172,6 @@ where
             .or(post_node_register_route)
             // Connection
             .or(get_connection_route)
-            .or(get_subscription_route)
             .or(post_connection_route)
             .or(delete_connection_route)
             .or(put_connection_route)

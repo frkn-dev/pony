@@ -1,6 +1,6 @@
 pub mod connection;
 pub mod node;
-pub mod user;
+pub mod sub;
 
 use warp::http::StatusCode;
 

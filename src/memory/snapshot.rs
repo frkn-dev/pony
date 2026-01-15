@@ -26,16 +26,17 @@ where
     pub version: u32,
 }
 
-pub struct SnapshotManager<N, C>
+pub struct SnapshotManager<N, C, S>
 where
     C: Archive + Send + Sync + Clone + 'static,
     N: Send + Sync + Clone + 'static,
+    S: Send + Sync + Clone + 'static,
 {
     pub snapshot_path: String,
-    pub memory: Arc<RwLock<MemoryCache<N, C>>>,
+    pub memory: Arc<RwLock<MemoryCache<N, C, S>>>,
 }
 
-impl<N, C> Clone for SnapshotManager<N, C>
+impl<N, C, S> Clone for SnapshotManager<N, C, S>
 where
     C: Archive
         + Send
@@ -54,6 +55,7 @@ where
             >,
         >,
     N: Send + Sync + Clone,
+    S: Send + Sync + Clone + 'static,
 {
     fn clone(&self) -> Self {
         SnapshotManager {
@@ -63,7 +65,7 @@ where
     }
 }
 
-impl<N, C> SnapshotManager<N, C>
+impl<N, C, S> SnapshotManager<N, C, S>
 where
     C: Archive
         + Send
@@ -82,8 +84,9 @@ where
             >,
         >,
     N: Send + Sync + Clone + 'static,
+    S: Send + Sync + Clone + 'static,
 {
-    pub fn new(snapshot_path: String, memory: Arc<RwLock<MemoryCache<N, C>>>) -> Self {
+    pub fn new(snapshot_path: String, memory: Arc<RwLock<MemoryCache<N, C, S>>>) -> Self {
         Self {
             snapshot_path,
             memory,

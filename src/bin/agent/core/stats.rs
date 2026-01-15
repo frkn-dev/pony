@@ -18,15 +18,17 @@ use pony::ConnectionBaseOp;
 use pony::ConnectionStorageBaseOp;
 use pony::NodeStorageOp;
 use pony::Result as PonyResult;
+use pony::SubscriptionOp;
 use pony::Tag;
 
 use super::Agent;
 
 #[async_trait]
-impl<T, C> StatOp for Agent<T, C>
+impl<T, C, S> StatOp for Agent<T, C, S>
 where
     T: NodeStorageOp + Send + Sync + Clone,
     C: ConnectionBaseOp + Send + Sync + Clone + 'static,
+    S: SubscriptionOp + Send + Sync + Clone + 'static + std::cmp::PartialEq,
 {
     async fn stat(
         &self,
@@ -255,10 +257,11 @@ where
     }
 }
 
-impl<T, C> Agent<T, C>
+impl<T, C, S> Agent<T, C, S>
 where
     T: NodeStorageOp + Send + Sync + Clone,
     C: ConnectionBaseOp + Send + Sync + Clone + 'static,
+    S: Send + Sync + Clone + 'static + std::cmp::PartialEq + SubscriptionOp,
 {
     async fn collect_conn_stats(self: Arc<Self>, conn_id: uuid::Uuid) -> PonyResult<()> {
         let conn_stat = self.conn_stats(Prefix::ConnPrefix(conn_id)).await?;

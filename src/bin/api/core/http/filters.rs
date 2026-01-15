@@ -5,17 +5,19 @@ use pony::Connection;
 use pony::ConnectionApiOp;
 use pony::ConnectionBaseOp;
 use pony::NodeStorageOp;
+use pony::SubscriptionOp;
 
 use crate::core::clickhouse::ChContext;
 use crate::MemSync;
 
 /// Provides application state filter
-pub fn with_state<T, C>(
-    mem_sync: MemSync<T, C>,
-) -> impl Filter<Extract = (MemSync<T, C>,), Error = std::convert::Infallible> + Clone
+pub fn with_state<T, C, S>(
+    mem_sync: MemSync<T, C, S>,
+) -> impl Filter<Extract = (MemSync<T, C, S>,), Error = std::convert::Infallible> + Clone
 where
     T: NodeStorageOp + Sync + Send + Clone + 'static,
     C: ConnectionApiOp + ConnectionBaseOp + Sync + Send + Clone + 'static + From<Connection>,
+    S: SubscriptionOp + Send + Sync + Clone + 'static,
 {
     warp::any().map(move || mem_sync.clone())
 }

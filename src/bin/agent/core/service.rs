@@ -36,6 +36,7 @@ use pony::Proto;
 use pony::Result;
 use pony::SnapshotManager;
 use pony::Subscriber as ZmqSubscriber;
+use pony::Subscription;
 use pony::Tag;
 
 use super::tasks::Tasks;
@@ -259,7 +260,7 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
                 loop {
                     tokio::select! {
                         _ = sleep(Duration::from_secs(settings.agent.stat_job_interval)) => {
-                            let _ = <Arc<Agent<Node, Connection>> as Clone>::clone(&agent)
+                            let _ = <Arc<Agent<Node, Connection, Subscription>> as Clone>::clone(&agent)
                                 .collect_stats()
                                 .await;
                         },
@@ -280,7 +281,7 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
                 loop {
                     tokio::select! {
                         _ = sleep(Duration::from_secs(settings.agent.stat_job_interval)) => {
-                            let _ = <Arc<Agent<Node, Connection>> as Clone>::clone(&agent)
+                            let _ = <Arc<Agent<Node, Connection,  Subscription>> as Clone>::clone(&agent)
                                 .collect_wireguard_stats()
                                 .await;
                         },

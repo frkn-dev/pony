@@ -10,17 +10,19 @@ use pony::ConnectionBaseOp;
 use pony::ConnectionStat;
 use pony::ConnectionStorageApiOp;
 use pony::NodeStorageOp;
+use pony::SubscriptionOp;
 use pony::Tag;
 
 use crate::core::sync::MemSync;
 
 // GET /sub/stat?id=<>
-pub async fn subscription_conn_stat_handler<N, C>(
+pub async fn subscription_conn_stat_handler<N, C, S>(
     sub_param: SubIdQueryParam,
-    memory: MemSync<N, C>,
+    memory: MemSync<N, C, S>,
 ) -> Result<impl warp::Reply, warp::Rejection>
 where
     N: NodeStorageOp + Sync + Send + Clone + 'static,
+    S: SubscriptionOp + Send + Sync + Clone + 'static,
     C: ConnectionApiOp
         + ConnectionBaseOp
         + Sync

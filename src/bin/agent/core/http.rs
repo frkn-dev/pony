@@ -1,13 +1,14 @@
 use async_trait::async_trait;
-use pony::http::requests::NodeRequest;
-use pony::http::requests::NodeType;
-use pony::http::requests::NodeTypeParam;
 use reqwest::Client as HttpClient;
 use reqwest::StatusCode;
 use reqwest::Url;
 
+use pony::http::requests::NodeRequest;
+use pony::http::requests::NodeType;
+use pony::http::requests::NodeTypeParam;
 use pony::ConnectionBaseOp;
 use pony::NodeStorageOp;
+use pony::SubscriptionOp;
 use pony::{PonyError, Result};
 
 use super::Agent;
@@ -24,10 +25,11 @@ pub trait ApiRequests {
 }
 
 #[async_trait]
-impl<T, C> ApiRequests for Agent<T, C>
+impl<T, C, S> ApiRequests for Agent<T, C, S>
 where
     T: NodeStorageOp + Send + Sync + Clone,
     C: ConnectionBaseOp + Send + Sync + Clone + 'static,
+    S: SubscriptionOp + Send + Sync + Clone + 'static,
 {
     async fn register_node(
         &self,

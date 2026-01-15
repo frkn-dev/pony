@@ -1,14 +1,13 @@
-use pony::http::requests::NodeIdParam;
-use pony::http::requests::NodeTypeParam;
-use pony::http::IdResponse;
-use pony::Tag;
 use rkyv::to_bytes;
 use warp::http::StatusCode;
 
+use pony::http::requests::NodeIdParam;
 use pony::http::requests::NodeRequest;
 use pony::http::requests::NodeResponse;
 use pony::http::requests::NodeType;
+use pony::http::requests::NodeTypeParam;
 use pony::http::requests::NodesQueryParams;
+use pony::http::IdResponse;
 use pony::http::MyRejection;
 use pony::http::ResponseMessage;
 use pony::memory::node::Status as NodeStatus;
@@ -18,6 +17,8 @@ use pony::ConnectionBaseOp;
 use pony::NodeStorageOp;
 use pony::OperationStatus as StorageOperationStatus;
 use pony::Publisher as ZmqPublisher;
+use pony::SubscriptionOp;
+use pony::Tag;
 
 use crate::core::clickhouse::score::NodeScore;
 use crate::core::clickhouse::ChContext;
@@ -26,10 +27,10 @@ use crate::core::sync::MemSync;
 
 // Register node handler
 // POST /node
-pub async fn post_node_handler<N, C>(
+pub async fn post_node_handler<N, C, S>(
     node_req: NodeRequest,
     node_param: NodeTypeParam,
-    memory: MemSync<N, C>,
+    memory: MemSync<N, C, S>,
     publisher: ZmqPublisher,
 ) -> Result<impl warp::Reply, warp::Rejection>
 where
@@ -43,6 +44,7 @@ where
         + From<Connection>
         + PartialEq,
     Connection: From<C>,
+    S: SubscriptionOp + Send + Sync + Clone + 'static + std::cmp::PartialEq,
 {
     log::debug!("Received node request: {:?}", node_req);
 
@@ -153,9 +155,9 @@ where
 }
 
 /// List of nodes handler
-pub async fn get_nodes_handler<N, C>(
+pub async fn get_nodes_handler<N, C, S>(
     node_param: NodesQueryParams,
-    memory: MemSync<N, C>,
+    memory: MemSync<N, C, S>,
 ) -> Result<impl warp::Reply, warp::Rejection>
 where
     N: NodeStorageOp + Sync + Send + Clone + 'static,
@@ -167,6 +169,7 @@ where
         + 'static
         + From<Connection>
         + PartialEq,
+    S: SubscriptionOp + Send + Sync + Clone + 'static,
 {
     let mem = memory.memory.read().await;
 
@@ -209,9 +212,9 @@ where
 
 /// Get of a node handler
 // GET /node?id=
-pub async fn get_node_handler<N, C>(
+pub async fn get_node_handler<N, C, S>(
     node_param: NodeIdParam,
-    memory: MemSync<N, C>,
+    memory: MemSync<N, C, S>,
 ) -> Result<impl warp::Reply, warp::Rejection>
 where
     N: NodeStorageOp + Sync + Send + Clone + 'static,
@@ -223,6 +226,7 @@ where
         + 'static
         + From<Connection>
         + PartialEq,
+    S: SubscriptionOp + Send + Sync + Clone + 'static,
 {
     let mem = memory.memory.read().await;
 
@@ -251,9 +255,9 @@ where
 
 /// Get score of load a node handler
 // GET /node/score?id=
-pub async fn get_node_score_handler<N, C>(
+pub async fn get_node_score_handler<N, C, S>(
     node_param: NodeIdParam,
-    memory: MemSync<N, C>,
+    memory: MemSync<N, C, S>,
     ch: ChContext,
 ) -> Result<impl warp::Reply, warp::Rejection>
 where
@@ -266,6 +270,7 @@ where
         + 'static
         + From<Connection>
         + PartialEq,
+    S: SubscriptionOp + Send + Sync + Clone + 'static,
 {
     let mem = memory.memory.read().await;
 

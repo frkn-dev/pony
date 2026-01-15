@@ -9,6 +9,7 @@ use pony::ConnectionApiOp;
 use pony::ConnectionBaseOp;
 use pony::NodeStorageOp;
 use pony::Result;
+use pony::SubscriptionOp;
 
 use super::super::Api;
 use super::filters::*;
@@ -25,7 +26,7 @@ pub trait Http {
 }
 
 #[async_trait]
-impl<N, C> Http for Api<N, C>
+impl<N, C, S> Http for Api<N, C, S>
 where
     C: ConnectionBaseOp
         + ConnectionApiOp
@@ -39,6 +40,8 @@ where
         + PartialEq,
     N: NodeStorageOp + Send + Sync + Clone,
     Connection: From<C>,
+
+    S: SubscriptionOp + Send + Sync + Clone + 'static + std::cmp::PartialEq,
 {
     async fn run(&self, host: String) -> Result<()> {
         let auth = auth(Arc::new(self.settings.api.token.clone()));

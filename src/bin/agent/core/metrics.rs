@@ -13,14 +13,16 @@ use pony::metrics::Metrics;
 use pony::Connection;
 use pony::ConnectionBaseOp;
 use pony::NodeStorageOp;
+use pony::SubscriptionOp;
 
 use crate::core::Agent;
 
 #[async_trait::async_trait]
-impl<T, C> Metrics<T> for Agent<T, C>
+impl<T, C, S> Metrics<T> for Agent<T, C, S>
 where
     T: NodeStorageOp + Send + Sync + Clone + 'static,
     C: ConnectionBaseOp + Send + Sync + Clone + 'static + From<Connection>,
+    S: Send + Sync + Clone + 'static + std::cmp::PartialEq + SubscriptionOp,
 {
     async fn collect_metrics<M>(&self) -> Vec<MetricType>
     where

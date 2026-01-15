@@ -6,6 +6,7 @@ use chrono::Utc;
 use futures::future::join_all;
 use pony::ConnectionApiOp;
 use pony::ConnectionBaseOp;
+use pony::Subscription;
 use rand::Rng;
 use std::collections::HashMap;
 use std::time::Duration;
@@ -36,7 +37,7 @@ pub trait Tasks {
 }
 
 #[async_trait]
-impl Tasks for Api<HashMap<String, Vec<Node>>, Connection> {
+impl Tasks for Api<HashMap<String, Vec<Node>>, Connection, Subscription> {
     async fn cleanup_expired_connections(&self, interval_sec: u64, publisher: ZmqPublisher) {
         let mut interval = tokio::time::interval(Duration::from_secs(interval_sec));
 
@@ -128,18 +129,24 @@ impl Tasks for Api<HashMap<String, Vec<Node>>, Connection> {
         let db = self.sync.db.clone();
         let mut mem = self.sync.memory.write().await;
 
-        let mut tmp_mem: MemoryCache<HashMap<String, Vec<Node>>, Connection> = MemoryCache::new();
+        let mut tmp_mem: MemoryCache<HashMap<String, Vec<Node>>, Connection, Subscription> =
+            MemoryCache::new();
 
         let node_repo = db.node();
         let conn_repo = db.conn();
+        let sub_repo = db.sub();
 
-        let (nodes, conns) = tokio::try_join!(node_repo.all(), conn_repo.all(),)?;
+        let (nodes, conns, subscriptions) =
+            tokio::try_join!(node_repo.all(), conn_repo.all(), sub_repo.all())?;
 
         for node in nodes {
             tmp_mem.add_node(node).await?;
         }
         for conn in conns {
             tmp_mem.add_conn(conn).await?;
+        }
+        for sub in subscriptions {
+            tmp_mem.add_subscription(sub).await;
         }
 
         *mem = tmp_mem;

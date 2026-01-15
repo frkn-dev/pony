@@ -173,3 +173,6 @@ CREATE INDEX idx_subscriptions_user_id ON subscriptions(user_id);
 CREATE INDEX idx_subscriptions_expires_at ON subscriptions(expires_at);
 CREATE INDEX idx_subscriptions_referral_code ON subscriptions(referral_code);
 CREATE INDEX idx_subscriptions_referred_by ON subscriptions(referred_by);
+
+    ALTER TABLE subscriptions
+    ADD COLUMN is_deleted BOOL NOT NULL DEFAULT false;

@@ -11,11 +11,12 @@ use pony::Connection;
 use pony::ConnectionApiOp;
 use pony::ConnectionBaseOp;
 use pony::NodeStorageOp;
+use pony::SubscriptionOp;
 
 use crate::Api;
 
 #[async_trait::async_trait]
-impl<N, C> Metrics<N> for Api<N, C>
+impl<N, C, S> Metrics<N> for Api<N, C, S>
 where
     N: NodeStorageOp + Send + Sync + Clone + 'static,
     C: ConnectionApiOp
@@ -26,6 +27,7 @@ where
         + 'static
         + From<Connection>
         + std::cmp::PartialEq,
+    S: SubscriptionOp + Send + Sync + Clone + 'static,
 {
     async fn collect_metrics<M>(&self) -> Vec<MetricType>
     where

@@ -7,7 +7,6 @@ use warp::http::StatusCode;
 
 use pony::http::requests::ConnCreateRequest;
 use pony::http::requests::ConnQueryParam;
-
 use pony::http::requests::ConnUpdateRequest;
 use pony::http::requests::SubIdQueryParam;
 use pony::http::requests::SubQueryParam;
@@ -27,6 +26,7 @@ use pony::ConnectionStorageApiOp;
 use pony::NodeStorageOp;
 use pony::OperationStatus as StorageOperationStatus;
 use pony::Proto;
+use pony::SubscriptionOp;
 use pony::Tag;
 use pony::WgParam;
 
@@ -35,10 +35,10 @@ use crate::core::sync::MemSync;
 
 /// Handler creates connection
 // POST /connection
-pub async fn create_connection_handler<N, C>(
+pub async fn create_connection_handler<N, C, S>(
     conn_req: ConnCreateRequest,
     publisher: ZmqPublisher,
-    memory: MemSync<N, C>,
+    memory: MemSync<N, C, S>,
 ) -> Result<impl warp::Reply, warp::Rejection>
 where
     N: NodeStorageOp + Sync + Send + Clone + 'static,
@@ -51,6 +51,7 @@ where
         + From<Connection>
         + PartialEq,
     Connection: From<C>,
+    S: SubscriptionOp + Send + Sync + Clone + 'static + std::cmp::PartialEq,
 {
     let env = conn_req.env.clone();
     let conn_id = uuid::Uuid::new_v4();
@@ -450,10 +451,10 @@ where
 
 /// Handler deletes connection
 // DELETE /connection?id=
-pub async fn delete_connection_handler<N, C>(
+pub async fn delete_connection_handler<N, C, S>(
     conn_param: ConnQueryParam,
     publisher: ZmqPublisher,
-    memory: MemSync<N, C>,
+    memory: MemSync<N, C, S>,
 ) -> Result<impl warp::Reply, warp::Rejection>
 where
     N: NodeStorageOp + Sync + Send + Clone + 'static,
@@ -466,6 +467,7 @@ where
         + From<Connection>
         + PartialEq,
     Connection: From<C>,
+    S: SubscriptionOp + Send + Sync + Clone + 'static + std::cmp::PartialEq,
 {
     let conn_id = conn_param.id;
     let conn_opt = {
@@ -578,11 +580,11 @@ where
 
 /// Handler updates connection
 // PUT /connection?id=
-pub async fn put_connection_handler<N, C>(
+pub async fn put_connection_handler<N, C, S>(
     conn_param: ConnQueryParam,
     conn_req: ConnUpdateRequest,
     publisher: ZmqPublisher,
-    memory: MemSync<N, C>,
+    memory: MemSync<N, C, S>,
 ) -> Result<impl warp::Reply, warp::Rejection>
 where
     N: NodeStorageOp + Sync + Send + Clone + 'static,
@@ -595,6 +597,7 @@ where
         + From<Connection>
         + PartialEq,
     Connection: From<C>,
+    S: SubscriptionOp + Send + Sync + Clone + 'static + std::cmp::PartialEq,
 {
     let conn_id = conn_param.id;
     log::debug!("Connection to update {}", conn_id);
@@ -710,9 +713,9 @@ where
 }
 
 /// Get list of subscription connection credentials
-pub async fn get_subscription_connections_handler<N, C>(
+pub async fn get_subscription_connections_handler<N, C, S>(
     subscription_param: SubIdQueryParam,
-    memory: MemSync<N, C>,
+    memory: MemSync<N, C, S>,
 ) -> Result<impl warp::Reply, warp::Rejection>
 where
     N: NodeStorageOp + Sync + Send + Clone + 'static,
@@ -726,6 +729,7 @@ where
         + std::fmt::Debug
         + serde::ser::Serialize
         + PartialEq,
+    S: SubscriptionOp + Send + Sync + Clone + 'static,
 {
     log::debug!("Received: {:?}", subscription_param);
 
@@ -771,9 +775,9 @@ where
 
 /// Get connection detaisl
 // GET /connection?id=
-pub async fn get_connection_handler<N, C>(
+pub async fn get_connection_handler<N, C, S>(
     conn_param: ConnQueryParam,
-    memory: MemSync<N, C>,
+    memory: MemSync<N, C, S>,
 ) -> Result<impl warp::Reply, warp::Rejection>
 where
     N: NodeStorageOp + Sync + Send + Clone + 'static,
@@ -787,6 +791,7 @@ where
         + std::fmt::Debug
         + PartialEq
         + serde::ser::Serialize,
+    S: SubscriptionOp + Send + Sync + Clone + 'static,
 {
     let mem = memory.memory.read().await;
 
@@ -819,9 +824,9 @@ where
 
 /// Gets Subscriprion link
 // GET /sub?id=
-pub async fn subscription_link_handler<N, C>(
+pub async fn subscription_link_handler<N, C, S>(
     sub_param: SubQueryParam,
-    memory: MemSync<N, C>,
+    memory: MemSync<N, C, S>,
 ) -> Result<Box<dyn warp::Reply + Send>, warp::Rejection>
 where
     N: NodeStorageOp + Sync + Send + Clone + 'static,
@@ -834,6 +839,7 @@ where
         + From<Connection>
         + std::fmt::Debug
         + PartialEq,
+    S: SubscriptionOp + Send + Sync + Clone + 'static,
 {
     let mem = memory.memory.read().await;
 

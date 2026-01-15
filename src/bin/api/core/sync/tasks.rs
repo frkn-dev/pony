@@ -2,6 +2,7 @@ use pony::http::requests::ConnUpdateRequest;
 use pony::memory::cache::Connections;
 use pony::memory::node::Node;
 use pony::memory::node::Status as NodeStatus;
+use pony::memory::subscription::NewSubscription;
 use pony::Connection as Conn;
 use pony::ConnectionApiOp;
 use pony::ConnectionBaseOp;
@@ -10,6 +11,8 @@ use pony::ConnectionStorageApiOp as ApiOp;
 use pony::ConnectionStorageBaseOp;
 use pony::NodeStorageOp;
 use pony::OperationStatus;
+use pony::SubscriptionOp;
+use pony::SubscriptionStorageOp;
 use pony::SyncError;
 
 use super::MemSync;
@@ -49,7 +52,7 @@ impl Validate for Conn {
 }
 
 #[async_trait::async_trait]
-pub trait SyncOp<N, C>
+pub trait SyncOp<N, C, S>
 where
     N: NodeStorageOp + Send + Sync + Clone + 'static,
     C: ConnectionBaseOp
@@ -60,9 +63,11 @@ where
         + 'static
         + From<Conn>
         + std::cmp::PartialEq,
+    S: SubscriptionOp + Send + Sync + Clone + 'static,
 {
     async fn add_node(&self, node_id: &uuid::Uuid, node: Node) -> SyncResult<OperationStatus>;
     async fn add_conn(&self, conn_id: &uuid::Uuid, conn: Conn) -> SyncResult<OperationStatus>;
+    async fn add_sub(&self, sub_id: &uuid::Uuid, sub: S) -> SyncResult<OperationStatus>;
     async fn update_conn(
         &self,
         conn_id: &uuid::Uuid,
@@ -79,7 +84,7 @@ where
 }
 
 #[async_trait::async_trait]
-impl<N, C> SyncOp<N, C> for MemSync<N, C>
+impl<N, C, S> SyncOp<N, C, S> for MemSync<N, C, S>
 where
     N: NodeStorageOp + Send + Sync + Clone + 'static,
     C: ConnectionBaseOp
@@ -91,6 +96,7 @@ where
         + From<Conn>
         + std::cmp::PartialEq,
     Conn: From<C>,
+    S: SubscriptionOp + Send + Sync + Clone + 'static + PartialEq,
 {
     async fn add_node(&self, node_id: &uuid::Uuid, node: Node) -> SyncResult<OperationStatus> {
         log::info!("Adding node: {}", node_id);
@@ -137,6 +143,69 @@ where
             Err(e) => {
                 log::error!("Memory error adding node {}: {}", node_id, e);
                 Err(SyncError::Memory(e.to_string()))
+            }
+        }
+    }
+
+    async fn add_sub(&self, sub_id: &uuid::Uuid, sub: S) -> SyncResult<OperationStatus> {
+        log::info!("Adding subscription: {}", sub_id);
+
+        if sub.id() != *sub_id {
+            return Ok(OperationStatus::BadRequest(
+                *sub_id,
+                format!("ID mismatch: expected {}, got {}", sub_id, sub.id()),
+            ));
+        }
+
+        let new_sub = NewSubscription {
+            expires_at: sub.expires_at(),
+            referral_code: sub.referral_code().clone(),
+            referred_by: sub.referred_by(),
+        };
+
+        // Insert into database
+        if let Err(e) = self.db.sub().create(&new_sub).await {
+            log::error!(
+                "Failed to insert subscription {} into database: {}",
+                sub_id,
+                e
+            );
+            return Err(SyncError::Database(e));
+        }
+
+        // Insert into memory
+        let result = {
+            let mut memory = self.memory.write().await;
+            memory.subscriptions.add(sub.clone())
+        };
+
+        match result {
+            OperationStatus::Ok(id) => {
+                log::info!("Successfully added subscription: {}", id);
+                Ok(OperationStatus::Ok(id))
+            }
+            OperationStatus::Updated(id) => {
+                log::info!("Successfully updated subscription: {}", id);
+                Ok(OperationStatus::Updated(id))
+            }
+            OperationStatus::AlreadyExist(id) => {
+                log::info!("Subscription already exists: {}", id);
+                Ok(OperationStatus::AlreadyExist(id))
+            }
+            OperationStatus::BadRequest(id, msg) => {
+                log::warn!("Bad request for subscription {}: {}", id, msg);
+                Ok(OperationStatus::BadRequest(id, msg))
+            }
+            other => {
+                log::error!(
+                    "Unexpected operation status for subscription {}: {:?}",
+                    sub_id,
+                    other
+                );
+                Err(SyncError::Memory(format!(
+                    "Unexpected operation status: {:?}",
+                    other
+                )))
             }
         }
     }

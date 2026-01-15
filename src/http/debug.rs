@@ -12,10 +12,11 @@ use warp::Rejection;
 
 use crate::http::Unauthorized;
 
-use crate::memory::cache::Cache;
-use crate::memory::connection::op::base::Operations as ConnectionBaseOp;
-use crate::memory::storage::connection::BaseOp as ConnectionStorageBaseOp;
-use crate::memory::storage::node::Operations as NodeStorageOp;
+use super::super::memory::cache::Cache;
+use super::super::memory::connection::op::base::Operations as ConnectionBaseOp;
+use super::super::memory::storage::connection::BaseOp as ConnectionStorageBaseOp;
+use super::super::memory::storage::node::Operations as NodeStorageOp;
+use super::super::memory::subscription::Operations as SubscriptionOp;
 
 enum Kind {
     Conn,
@@ -47,13 +48,14 @@ pub struct Response {
     pub len: usize,
 }
 
-pub async fn start_ws_server<N, C>(
-    memory: Arc<RwLock<Cache<N, C>>>,
+pub async fn start_ws_server<N, C, S>(
+    memory: Arc<RwLock<Cache<N, C, S>>>,
     ipaddr: Ipv4Addr,
     port: u16,
     expected_token: Arc<String>,
 ) where
     N: NodeStorageOp + Sync + Send + Clone + 'static,
+    S: SubscriptionOp + Sync + Send + Clone + 'static + std::cmp::PartialEq,
     C: ConnectionBaseOp + Sync + Send + Clone + 'static + std::fmt::Display,
 {
     let health_check = warp::path("health-check").map(|| "Server OK");
@@ -72,7 +74,7 @@ pub async fn start_ws_server<N, C>(
                     match token {
                         Some(t) if t == *expected_token => {
                             Ok::<_, Rejection>(ws.on_upgrade(move |socket| {
-                                handle_debug_connection::<N, C>(socket, memory)
+                                handle_debug_connection::<N, C, S>(socket, memory)
                             }))
                         }
                         _ => {
@@ -96,12 +98,13 @@ pub async fn start_ws_server<N, C>(
         .await;
 }
 
-pub async fn handle_debug_connection<N, C>(
+pub async fn handle_debug_connection<N, C, S>(
     socket: warp::ws::WebSocket,
-    memory: Arc<RwLock<Cache<N, C>>>,
+    memory: Arc<RwLock<Cache<N, C, S>>>,
 ) where
     N: NodeStorageOp + Sync + Send + Clone + 'static,
     C: ConnectionBaseOp + Sync + Send + Clone + 'static + std::fmt::Display,
+    S: SubscriptionOp + Sync + Send + Clone + 'static + std::cmp::PartialEq,
 {
     let (mut sender, mut receiver) = socket.split();
 

@@ -9,12 +9,13 @@ use pony::Connection;
 use pony::ConnectionApiOp;
 use pony::ConnectionBaseOp;
 use pony::NodeStorageOp;
+use pony::SubscriptionOp;
 
 use crate::core::sync::MemSync;
 
 // GET /healthcheck
-pub async fn healthcheck_handler<N, C>(
-    _state: MemSync<N, C>,
+pub async fn healthcheck_handler<N, C, S>(
+    _state: MemSync<N, C, S>,
 ) -> Result<impl warp::Reply, warp::Rejection>
 where
     N: NodeStorageOp + Sync + Send + Clone + 'static,
@@ -26,6 +27,7 @@ where
         + 'static
         + From<Connection>
         + PartialEq,
+    S: SubscriptionOp + Send + Sync + Clone + 'static,
 {
     let response = ResponseMessage::<Option<uuid::Uuid>> {
         status: 200,

@@ -8,6 +8,8 @@ use super::connection::op::api::Operations as ConnectionApiOp;
 use super::connection::op::base::Operations as ConnectionBaseOp;
 use super::node::Node;
 use super::storage::node::Operations as NodeStorageOp;
+use super::subscription::Operations as SubscriptionOp;
+use super::subscription::Subscriptions;
 
 #[derive(Archive, Deserialize, Serialize, RkyvDeserialize, RkyvSerialize, Debug, Clone)]
 #[archive(check_bytes)]
@@ -43,37 +45,41 @@ impl<C> DerefMut for Connections<C> {
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
-pub struct Cache<T, C>
+pub struct Cache<T, C, S>
 where
     T: Send + Sync + Clone + 'static,
     C: Send + Sync + Clone + 'static,
+    S: Send + Sync + Clone + 'static,
 {
     pub connections: Connections<C>,
+    pub subscriptions: Subscriptions<S>,
     pub nodes: T,
 }
 
-// COMMENT(qezz): This is basically `impl Default for State`
-impl<T: Default, C> Cache<T, C>
+impl<T: Default, C, S: Default + std::cmp::PartialEq> Cache<T, C, S>
 where
     T: NodeStorageOp + Sync + Send + Clone + 'static,
     C: ConnectionApiOp + ConnectionBaseOp + Clone + Send + Sync + 'static + PartialEq,
+    S: SubscriptionOp + Clone + Send + Sync + 'static,
 {
     pub fn new() -> Self {
         Cache {
             nodes: T::default(),
             connections: Connections::default(),
+            subscriptions: Subscriptions::default(),
         }
     }
 }
-
-impl<C> Cache<Node, C>
+impl<C, S: Default + std::cmp::PartialEq> Cache<Node, C, S>
 where
     C: ConnectionBaseOp + Send + Sync + Clone + 'static + PartialEq,
+    S: SubscriptionOp + Clone + Send + Sync + 'static,
 {
     pub fn with_node(node: Node) -> Self {
         Self {
             nodes: node,
             connections: Connections::default(),
+            subscriptions: Subscriptions::default(),
         }
     }
 }

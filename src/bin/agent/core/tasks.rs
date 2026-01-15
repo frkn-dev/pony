@@ -13,9 +13,11 @@ use pony::ConnectionBaseOp;
 use pony::ConnectionStorageBaseOp;
 use pony::Message;
 use pony::NodeStorageOp;
+use pony::SubscriptionOp;
 use pony::Tag;
 use pony::Topic;
 use pony::{PonyError, Result};
+
 use rkyv::Deserialize;
 
 use super::Agent;
@@ -27,10 +29,11 @@ pub trait Tasks {
 }
 
 #[async_trait]
-impl<T, C> Tasks for Agent<T, C>
+impl<T, C, S> Tasks for Agent<T, C, S>
 where
     T: NodeStorageOp + Send + Sync + Clone,
     C: ConnectionBaseOp + Send + Sync + Clone + 'static + From<Connection>,
+    S: SubscriptionOp + Send + Sync + Clone + 'static + std::cmp::PartialEq,
 {
     async fn run_subscriber(&self) -> Result<()> {
         let sub = self.subscriber.clone();

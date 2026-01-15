@@ -1,4 +1,3 @@
-use pony::ConnectionStorageApiOp;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -8,17 +7,22 @@ use tokio_postgres::NoTls;
 use pony::config::settings::PostgresConfig;
 use pony::memory::node::Node;
 use pony::Connection;
+use pony::ConnectionStorageApiOp;
 use pony::MemoryCache;
 use pony::NodeStorageOp;
 use pony::OperationStatus;
 use pony::Result;
+use pony::Subscription;
+use pony::SubscriptionStorageOp;
 
 use crate::core::postgres::connection::ConnRow;
 use crate::core::postgres::connection::PgConn;
 use crate::core::postgres::node::PgNode;
+use crate::core::postgres::subscription::PgSubscription;
 
 pub mod connection;
 pub mod node;
+pub mod subscription;
 
 pub struct PgClientManager {
     config: PostgresConfig,
@@ -91,16 +95,21 @@ impl PgContext {
     pub fn conn(&self) -> PgConn {
         PgConn::new(self.manager.clone())
     }
+
+    pub fn sub(&self) -> PgSubscription {
+        PgSubscription::new(self.manager.clone())
+    }
 }
 
 #[async_trait::async_trait]
 pub trait Tasks {
     async fn add_node(&mut self, db_node: Node) -> Result<()>;
     async fn add_conn(&mut self, db_conn: ConnRow) -> Result<OperationStatus>;
+    async fn add_subscription(&mut self, db_sub: Subscription) -> OperationStatus;
 }
 
 #[async_trait::async_trait]
-impl Tasks for MemoryCache<HashMap<String, Vec<Node>>, Connection> {
+impl Tasks for MemoryCache<HashMap<String, Vec<Node>>, Connection, Subscription> {
     async fn add_conn(&mut self, db_conn: ConnRow) -> Result<OperationStatus> {
         let conn_id = db_conn.conn_id;
         let conn: Connection = db_conn.try_into()?;
@@ -125,5 +134,21 @@ impl Tasks for MemoryCache<HashMap<String, Vec<Node>>, Connection> {
             )
             .into()),
         }
+    }
+
+    async fn add_subscription(&mut self, db_sub: Subscription) -> OperationStatus {
+        let id = db_sub.id;
+        log::trace!("Processing subscription: {}", id);
+
+        let status = self.subscriptions.add(db_sub);
+
+        match &status {
+            OperationStatus::Ok(_) => log::debug!("✓ Subscription {} stored", id),
+            OperationStatus::Updated(_) => log::debug!("↻ Subscription {} updated", id),
+            OperationStatus::AlreadyExist(_) => log::debug!("○ Subscription {} unchanged", id),
+            _ => log::debug!("Not implemented {}", id),
+        }
+
+        status
     }
 }

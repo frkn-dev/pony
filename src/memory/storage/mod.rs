@@ -2,6 +2,7 @@ use std::fmt;
 
 pub mod connection;
 pub(crate) mod node;
+pub(crate) mod subscription;
 
 #[derive(Debug, PartialEq)]
 pub enum Status {

@@ -44,7 +44,13 @@ where
         + From<Connection>
         + PartialEq,
     Connection: From<C>,
-    S: SubscriptionOp + Send + Sync + Clone + 'static + std::cmp::PartialEq,
+    S: SubscriptionOp
+        + Send
+        + Sync
+        + Clone
+        + 'static
+        + std::cmp::PartialEq
+        + std::convert::From<pony::Subscription>,
 {
     log::debug!("Received node request: {:?}", node_req);
 

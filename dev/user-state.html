@@ -81,6 +81,12 @@
         <pre id="conns"></pre>
     </div>
 
+    <div id="subs-container" style="display:none;">
+        <h3>Subscriptions</h3>
+        <pre id="subs"></pre>
+    </div>
+
+
     <script>
         let socket = null;
         let reconnectInterval = null;
@@ -95,6 +101,9 @@
         const usersHeader = document.getElementById('users-header');
         const connElement = document.getElementById('conn-info');
         const connIdInput = document.getElementById('connId');
+        const subsContainer = document.getElementById('subs-container');
+        const subsElement = document.getElementById('subs');
+
 
         function buildWebSocketUrl({ host, port, ssl = true, path = '' }) {
             let protocol = ssl ? 'wss' : 'ws';
@@ -121,20 +130,17 @@
                 socket = new WebSocket(url, token); // token as subprotocol
 
                 socket.onopen = () => {
-                    console.log(`Connected to WebSocket server at ${url}`);
-                    clearInterval(reconnectInterval);
                     requestConns();
                     requestNodes();
-                    requestUsers();
-
+                    requestSubscriptions();
+                
                     setInterval(() => {
-                        if (socket && socket.readyState === WebSocket.OPEN) {
-                            requestConns();
-                            requestNodes();
-                            requestUsers();
-                        }
+                        requestConns();
+                        requestNodes();
+                        requestSubscriptions();
                     }, 5000);
                 };
+
 
                 socket.onmessage = (event) => {
                     const data = event.data;
@@ -147,6 +153,7 @@
                             case "nodes": displayNodes(response); break;
                             case "conn": displayConnInfo(response); break;
                             case "users": displayUsers(response); break;
+                            case "subs": displaySubs(response); break;
                             default: console.log("Unknown response kind:", response.kind);
                         }
                     } catch (error) {
@@ -188,6 +195,15 @@
                 alert('Please enter a valid conn ID');
             }
         });
+        
+        function requestSubscriptions() {
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                socket.send(JSON.stringify({
+                    kind: "get_subscriptions",
+                    message: "Requesting subscriptions"
+                }));
+            }
+        }
 
         function requestConns() {
             if (socket && socket.readyState === WebSocket.OPEN) {
@@ -238,6 +254,27 @@
                 connsElement.textContent = `Connections count: ${state.len}, Data: ${state.data}`;
             }
         }
+
+        function displaySubs(state) {
+            subsContainer.style.display = 'block';
+            subsElement.innerHTML = "";
+        
+            let data = state.data;
+        
+            if (Array.isArray(data)) {
+                const ul = document.createElement('ul');
+                data.forEach(sub => {
+                    const li = document.createElement('li');
+                    li.textContent =
+                        `ID: ${sub.id}, expires: ${sub.expires_at}, deleted: ${sub.is_deleted}, ref:_by ${sub.referred_by}`;
+                    ul.appendChild(li);
+                });
+                subsElement.appendChild(ul);
+            } else {
+                subsElement.textContent = JSON.stringify(state.data, null, 2);
+            }
+        }
+
 
         function displayNodes(state) {
             nodesContainer.style.display = 'block';

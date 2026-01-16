@@ -1,12 +1,8 @@
-use crate::ZmqPublisher;
 use async_trait::async_trait;
 use chrono::NaiveTime;
 use chrono::TimeZone;
 use chrono::Utc;
 use futures::future::join_all;
-use pony::ConnectionApiOp;
-use pony::ConnectionBaseOp;
-use pony::Subscription;
 use rand::Rng;
 use std::collections::HashMap;
 use std::time::Duration;
@@ -15,25 +11,32 @@ use pony::memory::node::Node;
 use pony::memory::node::Status as NodeStatus;
 use pony::utils::measure_time;
 use pony::Connection;
+use pony::ConnectionApiOp;
+use pony::ConnectionBaseOp;
 use pony::ConnectionStat;
+use pony::ConnectionStorageApiOp;
 use pony::MemoryCache;
 use pony::NodeStorageOp;
 use pony::OperationStatus as StorageOperationStatus;
 use pony::PonyError;
 use pony::Result;
+use pony::Subscription;
+use pony::SubscriptionOp;
 
 use crate::core::clickhouse::query::Queries;
 use crate::core::postgres::Tasks as MemoryCacheTasks;
 use crate::core::sync::tasks::SyncOp;
 use crate::Api;
+use crate::ZmqPublisher;
 
 #[async_trait]
 pub trait Tasks {
-    async fn init_state_from_db(&self) -> Result<()>;
+    async fn get_state_from_db(&self) -> Result<()>;
     async fn periodic_db_sync(&self, interval_sec: u64);
     async fn node_healthcheck(&self) -> Result<()>;
     async fn collect_conn_stat(&self) -> Result<()>;
     async fn cleanup_expired_connections(&self, interval_sec: u64, publisher: ZmqPublisher);
+    async fn cleanup_expired_subscriptions(&self, interval_sec: u64, publisher: ZmqPublisher);
 }
 
 #[async_trait]
@@ -44,7 +47,7 @@ impl Tasks for Api<HashMap<String, Vec<Node>>, Connection, Subscription> {
         loop {
             interval.tick().await;
 
-            log::debug!("Run cleanup task");
+            log::debug!("Run cleanup conections task");
 
             let now = Utc::now();
             let expired_conns: Vec<uuid::Uuid> = {
@@ -104,6 +107,67 @@ impl Tasks for Api<HashMap<String, Vec<Node>>, Connection, Subscription> {
             }
         }
     }
+
+    async fn cleanup_expired_subscriptions(&self, interval_sec: u64, publisher: ZmqPublisher) {
+        let mut interval = tokio::time::interval(Duration::from_secs(interval_sec));
+
+        loop {
+            interval.tick().await;
+            log::debug!("Run cleanup subscriptions task");
+
+            let expired_subs: Vec<uuid::Uuid> = {
+                let mem = self.sync.memory.read().await;
+                mem.subscriptions
+                    .iter()
+                    .filter_map(|(id, sub)| if !sub.is_active() { Some(*id) } else { None })
+                    .collect()
+            };
+
+            for sub_id in expired_subs {
+                let conns_to_delete: Vec<(uuid::Uuid, Connection)> = {
+                    let mem = self.sync.memory.read().await;
+                    mem.connections
+                        .get_by_subscription_id(&sub_id)
+                        .map(|conns| {
+                            conns
+                                .iter()
+                                .filter(|(_id, c)| !c.get_deleted())
+                                .filter_map(|(id, c)| Some((*id, c.clone().into())))
+                                .collect()
+                        })
+                        .unwrap_or_default()
+                };
+
+                for (conn_id, conn) in conns_to_delete {
+                    let msg = conn.as_delete_message(&conn_id);
+                    if let Ok(bytes) = rkyv::to_bytes::<_, 1024>(&msg) {
+                        let key = conn
+                            .node_id
+                            .map(|id| id.to_string())
+                            .unwrap_or_else(|| conn.get_env());
+                        let _ = publisher.send_binary(&key, bytes.as_ref()).await;
+                    }
+
+                    match SyncOp::delete_connection(&self.sync, &conn_id).await {
+                        Ok(StorageOperationStatus::Ok(_)) => {
+                            log::info!("Expired connection {} deleted", conn_id);
+                        }
+                        Ok(status) => {
+                            log::warn!(
+                                "!!! Connection {} could not be deleted: {:?}",
+                                conn_id,
+                                status
+                            );
+                        }
+                        Err(e) => {
+                            log::error!("Failed to delete expired connection {}: {:?}", conn_id, e);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     async fn periodic_db_sync(&self, interval_sec: u64) {
         let base = Duration::from_secs(interval_sec);
 
@@ -113,7 +177,7 @@ impl Tasks for Api<HashMap<String, Vec<Node>>, Connection, Subscription> {
             tokio::time::sleep(interval_sec_with_jitter).await;
 
             if let Err(e) = measure_time(
-                self.init_state_from_db(),
+                self.get_state_from_db(),
                 format!("Periodic DB Sync: interval + jitter {interval_sec}, {jitter}"),
             )
             .await
@@ -125,7 +189,7 @@ impl Tasks for Api<HashMap<String, Vec<Node>>, Connection, Subscription> {
         }
     }
 
-    async fn init_state_from_db(&self) -> Result<()> {
+    async fn get_state_from_db(&self) -> Result<()> {
         let db = self.sync.db.clone();
         let mut mem = self.sync.memory.write().await;
 

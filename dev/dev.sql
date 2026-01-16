@@ -151,6 +151,7 @@ ADD COLUMN expired_at TIMESTAMP WITH TIME ZONE;
 ALTER TABLE connections
 ADD COLUMN expired_at TIMESTAMP WITH TIME ZONE;
 
+===
 
 
 ALTER TABLE connections RENAME COLUMN user_id TO subscription_id;
@@ -158,21 +159,17 @@ ALTER TABLE connections RENAME COLUMN user_id TO subscription_id;
 CREATE TABLE subscriptions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
-    
-    referral_code CHAR(12) UNIQUE, 
-    referred_by UUID REFERENCES subscriptions(id),  
-    
-    referral_count INTEGER DEFAULT 0,
-    referral_bonus_days INTEGER DEFAULT 0,
-    
+    referred_by CHAR(13),  
+        
     created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+    is_deleted BOOL NOT NULL DEFAULT false
 );
 
-CREATE INDEX idx_subscriptions_user_id ON subscriptions(user_id);
 CREATE INDEX idx_subscriptions_expires_at ON subscriptions(expires_at);
-CREATE INDEX idx_subscriptions_referral_code ON subscriptions(referral_code);
 CREATE INDEX idx_subscriptions_referred_by ON subscriptions(referred_by);
 
-    ALTER TABLE subscriptions
-    ADD COLUMN is_deleted BOOL NOT NULL DEFAULT false;
+
+
+
+

@@ -41,7 +41,13 @@ where
     N: NodeStorageOp + Send + Sync + Clone,
     Connection: From<C>,
 
-    S: SubscriptionOp + Send + Sync + Clone + 'static + std::cmp::PartialEq,
+    S: SubscriptionOp
+        + Send
+        + Sync
+        + Clone
+        + 'static
+        + std::cmp::PartialEq
+        + std::convert::From<pony::Subscription>,
 {
     async fn run(&self, host: String) -> Result<()> {
         let auth = auth(Arc::new(self.settings.api.token.clone()));
@@ -121,8 +127,26 @@ where
             .and(warp::path("info"))
             .and(warp::path::end())
             .and(warp::query::<SubQueryParam>())
+            .and(with_state(self.sync.clone()))
             .and(with_param_string(host))
-            .and_then(subscription_info_handler::<C>);
+            .and_then(subscription_info_handler);
+
+        let post_subscription_route = warp::post()
+            .and(warp::path("subscription"))
+            .and(warp::path::end())
+            .and(auth.clone())
+            .and(warp::body::json())
+            .and(with_state(self.sync.clone()))
+            .and_then(post_subscription_handler);
+
+        let put_subscription_route = warp::put()
+            .and(warp::path("subscription"))
+            .and(warp::path::end())
+            .and(auth.clone())
+            .and(warp::query::<SubIdQueryParam>())
+            .and(warp::body::json())
+            .and(with_state(self.sync.clone()))
+            .and_then(put_subscription_handler);
 
         // Connections Routes
 
@@ -168,6 +192,8 @@ where
             .or(get_subscription_stat_route)
             .or(get_subscription_route)
             .or(get_subscription_info_route)
+            .or(post_subscription_route)
+            .or(put_subscription_route)
             // Node
             .or(get_nodes_route)
             .or(get_node_route)

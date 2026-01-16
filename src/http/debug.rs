@@ -16,12 +16,13 @@ use super::super::memory::cache::Cache;
 use super::super::memory::connection::op::base::Operations as ConnectionBaseOp;
 use super::super::memory::storage::connection::BaseOp as ConnectionStorageBaseOp;
 use super::super::memory::storage::node::Operations as NodeStorageOp;
-use super::super::memory::subscription::Operations as SubscriptionOp;
+use crate::SubscriptionOp;
 
 enum Kind {
     Conn,
     Conns,
     Nodes,
+    Subs,
 }
 
 impl fmt::Display for Kind {
@@ -30,6 +31,7 @@ impl fmt::Display for Kind {
             Kind::Conn => write!(f, "conn"),
             Kind::Conns => write!(f, "conns"),
             Kind::Nodes => write!(f, "nodes"),
+            Kind::Subs => write!(f, "subs"),
         }
     }
 }
@@ -55,7 +57,7 @@ pub async fn start_ws_server<N, C, S>(
     expected_token: Arc<String>,
 ) where
     N: NodeStorageOp + Sync + Send + Clone + 'static,
-    S: SubscriptionOp + Sync + Send + Clone + 'static + std::cmp::PartialEq,
+    S: SubscriptionOp + Sync + Send + Clone + 'static + std::cmp::PartialEq + serde::Serialize,
     C: ConnectionBaseOp + Sync + Send + Clone + 'static + std::fmt::Display,
 {
     let health_check = warp::path("health-check").map(|| "Server OK");
@@ -104,7 +106,7 @@ pub async fn handle_debug_connection<N, C, S>(
 ) where
     N: NodeStorageOp + Sync + Send + Clone + 'static,
     C: ConnectionBaseOp + Sync + Send + Clone + 'static + std::fmt::Display,
-    S: SubscriptionOp + Sync + Send + Clone + 'static + std::cmp::PartialEq,
+    S: SubscriptionOp + Sync + Send + Clone + 'static + std::cmp::PartialEq + serde::Serialize,
 {
     let (mut sender, mut receiver) = socket.split();
 
@@ -166,6 +168,27 @@ pub async fn handle_debug_connection<N, C, S>(
                     sender.send(Message::text(response_str)).await.unwrap();
                 }
             }
+        } else if req.kind == "get_subscriptions" {
+            let memory = memory.read().await;
+
+            let subs: Vec<_> = memory.subscriptions.values().cloned().collect();
+
+            let data = match serde_json::to_value(&subs) {
+                Ok(v) => v,
+                Err(err) => {
+                    log::error!("Failed to serialize subscriptions: {}", err);
+                    continue;
+                }
+            };
+
+            let response = Response {
+                kind: Kind::Subs.to_string(),
+                len: subs.len(),
+                data,
+            };
+
+            let response_str = serde_json::to_string(&response).unwrap();
+            sender.send(Message::text(response_str)).await.unwrap();
         }
     }
 }

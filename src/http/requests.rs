@@ -12,7 +12,7 @@ use crate::memory::node::Status as NodeStatus;
 use crate::memory::tag::ProtoTag as Tag;
 
 fn default_format() -> String {
-    "txt".to_string()
+    "plain".to_string()
 }
 
 fn default_env() -> String {
@@ -22,7 +22,9 @@ fn default_env() -> String {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct SubIdQueryParam {
     pub id: uuid::Uuid,
+    pub env: Option<String>,
 }
+
 #[derive(Debug, Deserialize)]
 pub struct SubQueryParam {
     pub id: uuid::Uuid,
@@ -30,6 +32,18 @@ pub struct SubQueryParam {
     pub format: String,
     #[serde(default = "default_env")]
     pub env: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SubCreateReq {
+    pub referred_by: Option<String>,
+    pub days: Option<i64>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct SubUpdateReq {
+    pub referred_by: Option<String>,
+    pub days: Option<i64>,
 }
 
 #[derive(Serialize, Deserialize)]

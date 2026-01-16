@@ -1,8 +1,9 @@
 use pony::http::requests::ConnUpdateRequest;
+use pony::http::requests::SubUpdateReq;
 use pony::memory::cache::Connections;
 use pony::memory::node::Node;
 use pony::memory::node::Status as NodeStatus;
-use pony::memory::subscription::NewSubscription;
+use pony::memory::subscription::Subscription;
 use pony::Connection as Conn;
 use pony::ConnectionApiOp;
 use pony::ConnectionBaseOp;
@@ -67,7 +68,7 @@ where
 {
     async fn add_node(&self, node_id: &uuid::Uuid, node: Node) -> SyncResult<OperationStatus>;
     async fn add_conn(&self, conn_id: &uuid::Uuid, conn: Conn) -> SyncResult<OperationStatus>;
-    async fn add_sub(&self, sub_id: &uuid::Uuid, sub: S) -> SyncResult<OperationStatus>;
+    async fn add_sub(&self, sub: Subscription) -> SyncResult<OperationStatus>;
     async fn update_conn(
         &self,
         conn_id: &uuid::Uuid,
@@ -81,6 +82,12 @@ where
         status: NodeStatus,
     ) -> SyncResult<()>;
     async fn update_conn_stat(&self, conn_id: &uuid::Uuid, stat: ConnectionStat) -> SyncResult<()>;
+
+    async fn update_sub(
+        &self,
+        sub_id: &uuid::Uuid,
+        sub_req: SubUpdateReq,
+    ) -> SyncResult<OperationStatus>;
 }
 
 #[async_trait::async_trait]
@@ -96,7 +103,13 @@ where
         + From<Conn>
         + std::cmp::PartialEq,
     Conn: From<C>,
-    S: SubscriptionOp + Send + Sync + Clone + 'static + PartialEq,
+    S: SubscriptionOp
+        + Send
+        + Sync
+        + Clone
+        + 'static
+        + PartialEq
+        + std::convert::From<pony::Subscription>,
 {
     async fn add_node(&self, node_id: &uuid::Uuid, node: Node) -> SyncResult<OperationStatus> {
         log::info!("Adding node: {}", node_id);
@@ -147,27 +160,14 @@ where
         }
     }
 
-    async fn add_sub(&self, sub_id: &uuid::Uuid, sub: S) -> SyncResult<OperationStatus> {
-        log::info!("Adding subscription: {}", sub_id);
-
-        if sub.id() != *sub_id {
-            return Ok(OperationStatus::BadRequest(
-                *sub_id,
-                format!("ID mismatch: expected {}, got {}", sub_id, sub.id()),
-            ));
-        }
-
-        let new_sub = NewSubscription {
-            expires_at: sub.expires_at(),
-            referral_code: sub.referral_code().clone(),
-            referred_by: sub.referred_by(),
-        };
+    async fn add_sub(&self, sub: Subscription) -> SyncResult<OperationStatus> {
+        log::info!("Adding subscription: {}", sub.id);
 
         // Insert into database
-        if let Err(e) = self.db.sub().create(&new_sub).await {
+        if let Err(e) = self.db.sub().create(&sub).await {
             log::error!(
                 "Failed to insert subscription {} into database: {}",
-                sub_id,
+                sub.id,
                 e
             );
             return Err(SyncError::Database(e));
@@ -176,7 +176,7 @@ where
         // Insert into memory
         let result = {
             let mut memory = self.memory.write().await;
-            memory.subscriptions.add(sub.clone())
+            memory.subscriptions.add(sub.clone().into())
         };
 
         match result {
@@ -199,7 +199,7 @@ where
             other => {
                 log::error!(
                     "Unexpected operation status for subscription {}: {:?}",
-                    sub_id,
+                    sub.id,
                     other
                 );
                 Err(SyncError::Memory(format!(
@@ -329,7 +329,7 @@ where
 
         // Check if already deleted
         if conn.get_deleted() {
-            return Ok(OperationStatus::NotFound(*conn_id));
+            return Ok(OperationStatus::NotModified(*conn_id));
         }
 
         // Delete from database first
@@ -426,7 +426,6 @@ where
             return Err(SyncError::Database(e));
         }
 
-        // Update memory
         {
             let mut memory = self.memory.write().await;
             if let Err(e) = memory.connections.update_stats(conn_id, conn_stat) {
@@ -435,11 +434,49 @@ where
                     conn_id,
                     e
                 );
-                // Don't return error here as database is already updated
             }
         }
 
         log::debug!("Successfully updated connection {} stats", conn_id);
         Ok(())
+    }
+
+    async fn update_sub(
+        &self,
+        sub_id: &uuid::Uuid,
+        sub_req: SubUpdateReq,
+    ) -> SyncResult<OperationStatus> {
+        log::info!("Updating subscription: {}", sub_id);
+
+        let mut memory = self.memory.write().await;
+
+        let sub = match memory.subscriptions.find_by_id_mut(sub_id) {
+            Some(s) => s,
+            None => {
+                log::warn!("Subscription {} not found for update", sub_id);
+                return Ok(OperationStatus::NotFound(*sub_id));
+            }
+        };
+
+        if let Some(days) = sub_req.days {
+            sub.extend(days);
+        }
+
+        if let Err(e) = self
+            .db
+            .sub()
+            .update_expires_at(*sub_id, sub.expires_at())
+            .await
+        {
+            log::error!(
+                "Failed to update subscription {} stats in database: {}",
+                sub_id,
+                e
+            );
+            return Err(SyncError::Database(e));
+        };
+
+        log::info!("Successfully updated subscription: {}", sub_id);
+        Ok(OperationStatus::Updated(*sub_id))
     }
 }

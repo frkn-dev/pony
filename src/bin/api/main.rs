@@ -78,7 +78,7 @@ async fn main() -> Result<()> {
         settings.clone(),
     ));
 
-    let _ = measure_time(api.init_state_from_db(), "Init PG DB".to_string()).await?;
+    let _ = measure_time(api.get_state_from_db(), "Init PG DB".to_string()).await?;
 
     let api_clone = api.clone();
     tokio::spawn(async move {
@@ -168,6 +168,18 @@ async fn main() -> Result<()> {
 
         async move {
             api.cleanup_expired_connections(job_interval.as_secs(), publisher)
+                .await;
+        }
+    });
+
+    let _ = tokio::spawn({
+        let api = api.clone();
+        let publisher = publisher.clone();
+        let job_interval = Duration::from_secs(60);
+        log::info!("cleanup_expired_subscriptions task started");
+
+        async move {
+            api.cleanup_expired_subscriptions(job_interval.as_secs(), publisher)
                 .await;
         }
     });

@@ -545,11 +545,6 @@ where
                 "Subscription {}  are expired",
                 sub_param.id
             ))));
-        } else {
-            return Ok(Box::new(http::not_found(&format!(
-                "Subscription {}  are not found",
-                sub_param.id
-            ))));
         }
     }
 

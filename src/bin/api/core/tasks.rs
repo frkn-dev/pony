@@ -3,6 +3,7 @@ use chrono::NaiveTime;
 use chrono::TimeZone;
 use chrono::Utc;
 use futures::future::join_all;
+use pony::http::requests::ConnUpdateRequest;
 use rand::Rng;
 use std::collections::HashMap;
 use std::time::Duration;
@@ -37,6 +38,7 @@ pub trait Tasks {
     async fn collect_conn_stat(&self) -> Result<()>;
     async fn cleanup_expired_connections(&self, interval_sec: u64, publisher: ZmqPublisher);
     async fn cleanup_expired_subscriptions(&self, interval_sec: u64, publisher: ZmqPublisher);
+    async fn restore_subscriptions(&self, interval_sec: u64, publisher: ZmqPublisher);
 }
 
 #[async_trait]
@@ -161,6 +163,77 @@ impl Tasks for Api<HashMap<String, Vec<Node>>, Connection, Subscription> {
                         }
                         Err(e) => {
                             log::error!("Failed to delete expired connection {}: {:?}", conn_id, e);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    async fn restore_subscriptions(&self, interval_sec: u64, publisher: ZmqPublisher) {
+        let mut interval = tokio::time::interval(Duration::from_secs(interval_sec));
+
+        loop {
+            interval.tick().await;
+            log::debug!("Run restore subscriptions task");
+
+            let expired_subs: Vec<uuid::Uuid> = {
+                let mem = self.sync.memory.read().await;
+                mem.subscriptions
+                    .iter()
+                    .filter_map(|(id, sub)| if sub.is_active() { Some(*id) } else { None })
+                    .collect()
+            };
+
+            for sub_id in expired_subs {
+                let conns_to_restore: Vec<(uuid::Uuid, Connection)> = {
+                    let mem = self.sync.memory.read().await;
+                    mem.connections
+                        .get_by_subscription_id(&sub_id)
+                        .map(|conns| {
+                            conns
+                                .iter()
+                                .filter(|(_id, c)| c.get_deleted())
+                                .filter_map(|(id, c)| Some((*id, c.clone().into())))
+                                .collect()
+                        })
+                        .unwrap_or_default()
+                };
+
+                for (conn_id, conn) in conns_to_restore {
+                    let msg = conn.as_update_message(&conn_id);
+                    if let Ok(bytes) = rkyv::to_bytes::<_, 1024>(&msg) {
+                        let key = conn
+                            .node_id
+                            .map(|id| id.to_string())
+                            .unwrap_or_else(|| conn.get_env());
+                        let _ = publisher.send_binary(&key, bytes.as_ref()).await;
+                    }
+
+                    let conn_upd = ConnUpdateRequest {
+                        env: Some(conn.get_env()),
+                        is_deleted: Some(false),
+                        password: conn.get_password(),
+                        days: None,
+                    };
+
+                    match SyncOp::update_conn(&self.sync, &conn_id, conn_upd).await {
+                        Ok(StorageOperationStatus::Updated(_)) => {
+                            log::info!("Expired connection {} restored", conn_id);
+                        }
+                        Ok(status) => {
+                            log::warn!(
+                                "Connection {} could not be restored: {:?}",
+                                conn_id,
+                                status
+                            );
+                        }
+                        Err(e) => {
+                            log::error!(
+                                "Failed to restore expired connection {}: {:?}",
+                                conn_id,
+                                e
+                            );
                         }
                     }
                 }

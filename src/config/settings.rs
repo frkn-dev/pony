@@ -80,12 +80,6 @@ fn default_api_token() -> String {
 fn default_label() -> String {
     "🏴‍☠️🏴‍☠️🏴‍☠️ dev".to_string()
 }
-fn default_node_healthcheck_timeout() -> i16 {
-    60
-}
-fn default_conn_limit_check_interval() -> u64 {
-    60
-}
 
 fn default_stat_job_interval() -> u64 {
     60
@@ -117,12 +111,24 @@ fn default_db_sync_interval_sec() -> u64 {
     300
 }
 
+fn default_subscription_restore_interval_sec() -> u64 {
+    60
+}
+
+fn default_subscription_expire_interval_sec() -> u64 {
+    60
+}
+
+fn default_node_healthcheck_timeout() -> i16 {
+    60
+}
+
 fn default_max_bandwidth_bps() -> i64 {
     100_000_000
 }
 
 fn default_hostname() -> String {
-    "http://localhost".to_string()
+    "http://localhost:5005".to_string()
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]
@@ -131,10 +137,6 @@ pub struct ApiServiceConfig {
     pub address: Option<Ipv4Addr>,
     #[serde(default = "default_api_web_port")]
     pub port: u16,
-    #[serde(default = "default_node_healthcheck_timeout")]
-    pub node_health_check_timeout: i16,
-    #[serde(default = "default_conn_limit_check_interval")]
-    pub conn_limit_check_interval: u64,
     #[serde(default = "default_collect_conn_stat_interval")]
     pub collect_conn_stat_interval: u64,
     #[serde(default = "default_healthcheck_interval")]
@@ -151,6 +153,12 @@ pub struct ApiServiceConfig {
     pub db_sync_interval_sec: u64,
     #[serde(default = "default_hostname")]
     pub hostname: String,
+    #[serde(default = "default_subscription_restore_interval_sec")]
+    pub subscription_restore_interval: u64,
+    #[serde(default = "default_subscription_expire_interval_sec")]
+    pub subscription_expire_interval: u64,
+    #[serde(default = "default_node_healthcheck_timeout")]
+    pub node_health_check_timeout: i16,
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]

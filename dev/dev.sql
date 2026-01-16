@@ -158,7 +158,7 @@ ALTER TABLE connections RENAME COLUMN user_id TO subscription_id;
 
 CREATE TABLE subscriptions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    expires_at TIMESTAMP WITH TIME ZONE ,
     referred_by CHAR(13),  
         
     created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),

@@ -22,13 +22,6 @@ where
 {
     fn count_invited_by(&self, referral_code: &str) -> usize {
         self.values()
-            .inspect(|s| {
-                log::debug!(
-                    "cmp: referred_by={:?}  target={:?}",
-                    s.referred_by(),
-                    referral_code
-                );
-            })
             .filter(|s| s.referred_by().as_deref() == Some(referral_code))
             .count()
     }

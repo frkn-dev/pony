@@ -175,11 +175,23 @@ async fn main() -> Result<()> {
     let _ = tokio::spawn({
         let api = api.clone();
         let publisher = publisher.clone();
-        let job_interval = Duration::from_secs(60);
+        let job_interval = Duration::from_secs(settings.api.subscription_expire_interval);
         log::info!("cleanup_expired_subscriptions task started");
 
         async move {
             api.cleanup_expired_subscriptions(job_interval.as_secs(), publisher)
+                .await;
+        }
+    });
+
+    let _ = tokio::spawn({
+        let api = api.clone();
+        let publisher = publisher.clone();
+        let job_interval = Duration::from_secs(settings.api.subscription_restore_interval);
+        log::info!("restore_subscriptions task started");
+
+        async move {
+            api.restore_subscriptions(job_interval.as_secs(), publisher)
                 .await;
         }
     });

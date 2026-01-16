@@ -145,7 +145,9 @@ impl HandlerActions for Arc<Mutex<HandlerClient>> {
                     "Remove SS user error, password not provided".to_string(),
                 ))
             }
-            Tag::Wireguard => todo!(),
+            Tag::Wireguard => Err(crate::PonyError::Custom(
+                "Removing Wireguard is not implemented".to_string(),
+            )),
         }
     }
 }

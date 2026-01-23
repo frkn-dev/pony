@@ -117,8 +117,9 @@ async fn main() -> Result<()> {
         });
     }
 
+    let token = settings.api.token.clone();
     if debug {
-        let token = Arc::new(settings.api.token);
+        let token = Arc::new(token);
         tokio::spawn(debug::start_ws_server(
             mem.clone(),
             settings
@@ -197,8 +198,9 @@ async fn main() -> Result<()> {
     });
 
     let api = api.clone();
+    let api_settings = settings.api.clone();
     let api_handle = tokio::spawn(async move {
-        if let Err(e) = api.run(settings.api.hostname).await {
+        if let Err(e) = api.run(api_settings).await {
             eprintln!("API server exited with error: {}", e);
         }
     });

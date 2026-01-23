@@ -2,6 +2,7 @@ use async_trait::async_trait;
 use std::sync::Arc;
 use warp::Filter;
 
+use pony::config::settings::ApiServiceConfig;
 use pony::http::filters::auth;
 use pony::http::requests::*;
 use pony::Connection;
@@ -22,7 +23,7 @@ use crate::core::http::handlers::healthcheck_handler;
 
 #[async_trait]
 pub trait Http {
-    async fn run(&self, host: String) -> Result<()>;
+    async fn run(&self, params: ApiServiceConfig) -> Result<()>;
 }
 
 #[async_trait]
@@ -49,7 +50,7 @@ where
         + std::cmp::PartialEq
         + std::convert::From<pony::Subscription>,
 {
-    async fn run(&self, host: String) -> Result<()> {
+    async fn run(&self, params: ApiServiceConfig) -> Result<()> {
         let auth = auth(Arc::new(self.settings.api.token.clone()));
 
         let get_healthcheck_route = warp::get()
@@ -128,7 +129,8 @@ where
             .and(warp::path::end())
             .and(warp::query::<SubQueryParam>())
             .and(with_state(self.sync.clone()))
-            .and(with_param_string(host))
+            .and(with_param_string(params.hostname))
+            .and(with_param_string(params.web_host))
             .and_then(subscription_info_handler);
 
         let post_subscription_route = warp::post()

@@ -194,6 +194,7 @@ pub async fn subscription_info_handler<N, C, S>(
     sub_param: SubQueryParam,
     memory: MemSync<N, C, S>,
     host: String,
+    web_host: String,
 ) -> Result<Box<dyn warp::Reply + Send>, warp::Rejection>
 where
     N: NodeStorageOp + Sync + Send + Clone + 'static,
@@ -334,6 +335,11 @@ button {{
 button:hover {{
     background: #334155;
 }}
+button-id:hover {{
+    background: #334155;
+    font-size: 10px;
+
+}}
 .qr {{
     margin-top: 16px;
     text-align: center;
@@ -341,6 +347,24 @@ button:hover {{
 .small {{
     font-size: 13px;
     color: #94a3b8;
+}}
+.small-id {{
+    font-size: 11px;
+    color: #94a3b8;
+    text-align: right;
+    margin-top: 0px;
+}}
+.small-viva {{
+    font-size: 13px;
+    color: #94a3b8;
+    text-align: right;
+    margin-top: 0px;
+}}
+.footer-line {{
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;            
+    margin-top: 8px;
 }}
 ul {{
     padding-left: 20px;
@@ -352,14 +376,16 @@ ul {{
 <div class="card">
 <h1>Подписка</h1>
 
+
 <div class="stat">Статус: <span class="{status_class}">{status_text}</span></div>
 <div class="stat">Дата окончания: {expires}</div>
 <div class="stat">Осталось дней: {days}</div>
+<div class="small-id">Id: <b>{subscription_id}</b></div>
+
 
 <hr>
 
 <div class="stat">Трафик: ↓ {down_str} &nbsp;&nbsp; ↑ {up_str}</div>
-
 <hr>
 
 <h3>Ссылки для подключения</h3>
@@ -402,10 +428,18 @@ ul {{
 
 <div class="small">Вы пригласили: {invited}</div>
 
+<div class="small"><a href="{web_host}/ref.html"> Информация о реферальной программе</a></div>
+
 </div>
 
 <br><hr>
-<div class=small>  <a href=https://t.me/frkn_support>Поддержка</a></div>
+
+<div class=footer-line>
+<div class=small-viva> 
+ <a href=https://t.me/frkn_support>Поддержка &nbsp·</a></div>
+
+<div class=small-viva > &nbsp Vive la résistance! </div>
+</div>
 
 <script src="https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js"></script>
 
@@ -434,7 +468,8 @@ window.onload = () => {{
         up_str = up_str,
         base_link = base_link,
         ref = sub.referral_code(),
-        invited = invited
+        invited = invited,
+        subscription_id = id
     );
 
     Ok(Box::new(warp::reply::with_status(

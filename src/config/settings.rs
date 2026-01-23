@@ -131,6 +131,10 @@ fn default_hostname() -> String {
     "http://localhost:5005".to_string()
 }
 
+fn default_web_host() -> String {
+    "https://frkn.org".to_string()
+}
+
 #[derive(Clone, Debug, Deserialize, Default)]
 pub struct ApiServiceConfig {
     #[serde(default = "default_api_web_listen")]
@@ -153,6 +157,8 @@ pub struct ApiServiceConfig {
     pub db_sync_interval_sec: u64,
     #[serde(default = "default_hostname")]
     pub hostname: String,
+    #[serde(default = "default_web_host")]
+    pub web_host: String,
     #[serde(default = "default_subscription_restore_interval_sec")]
     pub subscription_restore_interval: u64,
     #[serde(default = "default_subscription_expire_interval_sec")]

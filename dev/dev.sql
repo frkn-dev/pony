@@ -170,6 +170,16 @@ CREATE INDEX idx_subscriptions_expires_at ON subscriptions(expires_at);
 CREATE INDEX idx_subscriptions_referred_by ON subscriptions(referred_by);
 
 
+ALTER TABLE subscriptions
+ADD COLUMN refer_code CHAR(13);
+
+CREATE INDEX idx_subscriptions_refcode ON subscriptions(refer_code);
+
+ALTER TABLE subscriptions
+ADD COLUMN bonus_days INTEGER DEFAULT NULL;
+
+
+
 
 
 

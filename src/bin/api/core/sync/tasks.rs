@@ -462,19 +462,39 @@ where
             sub.extend(days);
         }
 
+        if let Some(bonus_days) = sub_req.bonus_days {
+            sub.set_bonus_days(bonus_days); // 👈 см. ниже
+        }
+
+        if let Some(ref_code) = sub_req.referred_by.clone() {
+            sub.set_referred_by(ref_code);
+        }
+
+        let expires_at = sub
+            .expires_at()
+            .ok_or_else(|| SyncError::InconsistentState {
+                resource: "Subscription".to_string(),
+                id: *sub_id,
+            })?;
+
         if let Err(e) = self
             .db
             .sub()
-            .update_expires_at(*sub_id, sub.expires_at())
+            .update_subscription(
+                *sub_id,
+                expires_at,
+                sub.bonus_days(),
+                sub.referred_by().as_ref(),
+            )
             .await
         {
             log::error!(
-                "Failed to update subscription {} stats in database: {}",
+                "Failed to update subscription {} in database: {}",
                 sub_id,
                 e
             );
             return Err(SyncError::Database(e));
-        };
+        }
 
         log::info!("Successfully updated subscription: {}", sub_id);
         Ok(OperationStatus::Updated(*sub_id))

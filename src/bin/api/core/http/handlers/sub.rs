@@ -281,6 +281,11 @@ where
     let down_str = format_bytes(downlink);
     let up_str = format_bytes(uplink);
 
+    let bonus_days = if let Some(days) = sub.bonus_days() {
+        format!("{}", days)
+    } else {
+        format!("0")
+    };
     let base_link = format!("{}/sub?id={}&env={}", host, id, env);
     let main_link = format!("{}/sub?id={}&format=txt&env={}", host, id, env);
 
@@ -427,6 +432,7 @@ ul {{
 </div>
 
 <div class="small">Вы пригласили: {invited}</div>
+<div class="small">Вы получили {bonus_days} бесплатных дней</div>
 
 <div class="small"><a href="{web_host}/ref.html"> Информация о реферальной программе</a></div>
 
@@ -469,8 +475,8 @@ window.onload = () => {{
         base_link = base_link,
         ref = sub.referral_code(),
         invited = invited,
-        subscription_id = id
-    );
+        subscription_id = id,
+        bonus_days = bonus_days    );
 
     Ok(Box::new(warp::reply::with_status(
         warp::reply::with_header(html, "Content-Type", "text/html; charset=utf-8"),

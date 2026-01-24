@@ -1,9 +1,11 @@
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
-use super::PgClientManager;
 use pony::memory::subscription::Subscription;
+use pony::utils::get_uuid_last_octet_simple;
 use pony::Result;
+
+use super::PgClientManager;
 
 pub struct PgSubscription {
     pub manager: Arc<Mutex<PgClientManager>>,
@@ -34,41 +36,51 @@ impl PgSubscription {
         let mut manager = self.manager.lock().await;
         let client = manager.get_client().await?;
 
+        let ref_code = get_uuid_last_octet_simple(&new_sub.id);
+
         let row = client
             .query_one(
                 r#"
             INSERT INTO subscriptions 
-            (id, expires_at, referred_by)
-            VALUES ($1, $2, $3)
+            (id, expires_at, referred_by, refer_code)
+            VALUES ($1, $2, $3, $4)
             RETURNING *
             "#,
-                &[&new_sub.id, &new_sub.expires_at, &new_sub.referred_by],
+                &[
+                    &new_sub.id,
+                    &new_sub.expires_at,
+                    &new_sub.referred_by,
+                    &ref_code,
+                ],
             )
             .await?;
 
         Ok(Subscription::from(row))
     }
 
-    pub async fn update_expires_at(
+    pub async fn update_subscription(
         &self,
         id: uuid::Uuid,
-        expires_at: Option<chrono::DateTime<chrono::Utc>>,
+        expires_at: chrono::DateTime<chrono::Utc>,
+        bonus_days: Option<i32>,
+        referred_by: Option<&String>,
     ) -> Result<Subscription> {
         let mut manager = self.manager.lock().await;
         let client = manager.get_client().await?;
-
         let now = chrono::Utc::now();
 
         let row = client
             .query_one(
                 r#"
             UPDATE subscriptions
-            SET expires_at = $1,
-                updated_at = $2
-            WHERE id = $3
+            SET expires_at  = $1,
+                bonus_days  = $2,
+                referred_by = $3,
+                updated_at  = $4
+            WHERE id = $5
             RETURNING *
             "#,
-                &[&expires_at, &now, &id],
+                &[&expires_at, &bonus_days, &referred_by, &now, &id],
             )
             .await?;
 

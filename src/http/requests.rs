@@ -44,6 +44,7 @@ pub struct SubCreateReq {
 pub struct SubUpdateReq {
     pub referred_by: Option<String>,
     pub days: Option<i64>,
+    pub bonus_days: Option<i32>,
 }
 
 #[derive(Serialize, Deserialize)]

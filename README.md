@@ -8,7 +8,6 @@ Contains parts
 
 - agent — manages Xray/Wireguard(in progress) connections/users/metrics
 - api — manages cluster of servers, gets API calls and send commands to servers
-- bot — https://github.com/frkn-dev/vpn-bot
 - utils — helper to work/debug Bin messages
 
 ### As dependencies the platfrom has

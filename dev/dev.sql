@@ -175,6 +175,10 @@ ADD COLUMN refer_code CHAR(13);
 
 CREATE INDEX idx_subscriptions_refcode ON subscriptions(refer_code);
 
+UPDATE subscriptions                                              
+SET refer_code = split_part(id::text, '-', 5)
+WHERE refer_code IS NULL;
+
 ALTER TABLE subscriptions
 ADD COLUMN bonus_days INTEGER DEFAULT NULL;
 

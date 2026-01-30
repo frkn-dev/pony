@@ -36,7 +36,7 @@ impl PgSubscription {
         let mut manager = self.manager.lock().await;
         let client = manager.get_client().await?;
 
-        let ref_code = get_uuid_last_octet_simple(&new_sub.id);
+        let ref_code = new_sub.refer_code.clone();
 
         let row = client
             .query_one(
@@ -64,6 +64,7 @@ impl PgSubscription {
         expires_at: chrono::DateTime<chrono::Utc>,
         bonus_days: Option<i32>,
         referred_by: Option<&String>,
+        ref_code: &String,
     ) -> Result<Subscription> {
         let mut manager = self.manager.lock().await;
         let client = manager.get_client().await?;
@@ -76,11 +77,12 @@ impl PgSubscription {
             SET expires_at  = $1,
                 bonus_days  = $2,
                 referred_by = $3,
-                updated_at  = $4
+                updated_at  = $4,
+                refer_code = $6
             WHERE id = $5
             RETURNING *
             "#,
-                &[&expires_at, &bonus_days, &referred_by, &now, &id],
+                &[&expires_at, &bonus_days, &referred_by, &now, &id, &ref_code],
             )
             .await?;
 

@@ -12,6 +12,7 @@ use pony::http::requests::SubQueryParam;
 use pony::http::requests::SubUpdateReq;
 use pony::http::ResponseMessage;
 use pony::utils;
+use pony::utils::get_uuid_last_octet_simple;
 use pony::xray_op::clash::generate_clash_config;
 use pony::xray_op::clash::generate_proxy_config;
 use pony::Connection;
@@ -59,7 +60,11 @@ where
         .days
         .map(|days| Utc::now() + chrono::Duration::days(days.into()));
 
-    let sub = Subscription::new(sub_id, sub_req.referred_by, expires_at);
+    let ref_code = sub_req
+        .refer_code
+        .unwrap_or_else(|| get_uuid_last_octet_simple(&sub_id));
+
+    let sub = Subscription::new(sub_id, sub_req.referred_by, ref_code, expires_at);
 
     match SyncOp::add_sub(&memory, sub.clone()).await {
         Ok(StorageOperationStatus::Ok(id)) => Ok(http::success_response(
@@ -266,7 +271,7 @@ where
         .map(|d| d.max(0).to_string())
         .unwrap_or_else(|| "∞".into());
 
-    let invited = mem.subscriptions.count_invited_by(&sub.referral_code());
+    let invited = mem.subscriptions.count_invited_by(&sub.refer_code());
 
     let mut downlink = 0;
     let mut uplink = 0;
@@ -473,7 +478,7 @@ window.onload = () => {{
         down_str = down_str,
         up_str = up_str,
         base_link = base_link,
-        ref = sub.referral_code(),
+        ref = sub.refer_code(),
         invited = invited,
         subscription_id = id,
         bonus_days = bonus_days    );

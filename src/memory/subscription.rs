@@ -14,7 +14,7 @@ pub struct Subscription {
     pub id: uuid::Uuid,
     pub expires_at: Option<DateTime<Utc>>,
     pub referred_by: Option<String>,
-    pub refer_code: Option<String>,
+    pub refer_code: String,
     pub bonus_days: Option<i32>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -25,6 +25,7 @@ impl Subscription {
     pub fn new(
         id: uuid::Uuid,
         ref_by: Option<String>,
+        ref_code: String,
         exp_at: Option<DateTime<Utc>>,
     ) -> Subscription {
         let now = Utc::now();
@@ -32,7 +33,7 @@ impl Subscription {
             id: id,
             expires_at: exp_at,
             referred_by: ref_by,
-            refer_code: Some(get_uuid_last_octet_simple(&id)),
+            refer_code: ref_code,
             bonus_days: None,
             created_at: now,
             updated_at: now,
@@ -52,7 +53,7 @@ impl Default for Subscription {
             id: id,
             expires_at: None,
             referred_by: None,
-            refer_code: Some(refer_code),
+            refer_code: refer_code,
             bonus_days: None,
             created_at: now,
             updated_at: now,
@@ -158,7 +159,8 @@ pub trait Operations {
     fn extend(&mut self, days: i64);
     fn id(&self) -> uuid::Uuid;
     fn expires_at(&self) -> Option<DateTime<Utc>>;
-    fn referral_code(&self) -> String;
+    fn refer_code(&self) -> String;
+    fn set_refer_code(&mut self, code: String);
     fn referred_by(&self) -> Option<String>;
     fn set_referred_by(&mut self, code: String);
     fn is_active(&self) -> bool;
@@ -186,8 +188,11 @@ impl Operations for Subscription {
         self.expires_at
     }
 
-    fn referral_code(&self) -> String {
-        get_uuid_last_octet_simple(&self.id)
+    fn refer_code(&self) -> String {
+        self.refer_code.clone()
+    }
+    fn set_refer_code(&mut self, code: String) {
+        self.refer_code = code;
     }
     fn referred_by(&self) -> Option<String> {
         self.referred_by.clone()

@@ -37,6 +37,7 @@ pub struct SubQueryParam {
 #[derive(Debug, Deserialize)]
 pub struct SubCreateReq {
     pub referred_by: Option<String>,
+    pub refer_code: Option<String>,
     pub days: Option<i64>,
 }
 
@@ -45,6 +46,7 @@ pub struct SubUpdateReq {
     pub referred_by: Option<String>,
     pub days: Option<i64>,
     pub bonus_days: Option<i32>,
+    pub refer_code: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]

@@ -34,8 +34,7 @@ where
     }
 
     fn find_by_referral_code(&self, code: &str) -> Option<&S> {
-        self.values()
-            .find(|s| s.referral_code() == code.to_string())
+        self.values().find(|s| s.refer_code() == code.to_string())
     }
 
     fn all(&self) -> Vec<S> {

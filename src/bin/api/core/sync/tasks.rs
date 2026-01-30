@@ -466,8 +466,12 @@ where
             sub.set_bonus_days(bonus_days); // 👈 см. ниже
         }
 
-        if let Some(ref_code) = sub_req.referred_by.clone() {
-            sub.set_referred_by(ref_code);
+        if let Some(ref_by) = sub_req.referred_by.clone() {
+            sub.set_referred_by(ref_by);
+        }
+
+        if let Some(ref_code) = sub_req.refer_code.clone() {
+            sub.set_refer_code(ref_code);
         }
 
         let expires_at = sub
@@ -485,6 +489,7 @@ where
                 expires_at,
                 sub.bonus_days(),
                 sub.referred_by().as_ref(),
+                &sub.refer_code(),
             )
             .await
         {

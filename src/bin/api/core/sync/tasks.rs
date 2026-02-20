@@ -463,7 +463,7 @@ where
         }
 
         if let Some(bonus_days) = sub_req.bonus_days {
-            sub.set_bonus_days(bonus_days); // 👈 см. ниже
+            sub.set_bonus_days(bonus_days);
         }
 
         if let Some(ref_by) = sub_req.referred_by.clone() {

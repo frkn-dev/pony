@@ -185,5 +185,17 @@ ADD COLUMN bonus_days INTEGER DEFAULT NULL;
 
 
 
+ALTER TABLE subscriptions
+ALTER COLUMN refer_code SET NOT NULL;
+
+ALTER TABLE subscriptions
+ADD CONSTRAINT subscriptions_refer_code_unique UNIQUE (refer_code);
+
+
+ALTER TYPE proto ADD VALUE 'hysteria2';
+
+ALTER TABLE connections ADD COLUMN token UUID DEFAULT NULL;
+
+ALTER TABLE inbounds ADD COLUMN h2 JSONB DEFAULT NULL;
 
 

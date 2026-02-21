@@ -1,14 +1,10 @@
-use rkyv::to_bytes;
 use warp::http::StatusCode;
 
 use pony::http::requests::NodeIdParam;
 use pony::http::requests::NodeRequest;
 use pony::http::requests::NodeResponse;
-use pony::http::requests::NodeType;
-use pony::http::requests::NodeTypeParam;
 use pony::http::requests::NodesQueryParams;
 use pony::http::IdResponse;
-use pony::http::MyRejection;
 use pony::http::ResponseMessage;
 use pony::memory::node::Status as NodeStatus;
 use pony::Connection;
@@ -16,9 +12,7 @@ use pony::ConnectionApiOp;
 use pony::ConnectionBaseOp;
 use pony::NodeStorageOp;
 use pony::OperationStatus as StorageOperationStatus;
-use pony::Publisher as ZmqPublisher;
 use pony::SubscriptionOp;
-use pony::Tag;
 
 use crate::core::clickhouse::score::NodeScore;
 use crate::core::clickhouse::ChContext;
@@ -29,9 +23,7 @@ use crate::core::sync::MemSync;
 // POST /node
 pub async fn post_node_handler<N, C, S>(
     node_req: NodeRequest,
-    node_param: NodeTypeParam,
     memory: MemSync<N, C, S>,
-    publisher: ZmqPublisher,
 ) -> Result<impl warp::Reply, warp::Rejection>
 where
     N: NodeStorageOp + Sync + Send + Clone + 'static,
@@ -56,9 +48,6 @@ where
 
     let node = node_req.clone().as_node();
     let node_id = node_req.uuid;
-    let last_update = node_param.last_update;
-
-    let node_type = node_param.node_type.unwrap_or(NodeType::All);
 
     let status = SyncOp::add_node(&memory, &node_id, node.clone()).await;
 
@@ -68,58 +57,6 @@ where
         | Ok(StorageOperationStatus::NotModified(id)) => {
             let _ =
                 SyncOp::update_node_status(&memory, &node_id, &node.env, NodeStatus::Online).await;
-
-            let mem = memory.memory.read().await;
-
-            let connections_to_send: Vec<_> = mem
-                .connections
-                .iter()
-                .filter(|(_, conn)| {
-                    let matches_type = !conn.get_deleted()
-                        && match node_type {
-                            NodeType::Wireguard => {
-                                conn.get_proto().proto() == Tag::Wireguard
-                                    && Some(node_id) == conn.get_wireguard_node_id()
-                            }
-                            NodeType::Xray => conn.get_proto().proto() != Tag::Wireguard,
-                            NodeType::All => match conn.get_proto().proto() {
-                                Tag::Wireguard => conn.get_wireguard_node_id() == Some(node_id),
-                                _ => true,
-                            },
-                        };
-
-                    let matches_time = if let Some(ts) = last_update {
-                        conn.get_modified_at().and_utc().timestamp() as u64 >= ts
-                    } else {
-                        true
-                    };
-
-                    matches_type && matches_time
-                })
-                .collect();
-
-            log::info!(
-                "Sending {} connections to node {}",
-                connections_to_send.len(),
-                node_id
-            );
-
-            for (conn_id, conn) in connections_to_send {
-                let message = conn.as_create_message(conn_id);
-
-                let bytes = to_bytes::<_, 1024>(&message).map_err(|e| {
-                    log::error!("Serialization error: {}", e);
-                    warp::reject::custom(MyRejection(Box::new(e)))
-                })?;
-
-                publisher
-                    .send_binary(&node_id.to_string(), bytes.as_ref())
-                    .await
-                    .map_err(|e| {
-                        log::error!("Publish error: {}", e);
-                        warp::reject::custom(MyRejection(Box::new(e)))
-                    })?;
-            }
 
             ResponseMessage::<Option<IdResponse>> {
                 status: StatusCode::OK.as_u16(),

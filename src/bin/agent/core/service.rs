@@ -11,12 +11,13 @@ use tokio::task::JoinHandle;
 use tokio::time::sleep;
 use tokio::time::Duration;
 
+use pony::config::h2::H2Settings;
+use pony::config::h2::HysteriaServerConfig;
 use pony::config::settings::AgentSettings;
 use pony::config::settings::NodeConfig;
 use pony::config::wireguard::WireguardSettings;
 use pony::config::xray::Config as XrayConfig;
 use pony::http::debug;
-use pony::http::requests::NodeType;
 use pony::memory::connection::wireguard::IpAddrMaskSerializable;
 use pony::memory::connection::wireguard::Param as WgParam;
 use pony::memory::node::Node;
@@ -93,6 +94,32 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
         (None, None)
     };
 
+    // Init Hysteria2
+    let h2_config = if settings.h2.enabled {
+        match HysteriaServerConfig::from_file(&settings.h2.path) {
+            Ok(cfg) => {
+                if let Err(e) = cfg.validate() {
+                    log::error!("Hysteria2 config validation failed: {}", e);
+                    None
+                } else {
+                    match H2Settings::try_from(cfg) {
+                        Ok(settings) => Some(settings),
+                        Err(e) => {
+                            log::error!("Hysteria2 validation error: {}", e);
+                            None
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                log::error!("Failed to load Hysteria2 config: {}", e);
+                None
+            }
+        }
+    } else {
+        None
+    };
+
     let subscriber = ZmqSubscriber::new(
         &settings.zmq.endpoint,
         &settings.node.uuid,
@@ -100,7 +127,7 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
     );
 
     let node_config = NodeConfig::from_raw(settings.node.clone());
-    let node = Node::new(node_config?, xray_config, wg_config.clone());
+    let node = Node::new(node_config?, xray_config, wg_config.clone(), h2_config);
 
     let memory: Arc<RwLock<AgentState>> =
         Arc::new(RwLock::new(MemoryCache::with_node(node.clone())));
@@ -119,7 +146,8 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
     let snapshot_timestamp = if Path::new(&snapshot_manager.snapshot_path).exists() {
         match snapshot_manager.load_snapshot().await {
             Ok(Some(timestamp)) => {
-                log::info!("Loaded connections snapshot from {}", timestamp);
+                let count = snapshot_manager.count().await;
+                log::info!("Loaded connections snapshot from {} {}", timestamp, count);
                 Some(timestamp)
             }
             Ok(None) => {
@@ -144,10 +172,16 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
         ));
         loop {
             interval.tick().await;
-            if let Err(e) = snapshot_manager.create_snapshot().await {
+            if let Err(e) = measure_time(
+                snapshot_manager.create_snapshot(),
+                "Snapshot took".to_string(),
+            )
+            .await
+            {
                 log::error!("Failed to create snapshot: {}", e);
             } else {
-                log::info!("Connections snapshot saved successfully");
+                let count = snapshot_manager.count().await;
+                log::info!("Connections snapshot saved successfully {}", count);
             }
         }
     });
@@ -169,33 +203,36 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
 
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
-        let node_type = if settings.wg.enabled && settings.xray.enabled {
-            NodeType::All
-        } else if settings.wg.enabled {
-            NodeType::Wireguard
-        } else if settings.xray.enabled {
-            NodeType::Xray
-        } else {
-            panic!("At least Wg or Xray should be enabled");
-        };
-
         if !settings.agent.local {
             let _ = {
                 let settings = settings.clone();
-                log::debug!("Register node task {:?}", node_type);
-                if let Err(e) = agent
-                    .register_node(
-                        settings.api.endpoint.clone(),
-                        settings.api.token.clone(),
-                        node_type,
-                        snapshot_timestamp,
-                    )
+
+                match agent
+                    .register_node(settings.api.endpoint.clone(), settings.api.token.clone())
                     .await
                 {
-                    log::error!(
-                        "-->>Cannot register node, use setting local mode for running no deps\n {:?}",
+                    Ok(_) => {
+                        let tags: Vec<_> = node
+                            .inbounds
+                            .keys()
+                            .filter(|k| !matches!(k, Tag::Hysteria2))
+                            .collect();
+
+                        for tag in tags {
+                            agent
+                                .get_connections(
+                                    settings.api.endpoint.clone(),
+                                    settings.api.token.clone(),
+                                    *tag,
+                                    snapshot_timestamp,
+                                )
+                                .await?
+                        }
+                    }
+                    Err(e) => log::error!(
+                        "Cannot register node, use setting local mode for running no deps\n {:?}",
                         e
-                    );
+                    ),
                 }
             };
         }
@@ -307,7 +344,7 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
                                 let mut mem = agent.memory.write().await;
                                 for (tag, _) in node.inbounds {
                                     let proto = Proto::new_xray(&tag);
-                                    let conn = Connection::new(proto, None);
+                                    let conn = Connection::new(proto, None, None);
                                     let _ = mem.connections.insert(conn_id, conn.into());
                                     let _ = xray_handler_client.create(&conn_id, tag, None).await;
                                 }
@@ -329,6 +366,7 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
                                         inbound.as_inbound_response(),
                                         &node.label,
                                         node.address,
+                                        &None
                                     ) {
                                         println!("->>  {tag}  ➜ {:?}\n", conn);
                                         let qrcode = QrCode::new(conn).unwrap();
@@ -382,7 +420,7 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
                                     };
                                     let wg_params = WgParam::new(next.clone());
                                     let proto = Proto::new_wg(&wg_params, &node.uuid);
-                                    let conn = Connection::new(proto, None);
+                                    let conn = Connection::new(proto, None, None);
                                     let _ = mem.connections.insert(conn_id, conn.clone().into());
 
                                     if let Err(e) = wg_api.create(&wg_params.keys.pubkey, next) {

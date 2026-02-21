@@ -105,7 +105,7 @@ pub async fn handle_debug_connection<N, C, S>(
     memory: Arc<RwLock<Cache<N, C, S>>>,
 ) where
     N: NodeStorageOp + Sync + Send + Clone + 'static,
-    C: ConnectionBaseOp + Sync + Send + Clone + 'static + std::fmt::Display,
+    C: ConnectionBaseOp + Sync + Send + Clone + 'static + fmt::Display,
     S: SubscriptionOp + Sync + Send + Clone + 'static + std::cmp::PartialEq + serde::Serialize,
 {
     let (mut sender, mut receiver) = socket.split();
@@ -127,7 +127,11 @@ pub async fn handle_debug_connection<N, C, S>(
         // COMMENT(@qezz): A `match` would probably work better here.
         if req.kind == "get_connections" {
             let memory = memory.read().await;
-            let conns: Vec<_> = memory.connections.keys().collect();
+            let conns: Vec<_> = memory
+                .connections
+                .iter()
+                .map(|(k, v)| (k, v.get_proto().proto()))
+                .collect();
             let data = serde_json::to_string(&conns).unwrap();
             let response = Response {
                 kind: Kind::Conns.to_string(),

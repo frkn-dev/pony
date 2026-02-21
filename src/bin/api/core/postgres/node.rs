@@ -9,6 +9,7 @@ use chrono::DateTime;
 use chrono::Utc;
 use tokio::sync::Mutex;
 
+use pony::config::h2::H2Settings;
 use pony::config::wireguard::WireguardSettings;
 use pony::config::xray::Inbound;
 use pony::memory::node::Node;
@@ -78,12 +79,12 @@ impl PgNode {
         INSERT INTO inbounds (
             id, node_id, tag, port, stream_settings,
             uplink, downlink, conn_count,
-            wg_pubkey, wg_privkey, wg_interface, wg_network, wg_address, dns
+            wg_pubkey, wg_privkey, wg_interface, wg_network, wg_address, dns, h2
         )
         VALUES (
             $1, $2, $3, $4, $5,
             $6, $7, $8,
-            $9, $10, $11, $12, $13, $14
+            $9, $10, $11, $12, $13, $14, $15
         )
         ON CONFLICT (node_id, tag) DO UPDATE SET
             port = EXCLUDED.port,
@@ -96,12 +97,14 @@ impl PgNode {
             wg_interface = EXCLUDED.wg_interface,
             wg_network = EXCLUDED.wg_network,
             wg_address = EXCLUDED.wg_address,
-            dns = EXCLUDED.dns
+            dns = EXCLUDED.dns,
+            h2 = EXCLUDED.h2
     ";
 
         for inbound in node.inbounds.values() {
             let inbound_id = uuid::Uuid::new_v4();
             let stream_settings = serde_json::to_value(&inbound.stream_settings)?;
+            let h2_settings = serde_json::to_value(&inbound.h2)?;
 
             let (wg_pubkey, wg_privkey, wg_interface, wg_network, wg_address, dns) = inbound
                 .wg
@@ -141,6 +144,7 @@ impl PgNode {
                     &wg_network,
                     &wg_address,
                     &dns,
+                    &h2_settings,
                 ],
             )
             .await?;
@@ -160,7 +164,7 @@ impl PgNode {
                 n.id AS node_id, n.uuid, n.env, n.hostname, n.address, n.status,
                 n.created_at, n.modified_at, n.label, n.interface, n.cores, n.max_bandwidth_bps,
                 i.id AS inbound_id, i.tag, i.port, i.stream_settings, i.uplink, i.downlink,
-                i.conn_count, i.wg_pubkey, i.wg_privkey, i.wg_interface, i.wg_network, i.wg_address, i.dns
+                i.conn_count, i.wg_pubkey, i.wg_privkey, i.wg_interface, i.wg_network, i.wg_address, i.dns, i.h2
              FROM nodes n
              LEFT JOIN inbounds i ON n.id = i.node_id",
                 &[],
@@ -200,6 +204,11 @@ impl PgNode {
                     .collect()
             });
             let inbound_id: Option<uuid::Uuid> = row.get("inbound_id");
+
+            let h2: Option<H2Settings> = row
+                .get::<_, Option<serde_json::Value>>("h2")
+                .map(|v| serde_json::from_value(v).ok())
+                .flatten();
 
             if let Some(ipv4_addr) = to_ipv4(address) {
                 let node_entry = nodes_map.entry(node_id).or_insert_with(|| Node {
@@ -257,6 +266,7 @@ impl PgNode {
                         downlink: row.get("downlink"),
                         conn_count: row.get("conn_count"),
                         wg,
+                        h2,
                     };
 
                     node_entry.inbounds.insert(inbound.tag, inbound);

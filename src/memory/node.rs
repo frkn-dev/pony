@@ -8,6 +8,7 @@ use postgres_types::{FromSql, ToSql};
 use serde::{Deserialize, Serialize};
 
 use super::tag::ProtoTag as Tag;
+use crate::config::h2::H2Settings;
 use crate::config::settings::NodeConfig;
 use crate::config::wireguard::WireguardSettings;
 use crate::config::xray::{Config as XrayConfig, Inbound};
@@ -72,6 +73,7 @@ impl Node {
         settings: NodeConfig,
         xray_config: Option<XrayConfig>,
         wg_config: Option<WireguardSettings>,
+        h2_config: Option<H2Settings>,
     ) -> Self {
         let now = Utc::now();
         let mut inbounds: HashMap<Tag, Inbound> = HashMap::new();
@@ -98,6 +100,23 @@ impl Node {
                         downlink: None,
                         conn_count: None,
                         wg: wg_config,
+                        h2: None,
+                    },
+                );
+            }
+
+            if let Some(ref config) = h2_config {
+                inbounds.insert(
+                    Tag::Hysteria2,
+                    Inbound {
+                        port: config.port,
+                        tag: Tag::Hysteria2,
+                        stream_settings: None,
+                        uplink: None,
+                        downlink: None,
+                        conn_count: None,
+                        wg: None,
+                        h2: h2_config,
                     },
                 );
             }

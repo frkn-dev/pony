@@ -2,7 +2,6 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 
 use pony::memory::subscription::Subscription;
-use pony::utils::get_uuid_last_octet_simple;
 use pony::Result;
 
 use super::PgClientManager;

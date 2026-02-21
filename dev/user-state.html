@@ -246,7 +246,7 @@
                 const ul = document.createElement('ul');
                 data.forEach(item => {
                     const li = document.createElement('li');
-                    li.textContent = item;
+                    li.textContent = ` ${item} `;
                     ul.appendChild(li);
                 });
                 connsElement.appendChild(ul);
@@ -266,7 +266,7 @@
                 data.forEach(sub => {
                     const li = document.createElement('li');
                     li.textContent =
-                        `ID: ${sub.id}, expires: ${sub.expires_at}, deleted: ${sub.is_deleted}, ref:_by ${sub.referred_by}`;
+                        `ID: ${sub.id}, expires: ${sub.expires_at}, deleted: ${sub.is_deleted}, ref_by: ${sub.referred_by}`;
                     ul.appendChild(li);
                 });
                 subsElement.appendChild(ul);

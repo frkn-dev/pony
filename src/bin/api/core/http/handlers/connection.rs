@@ -1,12 +1,19 @@
 use chrono::DateTime;
 use chrono::Utc;
 use defguard_wireguard_rs::net::IpAddrMask;
+use rkyv::to_bytes;
+use warp::http::StatusCode;
 
 use pony::http::helpers as http;
 use pony::http::requests::ConnCreateRequest;
 use pony::http::requests::ConnQueryParam;
+use pony::http::requests::ConnTypeParam;
 use pony::http::requests::ConnUpdateRequest;
+use pony::http::IdResponse;
 use pony::http::IpParseError;
+use pony::http::MyRejection;
+use pony::http::ResponseMessage;
+use pony::memory::tag::ProtoTag;
 use pony::utils;
 use pony::zmq::publisher::Publisher as ZmqPublisher;
 use pony::Connection;
@@ -23,6 +30,93 @@ use pony::WgParam;
 
 use crate::core::sync::tasks::SyncOp;
 use crate::core::sync::MemSync;
+
+/// Handler get connection
+// GET /connections
+pub async fn get_connections_handler<N, C, S>(
+    conn_req: ConnTypeParam,
+    publisher: ZmqPublisher,
+    memory: MemSync<N, C, S>,
+) -> Result<impl warp::Reply, warp::Rejection>
+where
+    N: NodeStorageOp + Sync + Send + Clone + 'static,
+    C: ConnectionApiOp
+        + ConnectionBaseOp
+        + Sync
+        + Send
+        + Clone
+        + 'static
+        + From<Connection>
+        + PartialEq,
+    Connection: From<C>,
+    S: SubscriptionOp
+        + Send
+        + Sync
+        + Clone
+        + 'static
+        + std::cmp::PartialEq
+        + std::convert::From<pony::Subscription>,
+{
+    let mem = memory.memory.read().await;
+    let proto = conn_req.proto;
+    let env = conn_req.env;
+
+    let last_update = conn_req.last_update;
+
+    let connections_to_send: Vec<_> = mem
+        .connections
+        .iter()
+        .filter(|(_, conn)| {
+            if conn.get_deleted() {
+                return false;
+            }
+
+            if conn.get_proto().proto() != proto {
+                return false;
+            }
+
+            if let Some(ts) = last_update {
+                conn.get_modified_at().and_utc().timestamp() as u64 >= ts
+            } else {
+                true
+            }
+        })
+        .collect();
+
+    log::debug!(
+        "Sending {} {:?} connections to auth",
+        connections_to_send.len(),
+        proto
+    );
+
+    let messages: Vec<_> = connections_to_send
+        .iter()
+        .map(|(conn_id, conn)| conn.as_create_message(conn_id))
+        .collect();
+
+    let bytes = to_bytes::<_, 1024>(&messages).map_err(|e| {
+        log::error!("Serialization error: {}", e);
+        warp::reject::custom(MyRejection(Box::new(e)))
+    })?;
+
+    publisher
+        .send_binary(&env, bytes.as_ref())
+        .await
+        .map_err(|e| {
+            log::error!("Publish error: {}", e);
+            warp::reject::custom(MyRejection(Box::new(e)))
+        })?;
+
+    let resp = ResponseMessage::<Option<IdResponse>> {
+        status: StatusCode::OK.as_u16(),
+        message: "Ok".to_string(),
+        response: None,
+    };
+    Ok(warp::reply::with_status(
+        warp::reply::json(&resp),
+        StatusCode::OK,
+    ))
+}
 
 /// Handler creates connection
 // POST /connection
@@ -50,12 +144,17 @@ where
         + std::cmp::PartialEq
         + std::convert::From<pony::Subscription>,
 {
-    let env = conn_req.env.clone();
-    let conn_id = uuid::Uuid::new_v4();
-    let mem = memory.memory.read().await;
+    if let Err(e) = conn_req.validate() {
+        return Ok(http::bad_request(&e));
+    }
 
+    let expired_at: Option<DateTime<Utc>> = conn_req
+        .days
+        .map(|days| Utc::now() + chrono::Duration::days(days.into()));
+
+    let mem = memory.memory.read().await;
     if let Some(sub_id) = conn_req.subscription_id {
-        if let None = mem.subscriptions.find_by_id(&sub_id) {
+        if mem.subscriptions.find_by_id(&sub_id).is_none() {
             return Ok(http::bad_request(&format!(
                 "Subscription {} not found",
                 sub_id
@@ -63,222 +162,187 @@ where
         }
     }
 
-    let expired_at: Option<DateTime<Utc>> = conn_req
-        .days
-        .map(|days| Utc::now() + chrono::Duration::days(days.into()));
+    let proto = match conn_req.proto {
+        ProtoTag::Wireguard => {
+            let node_id = {
+                match conn_req.node_id {
+                    Some(node_id) => {
+                        let node_valid = mem.nodes.get_by_id(&node_id).is_some_and(|n| {
+                            n.env == conn_req.env && n.inbounds.contains_key(&conn_req.proto)
+                        });
 
-    if conn_req.password.is_some() && conn_req.wg.is_some() {
-        return Ok(http::bad_request(
-            "Cannot specify both password (Shadowsocks) and wg (WireGuard)",
-        ));
-    }
-
-    if !conn_req.proto.is_wireguard() && conn_req.wg.is_some() {
-        return Ok(http::bad_request(
-            "Wg params are allowed only for Wireguard proto",
-        ));
-    }
-
-    if !conn_req.proto.is_wireguard() && conn_req.node_id.is_some() {
-        return Ok(http::bad_request(
-            "node_id param are allowed only for Wireguard proto",
-        ));
-    }
-
-    let node_id = if conn_req.proto.is_wireguard() {
-        match conn_req.node_id {
-            Some(node_id) => {
-                let node_valid = mem.nodes.get_by_id(&node_id).is_some_and(|n| {
-                    n.env == conn_req.env && n.inbounds.contains_key(&conn_req.proto)
-                });
-
-                if !node_valid {
-                    return Ok(http::bad_request(
+                        if !node_valid {
+                            return Ok(http::bad_request(
                         "node_id doesn't exist, mismatched env or missing WireGuard inbound",
                     ));
-                }
+                        }
 
-                Some(node_id)
-            }
-            None => {
-                mem.nodes
-                    .select_least_loaded_node(&conn_req.env, &conn_req.proto, &mem.connections)
-            }
-        }
-    } else {
-        None
-    };
-
-    if conn_req.password.is_some() && !conn_req.proto.is_shadowsocks() {
-        return Ok(http::bad_request(&format!(
-            "Password is only allowed for Shadowsocks, but got {:?}",
-            conn_req.proto
-        )));
-    }
-
-    if let (Some(wg), Some(node_id)) = (&conn_req.wg, node_id) {
-        let address_taken = mem.connections.values().any(|c| {
-            if let Proto::Wireguard {
-                param,
-                node_id: existing_node_id,
-            } = c.get_proto()
-            {
-                existing_node_id == node_id && param.address.addr == wg.address.addr
-            } else {
-                false
-            }
-        });
-
-        if wg.address.cidr > 32 {
-            return Ok(http::bad_request("Invalid CIDR: must be 0..=32"));
-        }
-
-        if address_taken {
-            return Ok(http::conflict("Address already taken for this node_id"));
-        }
-
-        if let Some(node) = mem.nodes.get_by_id(&node_id) {
-            if let Some(inbound) = node.inbounds.get(&conn_req.proto) {
-                if let Some(wg_settings) = &inbound.wg {
-                    let ip = wg
-                        .address
-                        .addr
-                        .parse()
-                        .map_err(|e| warp::reject::custom(IpParseError(e)))?;
-                    if !utils::ip_in_mask(&wg_settings.network, ip) {
-                        return Ok(http::bad_request(&format!(
-                            "Address out of node netmask {}",
-                            wg_settings.network
-                        )));
+                        node_id
+                    }
+                    None => {
+                        if let Some(node_id) = mem.nodes.select_least_loaded_node(
+                            &conn_req.env,
+                            &conn_req.proto,
+                            &mem.connections,
+                        ) {
+                            node_id
+                        } else {
+                            return Ok(http::not_found("Node not found for  WireGuard connection"));
+                        }
                     }
                 }
+            };
+
+            let wg_param = if let Some(wg_param) = conn_req.wg {
+                if wg_param.address.cidr > 32 {
+                    return Ok(http::bad_request("Invalid CIDR: must be 0..=32"));
+                }
+                let address_taken = mem.connections.values().any(|c| {
+                    if let Proto::Wireguard {
+                        param,
+                        node_id: existing_node_id,
+                    } = c.get_proto()
+                    {
+                        existing_node_id == node_id && param.address.addr == wg_param.address.addr
+                    } else {
+                        false
+                    }
+                });
+                if address_taken {
+                    return Ok(http::conflict("Address already taken for this node_id"));
+                }
+                if let Some(node) = mem.nodes.get_by_id(&node_id) {
+                    if let Some(inbound) = node.inbounds.get(&conn_req.proto) {
+                        if let Some(wg_settings) = &inbound.wg {
+                            let ip = wg_param
+                                .address
+                                .addr
+                                .parse()
+                                .map_err(|e| warp::reject::custom(IpParseError(e)))?;
+                            if !utils::ip_in_mask(&wg_settings.network, ip) {
+                                return Ok(http::bad_request(&format!(
+                                    "Address out of node netmask {}",
+                                    wg_settings.network
+                                )));
+                            }
+                        }
+                    }
+                }
+                wg_param
+            } else {
+                let node = match mem.nodes.get_by_id(&node_id) {
+                    Some(n) => n,
+                    None => {
+                        return Ok(http::not_found("Node not found"));
+                    }
+                };
+
+                let inbound = match node.inbounds.get(&conn_req.proto) {
+                    Some(i) => i,
+                    None => {
+                        return Ok(http::not_found("Inbound for proto not found"));
+                    }
+                };
+
+                let wg_settings = match &inbound.wg {
+                    Some(wg) => wg,
+                    None => {
+                        return Ok(http::bad_request("WireGuard settings missing"));
+                    }
+                };
+
+                let base_ip = node
+                    .inbounds
+                    .get(&Tag::Wireguard)
+                    .and_then(|inb| inb.wg.as_ref())
+                    .map(|wg| wg.address)
+                    .and_then(utils::increment_ip);
+
+                let max_ip = mem
+                    .connections
+                    .iter()
+                    .filter(|(_, conn)| conn.get_proto().proto() == Tag::Wireguard)
+                    .filter_map(|(_, conn)| {
+                        conn.get_wireguard()
+                            .and_then(|wg| wg.address.addr.parse().ok())
+                    })
+                    .max();
+
+                let next_ip = match max_ip
+                    .and_then(utils::increment_ip)
+                    .or_else(|| base_ip.and_then(utils::increment_ip))
+                    .map(std::net::IpAddr::V4)
+                {
+                    Some(ip) => {
+                        log::debug!("IP Gen: {:?} {:?} {:?}", base_ip, max_ip, ip);
+                        ip
+                    }
+                    None => {
+                        return Ok(http::bad_request("Failed to generate next IP"));
+                    }
+                };
+
+                if !utils::ip_in_mask(&wg_settings.network, next_ip) {
+                    return Ok(http::bad_request(&format!(
+                        "Generated address {} is out of node netmask {}",
+                        next_ip, wg_settings.network
+                    )));
+                }
+
+                WgParam::new(IpAddrMask::new(next_ip, 32))
+            };
+
+            Proto::Wireguard {
+                param: wg_param,
+                node_id: node_id,
             }
         }
-    }
-
-    let wg_param = if conn_req.proto.is_wireguard() && conn_req.wg.is_none() {
-        let node_id = match node_id {
-            Some(id) => id,
-            None => {
-                return Ok(http::bad_request("Missing node_id for WireGuard"));
-            }
-        };
-
-        let node = match mem.nodes.get_by_id(&node_id) {
-            Some(n) => n,
-            None => {
-                return Ok(http::not_found("Node not found"));
-            }
-        };
-
-        let inbound = match node.inbounds.get(&conn_req.proto) {
-            Some(i) => i,
-            None => {
-                return Ok(http::bad_request("Inbound for proto not found"));
-            }
-        };
-
-        let wg_settings = match &inbound.wg {
-            Some(wg) => wg,
-            None => {
-                return Ok(http::bad_request("WireGuard settings missing"));
-            }
-        };
-
-        let base_ip = node
-            .inbounds
-            .get(&Tag::Wireguard)
-            .and_then(|inb| inb.wg.as_ref())
-            .map(|wg| wg.address)
-            .and_then(utils::increment_ip);
-
-        let max_ip = mem
-            .connections
-            .iter()
-            .filter(|(_, conn)| conn.get_proto().proto() == Tag::Wireguard)
-            .filter_map(|(_, conn)| {
-                conn.get_wireguard()
-                    .and_then(|wg| wg.address.addr.parse().ok())
-            })
-            .max();
-
-        let next_ip = match max_ip
-            .and_then(utils::increment_ip)
-            .or_else(|| base_ip.and_then(utils::increment_ip))
-            .map(std::net::IpAddr::V4)
-        {
-            Some(ip) => {
-                log::debug!("IP Gen: {:?} {:?} {:?}", base_ip, max_ip, ip);
-                ip
-            }
-            None => {
-                return Ok(http::bad_request("Failed to generate next IP"));
-            }
-        };
-
-        if !utils::ip_in_mask(&wg_settings.network, next_ip) {
-            return Ok(http::bad_request(&format!(
-                "Generated address {} is out of node netmask {}",
-                next_ip, wg_settings.network
-            )));
-        }
-
-        Some(WgParam::new(IpAddrMask::new(next_ip, 32)))
-    } else {
-        None
+        ProtoTag::Shadowsocks => Proto::Shadowsocks {
+            password: conn_req.password.unwrap(),
+        },
+        ProtoTag::VlessTcpReality
+        | ProtoTag::VlessGrpcReality
+        | ProtoTag::VlessXhttpReality
+        | ProtoTag::Vmess => Proto::Xray(conn_req.proto),
+        ProtoTag::Hysteria2 => Proto::Hysteria2 {
+            token: conn_req.token.unwrap(),
+        },
     };
 
     drop(mem);
 
-    log::debug!("WG params {:?}", wg_param);
-    let proto = if let Some(wg) = &conn_req.wg {
-        Proto::Wireguard {
-            param: wg.clone(),
-            node_id: node_id.unwrap(),
-        }
-    } else if let Some(wg) = wg_param {
-        Proto::Wireguard {
-            param: wg.clone(),
-            node_id: node_id.unwrap(),
-        }
-    } else if let Some(password) = &conn_req.password {
-        Proto::Shadowsocks {
-            password: password.clone(),
-        }
-    } else {
-        Proto::Xray(conn_req.proto)
-    };
-
     let conn: Connection = Connection::new(
-        &env,
+        &conn_req.env,
         conn_req.subscription_id,
         ConnectionStat::default(),
         proto,
-        node_id,
         expired_at,
     )
     .into();
 
     log::debug!("New connection to create {}", conn);
-
+    let conn_id = uuid::Uuid::new_v4();
     let msg = conn.as_create_message(&conn_id);
+
+    let mut messages = vec![];
+    messages.push(msg);
 
     match SyncOp::add_conn(&memory, &conn_id, conn.clone()).await {
         Ok(StorageOperationStatus::Ok(id)) => {
-            let bytes = match rkyv::to_bytes::<_, 1024>(&msg) {
+            let bytes = match rkyv::to_bytes::<_, 1024>(&messages) {
                 Ok(b) => b,
                 Err(e) => {
                     return Ok(http::internal_error(&format!("Serialization error: {}", e)));
                 }
             };
 
-            if let Some(node_id) = conn.node_id {
-                let _ = publisher
-                    .send_binary(&node_id.to_string(), bytes.as_ref())
-                    .await;
+            let topic = if let Some(node_id) = conn.get_wireguard_node_id() {
+                node_id.to_string()
             } else {
-                let _ = publisher.send_binary(&env, bytes.as_ref()).await;
-            }
+                conn.get_env()
+            };
+
+            let _ = publisher.send_binary(&topic, bytes.as_ref()).await;
 
             return Ok(http::success_response(
                 format!("Connection {} has been created", id),

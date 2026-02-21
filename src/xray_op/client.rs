@@ -109,7 +109,7 @@ impl HandlerActions for Arc<Mutex<HandlerClient>> {
                     "Create SS user error, password not provided".to_string(),
                 ))
             }
-            _ => Err(PonyError::Custom("Not supported by Xray".into())),
+            _ => Err(PonyError::Custom("Not supported Proto".into())),
         }
     }
 
@@ -145,9 +145,7 @@ impl HandlerActions for Arc<Mutex<HandlerClient>> {
                     "Remove SS user error, password not provided".to_string(),
                 ))
             }
-            Tag::Wireguard => Err(crate::PonyError::Custom(
-                "Removing Wireguard is not implemented".to_string(),
-            )),
+            _ => Err(PonyError::Custom("Not supported Proto".into())),
         }
     }
 }

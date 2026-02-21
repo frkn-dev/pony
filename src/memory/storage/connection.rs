@@ -11,6 +11,7 @@ use super::super::tag::ProtoTag as Tag;
 use crate::error::{PonyError, Result};
 use crate::http::requests::ConnUpdateRequest;
 use crate::Connection;
+use crate::Proto;
 
 pub trait ApiOp<C>
 where
@@ -37,6 +38,7 @@ where
     fn update_downlink(&mut self, conn_id: &uuid::Uuid, new_downlink: i64) -> Result<()>;
     fn update_online(&mut self, conn_id: &uuid::Uuid, new_online: i64) -> Result<()>;
     fn update_stats(&mut self, conn_id: &uuid::Uuid, stats: ConnectionStat) -> Result<()>;
+    fn validate_token(&self, token: &uuid::Uuid) -> Option<uuid::Uuid>;
 }
 
 impl<C> BaseOp<C> for Connections<C>
@@ -45,6 +47,17 @@ where
 {
     fn len(&self) -> usize {
         self.0.len()
+    }
+
+    fn validate_token(&self, token: &uuid::Uuid) -> Option<uuid::Uuid> {
+        self.iter()
+            .find(|(_, conn)| {
+                matches!(
+                    conn.get_proto(),
+                    Proto::Hysteria2 { token: t } if t == *token
+                )
+            })
+            .map(|(id, _)| *id)
     }
 
     fn add(&mut self, conn_id: &uuid::Uuid, new_conn: C) -> Result<OperationStatus> {

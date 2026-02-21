@@ -1,8 +1,10 @@
 use async_trait::async_trait;
 use defguard_wireguard_rs::net::IpAddrMask;
+use futures::future::try_join_all;
 use pony::Proto;
 use rkyv::AlignedVec;
-
+use rkyv::Infallible;
+use tokio::time::Duration;
 use tonic::Status;
 
 use pony::xray_op::client::HandlerActions;
@@ -26,6 +28,7 @@ use super::Agent;
 pub trait Tasks {
     async fn run_subscriber(&self) -> Result<()>;
     async fn handle_message(&self, msg: Message) -> Result<()>;
+    async fn handle_messages_batch(&self, msg: Vec<Message>) -> Result<()>;
 }
 
 #[async_trait]
@@ -37,7 +40,6 @@ where
 {
     async fn run_subscriber(&self) -> Result<()> {
         let sub = self.subscriber.clone();
-
         assert!(self.subscriber.topics.contains(&"all".to_string()));
 
         loop {
@@ -71,23 +73,36 @@ where
                 }
             }
 
+            if payload_bytes.is_empty() {
+                log::warn!("SUB: Empty payload, skipping");
+                continue;
+            }
+
             let mut aligned = AlignedVec::new();
             aligned.extend_from_slice(&payload_bytes);
 
-            let archived = unsafe { rkyv::archived_root::<Message>(&aligned) };
+            let archived = match { rkyv::check_archived_root::<Vec<Message>>(&aligned) } {
+                Ok(a) => a,
+                Err(e) => {
+                    log::error!("SUB: Invalid rkyv root: {:?}", e);
+                    log::error!("SUB: Payload bytes (hex) = {}", hex::encode(payload_bytes));
+                    continue;
+                }
+            };
 
-            match archived.deserialize(&mut rkyv::Infallible) {
-                Ok(message) => {
-                    log::debug!("SUB: Successfully deserialized message: {}", message);
-                    if let Err(err) = self.handle_message(message).await {
-                        log::error!("ZMQ SUB: Failed to handle message: {}", err);
+            match archived.deserialize(&mut Infallible) {
+                Ok(messages) => {
+                    if let Err(err) = self.handle_messages_batch(messages).await {
+                        log::error!("SUB: Failed to handle messages: {}", err);
                     }
                 }
                 Err(err) => {
-                    log::error!("ZMQ SUB: Failed to deserialize message: {}", err);
+                    log::error!("SUB: Failed to deserialize messages: {}", err);
                     log::error!("SUB: Payload bytes (hex) = {}", hex::encode(payload_bytes));
                 }
             }
+
+            tokio::time::sleep(Duration::from_millis(10)).await;
         }
     }
 
@@ -95,9 +110,8 @@ where
         match msg.action {
             Action::Create | Action::Update => {
                 let conn_id: uuid::Uuid = msg.conn_id.clone().into();
-                let tag = msg.tag;
 
-                match tag {
+                match msg.tag {
                     Tag::Wireguard => {
                         let wg = msg
                             .wg
@@ -113,7 +127,11 @@ where
                         };
                         let proto = Proto::new_wg(&wg, &node_id);
 
-                        let conn = Connection::new(proto, None);
+                        let conn = Connection::new(
+                            proto,
+                            msg.expires_at.map(Into::into),
+                            msg.subscription_id,
+                        );
 
                         {
                             let mut mem = self.memory.write().await;
@@ -145,22 +163,26 @@ where
 
                         log::debug!("Created {}", conn);
 
-                        Ok(())
+                        return Ok(());
                     }
 
                     Tag::VlessTcpReality
                     | Tag::VlessGrpcReality
                     | Tag::VlessXhttpReality
                     | Tag::Vmess => {
-                        let proto = Proto::new_xray(&tag);
-                        let conn = Connection::new(proto, None);
+                        let proto = Proto::new_xray(&msg.tag);
+                        let conn = Connection::new(
+                            proto,
+                            msg.expires_at.map(Into::into),
+                            msg.subscription_id,
+                        );
 
                         let client = self.xray_handler_client.as_ref().ok_or_else(|| {
                             PonyError::Grpc(Status::unavailable("Xray handler unavailable"))
                         })?;
 
                         client
-                            .create(&conn_id.clone(), tag, None)
+                            .create(&conn_id.clone(), msg.tag, None)
                             .await
                             .map_err(|err| {
                                 PonyError::Custom(format!(
@@ -180,19 +202,23 @@ where
                                 ))
                             })?;
 
-                        Ok(())
+                        return Ok(());
                     }
                     Tag::Shadowsocks => {
                         if let Some(password) = msg.password {
                             let proto = Proto::new_ss(&password);
-                            let conn = Connection::new(proto, None);
+                            let conn = Connection::new(
+                                proto,
+                                msg.expires_at.map(Into::into),
+                                msg.subscription_id,
+                            );
 
                             let client = self.xray_handler_client.as_ref().ok_or_else(|| {
                                 PonyError::Grpc(Status::unavailable("Xray handler unavailable"))
                             })?;
 
                             client
-                                .create(&conn_id.clone(), tag, Some(password))
+                                .create(&conn_id.clone(), msg.tag, Some(password))
                                 .await
                                 .map_err(|err| {
                                     PonyError::Custom(format!(
@@ -211,12 +237,15 @@ where
                                     ))
                                 })?;
 
-                            Ok(())
+                            return Ok(());
                         } else {
-                            Err(PonyError::Custom(
+                            return Err(PonyError::Custom(
                                 "Password not provided for Shadowsocks user".into(),
-                            ))
+                            ));
                         }
+                    }
+                    Tag::Hysteria2 => {
+                        return Err(PonyError::Custom("Hysteria2 is not supported".into()))
                     }
                 }
             }
@@ -241,7 +270,7 @@ where
                         let mut mem = self.memory.write().await;
                         let _ = mem.connections.remove(&conn_id);
 
-                        Ok(())
+                        return Ok(());
                     }
                     Tag::VlessTcpReality
                     | Tag::VlessGrpcReality
@@ -265,7 +294,10 @@ where
                         let mut mem = self.memory.write().await;
                         let _ = mem.connections.remove(&conn_id);
 
-                        Ok(())
+                        return Ok(());
+                    }
+                    Tag::Hysteria2 => {
+                        return Err(PonyError::Custom("Hysteria2 is not supported".into()))
                     }
                 }
             }
@@ -275,8 +307,21 @@ where
                     .await
                     .map_err(|e| PonyError::Custom(format!("Couldn't reset stat: {}", e)))?;
                 log::debug!("Reset stat for {}", msg.conn_id);
-                Ok(())
+                return Ok(());
             }
         }
+    }
+
+    async fn handle_messages_batch(&self, messages: Vec<Message>) -> Result<()> {
+        log::debug!("Got {} messages", messages.len());
+
+        let handles: Vec<_> = messages
+            .into_iter()
+            .map(|msg| self.handle_message(msg))
+            .collect();
+
+        let _results = try_join_all(handles).await?;
+
+        Ok(())
     }
 }

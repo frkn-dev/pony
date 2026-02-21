@@ -37,18 +37,29 @@ impl Operations for Conn {
         };
 
         let tag = self.proto.proto();
+        let expires_at = self.expired_at;
+
+        let token = match &self.proto {
+            Proto::Hysteria2 { token } => Some(*token),
+            _ => None,
+        };
 
         let wg = match &self.proto {
             Proto::Wireguard { param, .. } => Some(param.clone()),
             _ => None,
         };
 
+        let sub_id = self.subscription_id;
+
         Message {
             conn_id: (*conn_id).into(),
+            subscription_id: sub_id,
             action: Action::Create,
             password,
+            token,
             tag: tag,
             wg,
+            expires_at: expires_at.map(Into::into),
         }
     }
 
@@ -59,18 +70,29 @@ impl Operations for Conn {
         };
 
         let tag = self.proto.proto();
+        let expires_at = self.expired_at;
 
         let wg = match &self.proto {
             Proto::Wireguard { param, .. } => Some(param.clone()),
             _ => None,
         };
 
+        let token = match &self.proto {
+            Proto::Hysteria2 { token } => Some(*token),
+            _ => None,
+        };
+
+        let sub_id = self.subscription_id;
+
         Message {
             conn_id: (*conn_id).into(),
+            subscription_id: sub_id,
             action: Action::Update,
             password,
+            token,
             tag: tag,
             wg,
+            expires_at: expires_at.map(Into::into),
         }
     }
 
@@ -81,18 +103,29 @@ impl Operations for Conn {
         };
 
         let tag = self.proto.proto();
+        let expires_at = self.expired_at;
 
         let wg = match &self.proto {
             Proto::Wireguard { param, .. } => Some(param.clone()),
             _ => None,
         };
 
+        let token = match &self.proto {
+            Proto::Hysteria2 { token } => Some(*token),
+            _ => None,
+        };
+
+        let sub_id = self.subscription_id;
+
         Message {
             conn_id: (*conn_id).into(),
+            subscription_id: sub_id,
             action: Action::Delete,
             password,
+            token,
             tag: tag,
             wg,
+            expires_at: expires_at.map(Into::into),
         }
     }
 }

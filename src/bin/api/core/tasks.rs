@@ -91,10 +91,11 @@ impl Tasks for Api<HashMap<String, Vec<Node>>, Connection, Subscription> {
                                 }
                             };
 
-                            let key = conn
-                                .node_id
-                                .map(|id| id.to_string())
-                                .unwrap_or_else(|| conn.get_env());
+                            let key = if let Some(node_id) = conn.get_wireguard_node_id() {
+                                node_id.to_string()
+                            } else {
+                                conn.get_env()
+                            };
 
                             let _ = publisher.send_binary(&key, bytes.as_ref()).await;
                         }
@@ -143,10 +144,11 @@ impl Tasks for Api<HashMap<String, Vec<Node>>, Connection, Subscription> {
                 for (conn_id, conn) in conns_to_delete {
                     let msg = conn.as_delete_message(&conn_id);
                     if let Ok(bytes) = rkyv::to_bytes::<_, 1024>(&msg) {
-                        let key = conn
-                            .node_id
-                            .map(|id| id.to_string())
-                            .unwrap_or_else(|| conn.get_env());
+                        let key = if let Some(node_id) = conn.get_wireguard_node_id() {
+                            node_id.to_string()
+                        } else {
+                            conn.get_env()
+                        };
                         let _ = publisher.send_binary(&key, bytes.as_ref()).await;
                     }
 
@@ -203,10 +205,11 @@ impl Tasks for Api<HashMap<String, Vec<Node>>, Connection, Subscription> {
                 for (conn_id, conn) in conns_to_restore {
                     let msg = conn.as_update_message(&conn_id);
                     if let Ok(bytes) = rkyv::to_bytes::<_, 1024>(&msg) {
-                        let key = conn
-                            .node_id
-                            .map(|id| id.to_string())
-                            .unwrap_or_else(|| conn.get_env());
+                        let key = if let Some(node_id) = conn.get_wireguard_node_id() {
+                            node_id.to_string()
+                        } else {
+                            conn.get_env()
+                        };
                         let _ = publisher.send_binary(&key, bytes.as_ref()).await;
                     }
 

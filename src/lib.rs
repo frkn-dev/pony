@@ -1,5 +1,6 @@
 pub mod config;
 pub mod error;
+pub mod h2_op;
 pub mod http;
 pub mod memory;
 pub mod metrics;

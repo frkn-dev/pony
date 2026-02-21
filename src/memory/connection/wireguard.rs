@@ -11,6 +11,7 @@ use x25519_dalek::{PublicKey, StaticSecret};
 #[derive(
     Archive, Clone, Debug, Serialize, Deserialize, PartialEq, RkyvDeserialize, RkyvSerialize,
 )]
+#[archive(check_bytes)]
 pub struct Keys {
     pub privkey: String,
     pub pubkey: String,
@@ -34,6 +35,7 @@ impl Default for Keys {
 #[derive(
     Archive, Serialize, Deserialize, RkyvSerialize, RkyvDeserialize, Clone, Debug, PartialEq,
 )]
+#[archive(check_bytes)]
 pub struct IpAddrMaskSerializable {
     pub addr: String,
     pub cidr: u8,
@@ -65,6 +67,7 @@ impl fmt::Display for IpAddrMaskSerializable {
 #[derive(
     Archive, Clone, Debug, Serialize, Deserialize, RkyvDeserialize, RkyvSerialize, PartialEq,
 )]
+#[archive(check_bytes)]
 pub struct Param {
     pub keys: Keys,
     pub address: IpAddrMaskSerializable,

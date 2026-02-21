@@ -13,6 +13,7 @@ pub enum Proto {
     Wireguard { param: WgParam, node_id: uuid::Uuid },
     Shadowsocks { password: String },
     Xray(Tag),
+    Hysteria2 { token: uuid::Uuid },
 }
 
 impl Proto {
@@ -20,7 +21,15 @@ impl Proto {
         match self {
             Proto::Wireguard { .. } => Tag::Wireguard,
             Proto::Shadowsocks { .. } => Tag::Shadowsocks,
+            Proto::Hysteria2 { .. } => Tag::Hysteria2,
             Proto::Xray(tag) => *tag,
+        }
+    }
+
+    pub fn token(&self) -> Option<uuid::Uuid> {
+        match self {
+            Proto::Hysteria2 { token } => Some(*token),
+            _ => None,
         }
     }
 
@@ -35,6 +44,9 @@ impl Proto {
         Proto::Shadowsocks {
             password: password.to_string(),
         }
+    }
+    pub fn new_hysteria2(token: &uuid::Uuid) -> Self {
+        Proto::Hysteria2 { token: *token }
     }
 
     pub fn new_xray(tag: &Tag) -> Self {
@@ -51,5 +63,9 @@ impl Proto {
 
     pub fn is_shadowsocks(&self) -> bool {
         matches!(self, Proto::Shadowsocks { .. })
+    }
+
+    pub fn is_hysteria2(&self) -> bool {
+        matches!(self, Proto::Hysteria2 { .. })
     }
 }

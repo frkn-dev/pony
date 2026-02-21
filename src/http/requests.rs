@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::net::Ipv4Addr;
 
+use crate::config::h2::H2Settings;
 use crate::config::wireguard::WireguardSettings;
 use crate::config::xray::Inbound;
 use crate::config::xray::StreamSettings;
@@ -19,6 +20,16 @@ fn default_env() -> String {
     "dev".to_string()
 }
 
+fn default_proto() -> TagReq {
+    TagReq::Xray
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub enum TagReq {
+    Xray,
+    Wireguard,
+    Hysteria2,
+}
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct SubIdQueryParam {
     pub id: uuid::Uuid,
@@ -32,6 +43,8 @@ pub struct SubQueryParam {
     pub format: String,
     #[serde(default = "default_env")]
     pub env: String,
+    #[serde(default = "default_proto")]
+    pub proto: TagReq,
 }
 
 #[derive(Debug, Deserialize)]
@@ -64,16 +77,10 @@ pub struct ConnQueryParam {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-pub enum NodeType {
-    Xray,
-    Wireguard,
-    All,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct NodeTypeParam {
-    pub node_type: Option<NodeType>,
+pub struct ConnTypeParam {
+    pub proto: Tag,
     pub last_update: Option<u64>,
+    pub env: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -128,17 +135,54 @@ pub struct InboundResponse {
     pub port: u16,
     pub stream_settings: Option<StreamSettings>,
     pub wg: Option<WireguardSettings>,
+    pub h2: Option<H2Settings>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct ConnCreateRequest {
     pub env: String,
+    pub token: Option<uuid::Uuid>,
     pub password: Option<String>,
     pub subscription_id: Option<uuid::Uuid>,
     pub proto: Tag,
     pub wg: Option<WgParam>,
     pub node_id: Option<uuid::Uuid>,
     pub days: Option<u16>,
+}
+
+impl ConnCreateRequest {
+    pub fn validate(&self) -> Result<(), String> {
+        if self.password.is_some() && self.wg.is_some() {
+            return Err("Cannot specify both password and wg".into());
+        }
+        if self.token.is_some() && self.wg.is_some() {
+            return Err("Cannot specify both token and wg".into());
+        }
+        if self.token.is_some() && self.password.is_some() {
+            return Err("Cannot specify both token and password".into());
+        }
+        if !self.proto.is_wireguard() && self.wg.is_some() {
+            return Err("Wg params only allowed for Wireguard".into());
+        }
+
+        if !self.proto.is_wireguard() && self.node_id.is_some() {
+            return Err("node_id only allowed for Wireguard".into());
+        }
+        if self.proto.is_shadowsocks() && self.password.is_none() {
+            return Err("Password required for Shadowsocks".into());
+        }
+        if !self.proto.is_shadowsocks() && self.password.is_some() {
+            return Err("Password only allowed for Shadowsocks".into());
+        }
+        if !self.proto.is_hysteria2() && self.token.is_some() {
+            return Err("Token only allowed for Hysteria2".into());
+        }
+        if self.proto.is_hysteria2() && self.token.is_none() {
+            return Err("Token required for Hysteria2".into());
+        }
+
+        Ok(())
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]

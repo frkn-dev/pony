@@ -11,6 +11,7 @@ use std::time::Instant;
 use tokio::time::{sleep, Duration as TokioDuration};
 use url::Url;
 
+use crate::h2_op::hysteria2_conn;
 use crate::http::requests::InboundResponse;
 use crate::memory::tag::ProtoTag as Tag;
 use crate::xray_op::vless::vless_grpc_conn;
@@ -146,11 +147,13 @@ pub fn create_conn_link(
     inbound: InboundResponse,
     label: &str,
     address: Ipv4Addr,
+    token: &Option<uuid::Uuid>,
 ) -> Result<String> {
     let raw_link = match tag {
         Tag::VlessTcpReality => vless_xtls_conn(conn_id, address, inbound.clone(), label),
         Tag::VlessGrpcReality => vless_grpc_conn(conn_id, address, inbound.clone(), label),
         Tag::VlessXhttpReality => vless_xhttp_conn(conn_id, address, inbound.clone(), label),
+        Tag::Hysteria2 => hysteria2_conn(&inbound.clone(), label, token),
         Tag::Vmess => vmess_tcp_conn(conn_id, address, inbound.clone(), label),
         _ => return Err(PonyError::Custom("Cannot complete conn line".into())),
     }?;

@@ -2,6 +2,7 @@ use base64::Engine;
 use chrono::DateTime;
 use chrono::Utc;
 
+use pony::http::requests::TagReq;
 use warp::http::Response;
 use warp::http::StatusCode;
 
@@ -384,7 +385,7 @@ ul {{
 <body>
 
 <div class="card">
-<h1>Подписка</h1>
+<h1>Подписка на Рилзопровод</h1>
 
 
 <div class="stat">Статус: <span class="{status_class}">{status_text}</span></div>
@@ -400,14 +401,25 @@ ul {{
 
 <h3>Ссылки для подключения</h3>
 
-<a href="{base_link}&format=plain" target="_blank">Универсальная ссылка (рекомендуется)</a>
+Xray <a href="{base_link}&format=plain" target="_blank">Универсальная ссылка (рекомендуется)</a>
+<br>
+<button onclick="copyText('{base_link}&format=plain&proto=Xray')">Скопировать ссылку</button>
+<br>
+<br>
+Hysteria2(Beta) <a href="{base_link}&format=plain&proto=Hysteria2" target="_blank">Универсальная ссылка (рекомендуется)</a>
 <br>
 <button onclick="copyText('{base_link}&format=plain')">Скопировать ссылку</button>
 
-<p><b>Дополнительные форматы:</b></p>
+
+<p><b>Дополнительные форматы Xray: </b></p>
 <ul>
-<li><a href="{base_link}&format=txt" target="_blank">TXT</a>  для v2ray</li>
-<li><a href="{base_link}&format=clash" target="_blank">Clash</a> — для Clash / Clash Meta</li>
+<li><a href="{base_link}&format=txt&proto=Xray" target="_blank">TXT</a>  для v2ray</li>
+<li><a href="{base_link}&format=clash&proto=Xray" target="_blank">Clash</a> — для Clash / Clash Meta</li>
+</ul>
+
+<p><b>Дополнительные форматы Hysteria2: </b></p>
+<ul>
+<li><a href="{base_link}&format=txt&proto=Hysteria2" target="_blank">TXT</a>  для v2ray</li>
 </ul>
 
 <hr>
@@ -599,6 +611,26 @@ where
 
     let env = sub_param.env;
 
+    let mut tags = vec![];
+    tags = match sub_param.proto {
+        TagReq::Xray => {
+            tags.push(Tag::VlessTcpReality);
+            tags.push(Tag::VlessGrpcReality);
+            tags.push(Tag::VlessXhttpReality);
+            tags.push(Tag::Vmess);
+            tags.push(Tag::Shadowsocks);
+            tags
+        }
+        TagReq::Wireguard => {
+            tags.push(Tag::Wireguard);
+            tags
+        }
+        TagReq::Hysteria2 => {
+            tags.push(Tag::Hysteria2);
+            tags
+        }
+    };
+
     if let Some(conns) = conns {
         for (conn_id, conn) in conns {
             if conn.get_deleted() {
@@ -608,6 +640,14 @@ where
                 continue;
             }
 
+            let proto = conn.get_proto().proto();
+
+            if !tags.contains(&proto) {
+                continue;
+            }
+
+            let token = conn.get_token();
+
             if let Some(nodes) = mem.nodes.get_by_env(&conn.get_env()) {
                 for node in nodes.iter() {
                     if let Some(inbound) = &node.inbounds.get(&conn.get_proto().proto()) {
@@ -616,6 +656,7 @@ where
                             conn_id,
                             node.label.clone(),
                             node.address,
+                            token,
                         ));
                     }
                 }
@@ -634,7 +675,7 @@ where
         "clash" => {
             let mut proxies = vec![];
 
-            for (inbound, conn_id, label, address) in &inbounds_by_node {
+            for (inbound, conn_id, label, address, _) in &inbounds_by_node {
                 if let Some(proxy) = generate_proxy_config(inbound, *conn_id, *address, label) {
                     proxies.push(proxy)
                 }
@@ -655,8 +696,16 @@ where
         "txt" => {
             let links = inbounds_by_node
                 .iter()
-                .filter_map(|(inbound, conn_id, label, ip)| {
-                    utils::create_conn_link(inbound.tag, conn_id, inbound.clone(), label, *ip).ok()
+                .filter_map(|(inbound, conn_id, label, ip, token)| {
+                    utils::create_conn_link(
+                        inbound.tag,
+                        conn_id,
+                        inbound.clone(),
+                        label,
+                        *ip,
+                        token,
+                    )
+                    .ok()
                 })
                 .collect::<Vec<_>>();
 
@@ -671,8 +720,16 @@ where
         _ => {
             let links = inbounds_by_node
                 .iter()
-                .filter_map(|(inbound, conn_id, label, ip)| {
-                    utils::create_conn_link(inbound.tag, conn_id, inbound.clone(), label, *ip).ok()
+                .filter_map(|(inbound, conn_id, label, ip, token)| {
+                    utils::create_conn_link(
+                        inbound.tag,
+                        conn_id,
+                        inbound.clone(),
+                        label,
+                        *ip,
+                        token,
+                    )
+                    .ok()
                 })
                 .collect::<Vec<_>>();
 

@@ -32,6 +32,7 @@ pub struct ConnRow {
     pub wg: Option<WgParam>,
     pub node_id: Option<uuid::Uuid>,
     pub proto: Tag,
+    pub token: Option<uuid::Uuid>,
     is_deleted: bool,
 }
 
@@ -55,6 +56,7 @@ impl From<(uuid::Uuid, Conn)> for ConnRow {
             wg: conn.get_wireguard().cloned(),
             node_id: conn.get_wireguard_node_id(),
             proto: conn.get_proto().proto(),
+            token: conn.get_token(),
             is_deleted: conn.is_deleted,
         }
     }
@@ -85,6 +87,13 @@ impl TryFrom<ConnRow> for Conn {
                 Proto::new_ss(&password)
             }
 
+            Tag::Hysteria2 => {
+                let token = row
+                    .token
+                    .ok_or_else(|| PonyError::Custom("Missing Hysteria2 token".into()))?;
+                Proto::new_hysteria2(&token)
+            }
+
             tag => Proto::new_xray(&tag),
         };
 
@@ -97,7 +106,6 @@ impl TryFrom<ConnRow> for Conn {
             modified_at: row.modified_at,
             expired_at: row.expired_at,
             is_deleted: row.is_deleted,
-            node_id: row.node_id,
         })
     }
 }
@@ -119,6 +127,7 @@ impl PgConn {
         SELECT 
             id,
             password,
+            token,
             env,
             created_at,
             modified_at,
@@ -151,6 +160,7 @@ impl PgConn {
                 let modified_at: NaiveDateTime = row.get("modified_at");
                 let expired_at: Option<DateTime<Utc>> = row.get("expired_at");
                 let subscription_id: Option<uuid::Uuid> = row.get("subscription_id");
+                let token: Option<uuid::Uuid> = row.get("token");
                 let online: i64 = row.get("online");
                 let uplink: i64 = row.get("uplink");
                 let downlink: i64 = row.get("downlink");
@@ -174,6 +184,7 @@ impl PgConn {
                 ConnRow {
                     conn_id,
                     password,
+                    token,
                     env,
                     created_at,
                     modified_at,
@@ -244,11 +255,12 @@ impl PgConn {
             wg_privkey,
             wg_pubkey,
             wg_address,
-            node_id
+            node_id,
+            token
         )
         VALUES (
             $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-            $11, $12, $13, $14, $15, $16
+            $11, $12, $13, $14, $15, $16, $17
         )
     ";
 
@@ -272,6 +284,7 @@ impl PgConn {
                     &conn.wg.as_ref().map(|w| &w.keys.pubkey),
                     &conn.wg.as_ref().map(|w| w.address.to_string()),
                     &conn.node_id,
+                    &conn.token,
                 ],
             )
             .await;

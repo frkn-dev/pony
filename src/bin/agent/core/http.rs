@@ -1,11 +1,11 @@
 use async_trait::async_trait;
+use pony::http::requests::ConnTypeParam;
+use pony::Tag;
 use reqwest::Client as HttpClient;
 use reqwest::StatusCode;
 use reqwest::Url;
 
 use pony::http::requests::NodeRequest;
-use pony::http::requests::NodeType;
-use pony::http::requests::NodeTypeParam;
 use pony::ConnectionBaseOp;
 use pony::NodeStorageOp;
 use pony::SubscriptionOp;
@@ -15,11 +15,12 @@ use super::Agent;
 
 #[async_trait]
 pub trait ApiRequests {
-    async fn register_node(
+    async fn register_node(&self, _endpoint: String, _token: String) -> Result<()>;
+    async fn get_connections(
         &self,
-        _endpoint: String,
-        _token: String,
-        node_type: NodeType,
+        endpoint: String,
+        token: String,
+        proto: Tag,
         last_update: Option<u64>,
     ) -> Result<()>;
 }
@@ -31,13 +32,58 @@ where
     C: ConnectionBaseOp + Send + Sync + Clone + 'static,
     S: SubscriptionOp + Send + Sync + Clone + 'static,
 {
-    async fn register_node(
+    async fn get_connections(
         &self,
         endpoint: String,
         token: String,
-        node_type: NodeType,
+        proto: Tag,
         last_update: Option<u64>,
     ) -> Result<()> {
+        let node = {
+            let mem = self.memory.read().await;
+            mem.nodes
+                .get_self()
+                .expect("No node available to register")
+                .clone()
+        };
+
+        let env = node.env;
+
+        let conn_type_param = ConnTypeParam {
+            proto: proto,
+            last_update: last_update,
+            env: env,
+        };
+
+        let mut endpoint_url = Url::parse(&endpoint)?;
+        endpoint_url
+            .path_segments_mut()
+            .map_err(|_| PonyError::Custom("Invalid API endpoint".to_string()))?
+            .push("connections");
+        let endpoint_str = endpoint_url.to_string();
+
+        let res = HttpClient::new()
+            .get(&endpoint_str)
+            .query(&conn_type_param)
+            .header("Content-Type", "application/json")
+            .header("Authorization", format!("Bearer {}", token))
+            .send()
+            .await?;
+
+        let status = res.status();
+        let body = res.text().await?;
+        if status.is_success() {
+            log::debug!("Connections Request Accepted: {:?}", status);
+            Ok(())
+        } else {
+            log::error!("Connections Request failed: {} - {}", status, body);
+            Err(PonyError::Custom(
+                format!("Connections Request failed: {} - {}", status, body).into(),
+            ))
+        }
+    }
+
+    async fn register_node(&self, endpoint: String, token: String) -> Result<()> {
         let node = {
             let mem = self.memory.read().await;
             mem.nodes
@@ -58,11 +104,6 @@ where
             Err(e) => log::error!("Error serializing node '{}': {}", node.hostname, e),
         }
 
-        let node_type_param = NodeTypeParam {
-            node_type: Some(node_type),
-            last_update,
-        };
-
         let node_request = NodeRequest {
             env: node.env.clone(),
             hostname: node.hostname.clone(),
@@ -77,7 +118,6 @@ where
 
         let res = HttpClient::new()
             .post(&endpoint_str)
-            .query(&node_type_param)
             .header("Content-Type", "application/json")
             .header("Authorization", format!("Bearer {}", token))
             .json(&node_request)

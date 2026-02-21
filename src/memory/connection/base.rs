@@ -25,7 +25,11 @@ pub struct Base {
 }
 
 impl Base {
-    pub fn new(proto: Proto, expired_at: Option<DateTime<Utc>>) -> Self {
+    pub fn new(
+        proto: Proto,
+        expired_at: Option<DateTime<Utc>>,
+        sub_id: Option<uuid::Uuid>,
+    ) -> Self {
         let now = Utc::now().naive_utc();
 
         Self {
@@ -33,7 +37,7 @@ impl Base {
             created_at: now,
             modified_at: now,
             expired_at: expired_at,
-            subscription_id: None,
+            subscription_id: sub_id,
             proto,
             is_deleted: false,
         }

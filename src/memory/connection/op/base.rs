@@ -38,6 +38,7 @@ pub trait Operations {
     fn get_wireguard(&self) -> Option<&WgParam>;
     fn get_wireguard_node_id(&self) -> Option<uuid::Uuid>;
     fn get_password(&self) -> Option<String>;
+    fn get_token(&self) -> Option<uuid::Uuid>;
     fn set_password(&mut self, password: Option<String>) -> Result<()>;
 }
 
@@ -116,6 +117,13 @@ impl Operations for Base {
     fn get_password(&self) -> Option<String> {
         match &self.proto {
             Proto::Shadowsocks { password } => Some(password.clone()),
+            _ => None,
+        }
+    }
+
+    fn get_token(&self) -> Option<uuid::Uuid> {
+        match &self.proto {
+            Proto::Hysteria2 { token } => Some(token.clone()),
             _ => None,
         }
     }
@@ -235,6 +243,12 @@ impl Operations for Conn {
             _ => Err(PonyError::Custom(
                 "Password update failed: not a Shadowsocks connection".into(),
             )),
+        }
+    }
+    fn get_token(&self) -> Option<uuid::Uuid> {
+        match &self.proto {
+            Proto::Hysteria2 { token } => Some(token.clone()),
+            _ => None,
         }
     }
 }

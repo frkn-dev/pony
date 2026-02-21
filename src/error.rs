@@ -97,6 +97,12 @@ impl From<String> for PonyError {
     }
 }
 
+impl From<anyhow::Error> for PonyError {
+    fn from(err: anyhow::Error) -> Self {
+        PonyError::Custom(err.to_string())
+    }
+}
+
 impl<T: std::fmt::Debug> From<tokio::sync::mpsc::error::SendError<T>> for PonyError {
     fn from(err: tokio::sync::mpsc::error::SendError<T>) -> Self {
         PonyError::Custom(format!("SendError: {:?}", err))

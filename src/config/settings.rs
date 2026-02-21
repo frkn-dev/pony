@@ -68,6 +68,12 @@ fn default_debug_web_server() -> Option<Ipv4Addr> {
 fn default_debug_web_port() -> u16 {
     3001
 }
+fn default_auth_web_server() -> Option<Ipv4Addr> {
+    Some(Ipv4Addr::new(127, 0, 0, 1))
+}
+fn default_auth_web_port() -> u16 {
+    3005
+}
 fn default_api_web_listen() -> Option<Ipv4Addr> {
     Some(Ipv4Addr::new(127, 0, 0, 1))
 }
@@ -75,7 +81,7 @@ fn default_api_web_port() -> u16 {
     3005
 }
 fn default_api_token() -> String {
-    "supetsecrettoken".to_string()
+    "token".to_string()
 }
 fn default_label() -> String {
     "🏴‍☠️🏴‍☠️🏴‍☠️ dev".to_string()
@@ -86,11 +92,11 @@ fn default_stat_job_interval() -> u64 {
 }
 
 fn default_snapshot_interval() -> u64 {
-    300
+    30
 }
 
 fn default_snapshot_path() -> String {
-    "snapshots/agent_snapshot.bin".to_string()
+    "snapshots/snapshot.bin".to_string()
 }
 
 fn default_metrics_interval() -> u64 {
@@ -135,6 +141,10 @@ fn default_web_host() -> String {
     "https://frkn.org".to_string()
 }
 
+fn default_h2_config_path() -> String {
+    "dev/h2.yaml".to_string()
+}
+
 #[derive(Clone, Debug, Deserialize, Default)]
 pub struct ApiServiceConfig {
     #[serde(default = "default_api_web_listen")]
@@ -173,6 +183,18 @@ pub struct ApiAccessConfig {
     pub endpoint: String,
     #[serde(default = "default_api_token")]
     pub token: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Default)]
+pub struct AuthServiceConfig {
+    #[serde(default = "default_snapshot_interval")]
+    pub snapshot_interval: u64,
+    #[serde(default = "default_snapshot_path")]
+    pub snapshot_path: String,
+    #[serde(default = "default_auth_web_server")]
+    pub web_server: Option<Ipv4Addr>,
+    #[serde(default = "default_auth_web_port")]
+    pub web_port: u16,
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]
@@ -264,13 +286,8 @@ impl NodeConfig {
             raw.hostname.unwrap()
         };
 
-        // Если указан адрес - используем его
         let (address, interface) = if let Some(user_address) = raw.address {
-            // Пользователь указал адрес (скорее всего внешний/публичный)
-
-            // Для интерфейса используем либо указанный, либо дефолтный
             let interface = if let Some(ref interface_name) = raw.default_interface {
-                // Проверяем существование интерфейса
                 let interfaces = get_interfaces();
                 if let Some(_interface) = interfaces.iter().find(|i| &i.name == interface_name) {
                     interface_name.clone()
@@ -280,11 +297,9 @@ impl NodeConfig {
                     ));
                 }
             } else {
-                // Используем дефолтный интерфейс
                 match get_default_interface() {
                     Ok(interface) => interface.name,
                     Err(e) => {
-                        // Если не можем получить дефолтный интерфейс, используем placeholder
                         eprintln!(
                             "Warning: Cannot get default interface: {}. Using 'default'.",
                             e
@@ -296,7 +311,6 @@ impl NodeConfig {
 
             (user_address, interface)
         } else if let Some(ref interface_name) = raw.default_interface {
-            // Пользователь указал только интерфейс, адрес берем с интерфейса
             let interfaces = get_interfaces();
             if let Some(interface) = interfaces.iter().find(|i| &i.name == interface_name) {
                 match interface.ipv4.first() {
@@ -370,7 +384,7 @@ pub struct XrayConfig {
 
 #[derive(Clone, Default, Debug, Deserialize)]
 pub struct WgConfig {
-    #[serde(default = "default_enabled")]
+    #[serde(default = "default_disabled")]
     pub enabled: bool,
     #[serde(default = "default_wg_port")]
     pub port: u16,
@@ -381,6 +395,14 @@ pub struct WgConfig {
     pub pubkey: Option<String>,
     pub address: Option<String>,
     pub dns: Option<Vec<String>>,
+}
+
+#[derive(Clone, Default, Debug, Deserialize)]
+pub struct H2Config {
+    #[serde(default = "default_disabled")]
+    pub enabled: bool,
+    #[serde(default = "default_h2_config_path")]
+    pub path: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]
@@ -458,6 +480,22 @@ pub struct ApiSettings {
 }
 
 #[derive(Clone, Debug, Deserialize)]
+pub struct AuthServiceSettings {
+    #[serde(default)]
+    pub debug: DebugConfig,
+    #[serde(default)]
+    pub logging: LoggingConfig,
+    #[serde(default)]
+    pub auth: AuthServiceConfig,
+    #[serde(default)]
+    pub zmq: ZmqSubscriberConfig,
+    #[serde(default)]
+    pub node: NodeConfigRaw,
+    #[serde(default)]
+    pub api: ApiAccessConfig,
+}
+
+#[derive(Clone, Debug, Deserialize)]
 pub struct AgentSettings {
     #[serde(default)]
     pub debug: DebugConfig,
@@ -471,6 +509,8 @@ pub struct AgentSettings {
     pub xray: XrayConfig,
     #[serde(default)]
     pub wg: WgConfig,
+    #[serde(default)]
+    pub h2: H2Config,
     #[serde(default)]
     pub zmq: ZmqSubscriberConfig,
     #[serde(default)]
@@ -487,6 +527,13 @@ impl Settings for AgentSettings {
 }
 
 impl Settings for ApiSettings {
+    fn validate(&self) -> Result<()> {
+        self.zmq.clone().validate()?;
+        Ok(())
+    }
+}
+
+impl Settings for AuthServiceSettings {
     fn validate(&self) -> Result<()> {
         self.zmq.clone().validate()?;
         Ok(())

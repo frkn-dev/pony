@@ -154,6 +154,11 @@ where
 
         Ok(Some(archived.timestamp))
     }
+
+    pub async fn count(&self) -> usize {
+        let mem = self.memory.read().await;
+        mem.connections.0.len()
+    }
 }
 
 impl<C: Send + Sync + Clone + From<Conn>> Connections<C> {

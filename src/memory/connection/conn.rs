@@ -1,10 +1,10 @@
 use chrono::DateTime;
 use chrono::NaiveDateTime;
 use chrono::Utc;
+use std::fmt;
 
 use serde::Deserialize;
 use serde::Serialize;
-use std::fmt;
 
 use super::op::api::Operations as ApiOps;
 use super::op::base::Operations as BasOps;
@@ -21,7 +21,26 @@ pub struct Conn {
     pub modified_at: NaiveDateTime,
     pub expired_at: Option<DateTime<Utc>>,
     pub is_deleted: bool,
-    pub node_id: Option<uuid::Uuid>,
+}
+
+impl fmt::Display for Conn {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "Connection {{\n")?;
+
+        if let Some(subscription_id) = self.subscription_id {
+            write!(f, "  subscription_id: {},\n", subscription_id)?;
+        } else {
+            write!(f, "  subscription_id: None,\n")?;
+        }
+        write!(f, "  env: {},\n", self.env)?;
+        write!(f, "  conn stat: {}\n", self.stat)?;
+        write!(f, "  created_at: {},\n", self.created_at)?;
+        write!(f, "  modified_at: {},\n", self.modified_at)?;
+        write!(f, "  expired_at: {:?},\n", self.expired_at)?;
+        write!(f, "  proto: {:?},\n", self.proto)?;
+        write!(f, "  deleted: {}\n", self.is_deleted)?;
+        write!(f, "}}")
+    }
 }
 
 impl PartialEq for Conn {
@@ -34,44 +53,12 @@ impl PartialEq for Conn {
     }
 }
 
-impl fmt::Display for Conn {
-    // COMMENT(qezz): This feels like a Debug implementation. That can be either derived,
-    // or the helper functions can be used, so one doesn't need to manually match the
-    // indentation
-    //
-    // More details for manual implementation: https://doc.rust-lang.org/std/fmt/trait.Debug.html
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        // COMMENT(qezz): there's `writeln!()`
-        write!(f, "Connection {{\n")?;
-
-        if let Some(subscription_id) = self.subscription_id {
-            write!(f, "  subscription_id: {},\n", subscription_id)?;
-        } else {
-            write!(f, "  subscription_id: None,\n")?;
-        }
-        write!(
-            f,
-            "  node_id: {},\n",
-            self.node_id.unwrap_or(uuid::Uuid::default())
-        )?;
-        write!(f, "  env: {},\n", self.env)?;
-        write!(f, " conn stat: {}\n", self.stat)?;
-        write!(f, "  created_at: {},\n", self.created_at)?;
-        write!(f, "  modified_at: {},\n", self.modified_at)?;
-        write!(f, "  expired_at: {:?},\n", self.expired_at)?;
-        write!(f, "  proto: {:?},\n", self.proto)?;
-        write!(f, "deleted: {}\n", self.is_deleted)?;
-        write!(f, "}}")
-    }
-}
-
 impl Conn {
     pub fn new(
         env: &str,
         subscription_id: Option<uuid::Uuid>,
         stat: Stat,
         proto: Proto,
-        node_id: Option<uuid::Uuid>,
         expired_at: Option<DateTime<Utc>>,
     ) -> Self {
         let now = Utc::now().naive_utc();
@@ -85,7 +72,6 @@ impl Conn {
             proto: proto,
             subscription_id: subscription_id,
             is_deleted: false,
-            node_id: node_id,
         }
     }
 }

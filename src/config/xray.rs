@@ -1,11 +1,11 @@
 use serde::{Deserialize, Serialize};
 use std::{fs::File, io::Read};
 
+use crate::config::h2::H2Settings;
 use crate::config::wireguard::WireguardSettings;
 use crate::http::requests::InboundResponse;
 use crate::memory::node::Stat as InboundStat;
 use crate::memory::tag::ProtoTag as Tag;
-
 use crate::Result;
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -82,6 +82,7 @@ pub struct Inbound {
     pub downlink: Option<i64>,
     pub conn_count: Option<i64>,
     pub wg: Option<WireguardSettings>,
+    pub h2: Option<H2Settings>,
 }
 
 impl Inbound {
@@ -91,6 +92,7 @@ impl Inbound {
             stream_settings: self.stream_settings.clone(),
             tag: self.tag,
             wg: self.wg.clone(),
+            h2: self.h2.clone(),
         }
     }
 

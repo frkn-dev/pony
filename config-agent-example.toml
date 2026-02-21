@@ -31,6 +31,20 @@
 # uuid = "9658b391-01cb-4031-a3f5-6cbdd749bcff"
 # label = "🏴‍☠️🏴‍☠️🏴‍☠️ dev"
 
+[h2]
+#enabled = true
+#path = "path/to/h2.yaml"
+
+[wg]
+#enabled =  true
+#port = 51599
+#network= "10.10.0.0/16"
+#address = "10.10.0.1"
+#interface = "utun7"
+#privkey = "6KVWBZmCBNt1t5hI6KXXf4Eo4mlGNKAxETeRgcXNK0Q="
+#pubkey = "Yhg+gj8TqQ3/10a/Ae+Tv1iPin/HigmOnhRkMj7k/hw="
+#dns = ["1.1.1.1"]
+
 [api]
 # address = "127.0.0.1"
 # port = 3005

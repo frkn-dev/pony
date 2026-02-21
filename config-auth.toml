@@ -1,0 +1,26 @@
+
+[debug]
+#enable = true
+#web_server = "127.0.0.1"
+#web_port = 3445
+
+
+[logging]
+#level = "debug"
+ 
+[zmq]
+#endpoint = "tcp://localhost:4000"
+
+[auth]
+#snapshot_path = "snapshots/snapshot.bin"
+ 
+[node]
+#env = "dev"
+#hostname = "darkmachine-test"
+#uuid = "9557b391-01cb-4031-a3f5-6cbdd74fffff"
+ 
+[api]
+#endpoint = "http://127.0.0.1:5005"
+#token = "token"
+
+

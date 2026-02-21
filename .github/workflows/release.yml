@@ -84,9 +84,38 @@ jobs:
           name: api
           path: target/release/api
 
+  build-auth:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install latest rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: nightly
+          default: true
+          override: true
+
+      - name: Update apt package index
+        run: sudo apt-get update
+
+      - name: Install protobuf-compiler
+        run: sudo apt-get install -y protobuf-compiler
+
+      - name: Build
+        run: cargo build --release --no-default-features --bin auth
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: auth
+          path: target/release/auth
+
   release:
     name: Release
-    needs: [build-api, build-agent]
+    needs: [build-api, build-agent, build-auth]
     runs-on: ubuntu-latest
 
     steps:
@@ -106,6 +135,12 @@ jobs:
           name: api
           path: artifacts/api
 
+      - name: Download Auth artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: auth
+          path: artifacts/auth
+
       - name: Prepare release files
         run: |
           mkdir -p release
@@ -113,6 +148,7 @@ jobs:
           cp artifacts/agent-aarch64-unknown-linux-gnu/agent release/agent-aarch64
           cp artifacts/agent-armv7-unknown-linux-gnueabihf/agent release/agent-armv7
           cp artifacts/api/api release/api-x86_64
+          cp artifacts/auth/auth release/auth-x86_64
           chmod +x release/*
 
       - name: Release
@@ -121,58 +157,14 @@ jobs:
         with:
           files: |
             release/api-x86_64
+            release/auth-x86_64
             release/agent-x86_64
             release/agent-aarch64
             release/agent-armv7
-            deploy/init.sql
-            deploy/install
             docs/*
             README.md
             config-agent-example.toml
             config-api-example.toml
+            config-auth-example.toml
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  publish-api:
-    name: Push Api Docker image (Multi-arch)
-    needs: [release]
-    runs-on: ubuntu-22.04
-    permissions:
-      packages: write
-      contents: read
-      attestations: write
-      id-token: write
-
-    steps:
-      - name: Check out the repo
-        uses: actions/checkout@v4
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Log in to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ env.REGISTRY }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
-
-      - name: Extract metadata (tags, labels) for Docker
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: |
-            ${{ env.REGISTRY }}/${{ env.API_IMAGE_NAME }}
-
-      - name: Build and push Docker images
-        id: push
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: Dockerfile.api
-          platforms: linux/amd64
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}

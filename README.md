@@ -27,8 +27,7 @@ Contains parts
 - Standalone Agent — can run without external dependencies: just WG or/and Xray Core and a config file.
 - Automatic Xray Config Parsing — reads xray-config.json to fetch inbounds and settings automatically.
 - Low Resource Usage — works perfectly on low-cost 1 CPU ($5 VPS) machines.
-- Protocol Support — handles VLESS XTLS, VLESS gRPC, VMESS, and Wireguard connections.
-- Dockerized Infrastructure — Bot and API run inside Docker containers.
+- Protocol Support — handles VLESS TCP, VLESS gRPC, VLESS Xhttp, Hysteria2 and Wireguard connections.
 - Cluster Management — API manages users and nodes across the entire cluster.
 - Node Health Monitoring — API periodically checks the health and status of all connected nodes.
 - Metrics System — system and logic metrics are collected in Graphite format and stored in Clickhouse for analytics.

@@ -366,6 +366,7 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
                                         inbound.as_inbound_response(),
                                         &node.label,
                                         node.address,
+                                        &None
                                     ) {
                                         println!("->>  {tag}  ➜ {:?}\n", conn);
                                         let qrcode = QrCode::new(conn).unwrap();

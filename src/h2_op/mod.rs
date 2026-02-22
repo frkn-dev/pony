@@ -29,7 +29,7 @@ pub fn hysteria2_conn(
         let _alpn = h2.alpn.as_ref().map(|v| v.join(",")).unwrap_or_default();
 
         if let Some(token) = token {
-            let mut url = Url::parse(&format!("hysteria://{token}@{hostname}:{port}"))?;
+            let mut url = Url::parse(&format!("hysteria2://{token}@{hostname}:{port}"))?;
             url.query_pairs_mut()
                 .append_pair("host", &h2.host)
                 .append_pair("insecure", &h2.insecure.to_string())

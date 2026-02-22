@@ -84,16 +84,10 @@ impl HysteriaServerConfig {
             return Err(PonyError::Custom("Hysteria2: listen is required".into()));
         }
 
-        let auth = self
+        let _auth = self
             .auth
             .as_ref()
             .ok_or_else(|| PonyError::Custom("Hysteria2: auth section is required".into()))?;
-
-        if auth.password.clone().unwrap_or("".to_string()).is_empty() {
-            return Err(PonyError::Custom(
-                "Hysteria2: auth.password is required".into(),
-            ));
-        }
 
         Ok(())
     }

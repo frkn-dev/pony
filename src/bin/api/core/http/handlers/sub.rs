@@ -293,7 +293,11 @@ where
         format!("0")
     };
     let base_link = format!("{}/sub?id={}&env={}", host, id, env);
-    let main_link = format!("{}/sub?id={}&format=txt&env={}", host, id, env);
+    let main_link_vless = format!("{}/sub?id={}&format=txt&env={}&proto=Xray", host, id, env);
+    let main_link_h2 = format!(
+        "{}/sub?id={}&format=txt&env={}&proto=Hysteria2",
+        host, id, env
+    );
 
     let html = format!(
 r#"<!DOCTYPE html>
@@ -355,6 +359,7 @@ button-id:hover {{
     margin-top: 16px;
     text-align: center;
 }}
+
 .small {{
     font-size: 13px;
     color: #94a3b8;
@@ -371,6 +376,13 @@ button-id:hover {{
     text-align: right;
     margin-top: 0px;
 }}
+.badge {{
+        font-size: 12px;
+        color: var(--accent-2);
+        border: 1px solid rgba(34, 211, 238, 0.3);
+        padding: 4px 10px;
+        border-radius: 999px;
+      }}
 .footer-line {{
     display: flex;
     justify-content: flex-end;
@@ -387,11 +399,12 @@ ul {{
 <div class="card">
 <h1>Подписка на Рилзопровод</h1>
 
-
 <div class="stat">Статус: <span class="{status_class}">{status_text}</span></div>
 <div class="stat">Дата окончания: {expires}</div>
 <div class="stat">Осталось дней: {days}</div>
-<div class="small-id">Id: <b>{subscription_id}</b></div>
+<div class="small-id">
+
+Id: <b>{subscription_id}</b></div>
 
 
 <hr>
@@ -401,45 +414,61 @@ ul {{
 
 <h3>Ссылки для подключения</h3>
 
-Xray <a href="{base_link}&format=plain" target="_blank">Универсальная ссылка (рекомендуется)</a>
+<h3> Xray </h3>
+
+<a href="{base_link}&format=plain" target="_blank">Универсальная ссылка</a>
 <br>
 <button onclick="copyText('{base_link}&format=plain&proto=Xray')">Скопировать ссылку</button>
 <br>
-<br>
-Hysteria2(Beta) <a href="{base_link}&format=plain&proto=Hysteria2" target="_blank">Универсальная ссылка (рекомендуется)</a>
-<br>
-<button onclick="copyText('{base_link}&format=plain')">Скопировать ссылку</button>
-
-
 <p><b>Дополнительные форматы Xray: </b></p>
 <ul>
 <li><a href="{base_link}&format=txt&proto=Xray" target="_blank">TXT</a>  для v2ray</li>
 <li><a href="{base_link}&format=clash&proto=Xray" target="_blank">Clash</a> — для Clash / Clash Meta</li>
 </ul>
+<br>
+
+<div class="qr">
+<canvas id="qr"></canvas>
+
+<div class="small">Отсканируйте в приложении</div>
+</div>
+
+<h3>Поддерживаемые приложения</h3>
+
+Приложения с поддержкой Xray Vless 
+
+<ul>
+<li> Xray: Happ, Hiddify, v2rayNG, Shadowrocket, Streisand, Clash Verge, Nekobox</li>
+</ul>
+
+<hr>
+
+<h3>Hysteria2(Beta)</h3>
+
+<a href="{base_link}&format=plain&proto=Hysteria2" target="_blank">Универсальная ссылка</a>
+<br>
+<button onclick="copyText('{base_link}&format=plain&proto=Hysteria2)">Скопировать ссылку</button>
 
 <p><b>Дополнительные форматы Hysteria2: </b></p>
 <ul>
-<li><a href="{base_link}&format=txt&proto=Hysteria2" target="_blank">TXT</a>  для v2ray</li>
+<li><a href="{base_link}&format=txt&proto=Hysteria2" target="_blank">TXT</a></li>
 </ul>
+
+<div class="qr">
+<canvas id="qr2"></canvas>
+
+<div class="small">Отсканируйте в приложении</div>
+</div>
 
 <hr>
 
 <h3>Поддерживаемые приложения</h3>
+
+Приложения с поддержкой Hysteria2
+
 <ul>
-<li> iOS / macOS — Shadowrocket, Streisand, Clash Verge</li>
-<li> Android — Hiddify, v2rayNG, Nekobox</li>
-<li> Windows — Hiddify, v2rayN, Clash Verge</li>
-<li> Linux — Clash, v2ray-core</li>
+<li> Hysteria2: Shadowrocket, v2rayN</li>
 </ul>
-
-<hr>
-
-<div class="qr">
-<h3>QR-код</h3>
-<canvas id="qr"></canvas>
-
-<div class="small">Отсканируйте в VPN-приложении</div>
-</div>
 
 <hr>
 
@@ -448,7 +477,7 @@ Hysteria2(Beta) <a href="{base_link}&format=plain&proto=Hysteria2" target="_blan
  <button onclick="copyText('{ref}')">Скопировать код</button>
 </div>
 
-<div class="small">Вы пригласили: {invited}</div>
+<div class="small">Вы пригласили: {invited} </div>
 <div class="small">Вы получили {bonus_days} бесплатных дней</div>
 
 <div class="small"><a href="{web_host}/ref.html"> Информация о реферальной программе</a></div>
@@ -475,7 +504,13 @@ function copyText(text) {{
 window.onload = () => {{
     QRCode.toCanvas(
         document.getElementById("qr"),
-        "{main_link}",
+        "{main_link_vless}",
+        {{ width: 220 }}
+    );
+
+    QRCode.toCanvas(
+        document.getElementById("qr2"),
+        "{main_link_h2}",
         {{ width: 220 }}
     );
 }};

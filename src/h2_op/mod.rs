@@ -15,28 +15,24 @@ pub fn hysteria2_conn(
     if let Some(inb) = &inbound.h2 {
         let hostname = inb.host.clone();
 
-        let obfs_type = h2
+        let _obfs_type = h2
             .obfs
             .as_ref()
             .map(|o| o.r#type.clone())
             .unwrap_or_default();
-        let obfs_pass = h2
+        let _obfs_pass = h2
             .obfs
             .as_ref()
             .map(|o| o.password.clone())
             .unwrap_or_default();
 
-        let alpn = h2.alpn.as_ref().map(|v| v.join(",")).unwrap_or_default();
+        let _alpn = h2.alpn.as_ref().map(|v| v.join(",")).unwrap_or_default();
 
         if let Some(token) = token {
             let mut url = Url::parse(&format!("hysteria://{token}@{hostname}:{port}"))?;
             url.query_pairs_mut()
                 .append_pair("host", &h2.host)
-                .append_pair("sni", h2.sni.as_deref().unwrap_or(""))
                 .append_pair("insecure", &h2.insecure.to_string())
-                .append_pair("obfs", &obfs_type)
-                .append_pair("obfs-pass", &obfs_pass)
-                .append_pair("alpn", &alpn)
                 .append_pair("up-mbps", &h2.up_mbps.unwrap_or(0).to_string())
                 .append_pair("down-mbps", &h2.down_mbps.unwrap_or(0).to_string());
 

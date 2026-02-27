@@ -1,9 +1,8 @@
 [![Release](https://github.com/frkn-dev/pony/actions/workflows/release.yml/badge.svg?branch=main)](https://github.com/frkn-dev/pony/actions/workflows/release.yml) [![Pony Build](https://github.com/frkn-dev/pony/actions/workflows/rust.yml/badge.svg?branch=main)](https://github.com/frkn-dev/pony/actions/workflows/rust.yml)
 
-# Pony - a cluster platform for Xray/Shadowsocks/Hysteria2/Wireguard
+# Pony - a cluster platform for Xray/Shadowsocks/Hysteria2/Wireguard/MTproto
 
-Pony is a lightweight control plane and orchestration platform for modern proxy protocols. It simplifies the deployment and unified management of Xray, Shadowsocks, Hysteria2, and Wireguard servers, providing a single pane of glass for your network infrastructure.
-
+Pony is a lightweight control plane and orchestration platform for modern proxy protocols. It simplifies the deployment and unified management of Xray, Shadowsocks, Hysteria2, MTproto and Wireguard servers, providing a single pane of glass for your network infrastructure.
 
 ## Architecture
 
@@ -20,8 +19,9 @@ Contains parts
 - PostgreSQL — user and node data storage
 - Clickhouse — metrics storage
 - Carbon — metrics relay
-- Xray Core 
+- Xray Core
 - Hysteria2
+- MTproto
 - Wireguard
 - Nginx — reverse proxy
 

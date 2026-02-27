@@ -1,7 +1,10 @@
 use base64::Engine;
 use chrono::DateTime;
 use chrono::Utc;
+use pony::mtproto_op::mtproto_conn;
+use url::Url;
 
+use pony::http::requests::MtprotoQueryParam;
 use pony::http::requests::TagReq;
 use warp::http::Response;
 use warp::http::StatusCode;
@@ -28,6 +31,7 @@ use pony::SubscriptionOp;
 use pony::SubscriptionStorageOp;
 use pony::Tag;
 
+use super::html::{FOOTER, HEAD};
 use crate::core::sync::tasks::SyncOp;
 use crate::core::sync::MemSync;
 
@@ -292,101 +296,21 @@ where
     } else {
         format!("0")
     };
+
     let base_link = format!("{}/sub?id={}&env={}", host, id, env);
-    let main_link = format!("{}/sub?id={}&format=txt&env={}", host, id, env);
+    let base_link_mtproto = format!("{}/sub/mtproto?id={}&env={}", host, id, env);
+    let main_link_vless = format!("{}/sub?id={}&format=txt&env={}&proto=Xray", host, id, env);
+    let main_link_h2 = format!(
+        "{}/sub?id={}&format=txt&env={}&proto=Hysteria2",
+        host, id, env
+    );
 
     let html = format!(
-r#"<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8">
-<title>Информация о подписке</title>
-<style>
-body {{
-    font-family: -apple-system, BlinkMacSystemFont, sans-serif;
-    background: #0f172a;
-    color: #e5e7eb;
-    max-width: 720px;
-    margin: 40px auto;
-    padding: 24px;
-}}
-.card {{
-    background: #020617;
-    border-radius: 12px;
-    padding: 24px;
-    box-shadow: 0 0 0 1px #1e293b;
-}}
-h1, h2, h3 {{
-    margin-top: 0;
-}}
-.stat {{
-    margin: 8px 0;
-}}
-.status-active {{
-    color: #22c55e;
-    font-weight: 600;
-}}
-.status-expired {{
-    color: #ef4444;
-    font-weight: 600;
-}}
-a {{
-    color: #38bdf8;
-    text-decoration: none;
-}}
-button {{
-    margin-top: 6px;
-    padding: 6px 12px;
-    border-radius: 6px;
-    border: none;
-    background: #1e293b;
-    color: #e5e7eb;
-    cursor: pointer;
-}}
-button:hover {{
-    background: #334155;
-}}
-button-id:hover {{
-    background: #334155;
-    font-size: 10px;
-
-}}
-.qr {{
-    margin-top: 16px;
-    text-align: center;
-}}
-.small {{
-    font-size: 13px;
-    color: #94a3b8;
-}}
-.small-id {{
-    font-size: 11px;
-    color: #94a3b8;
-    text-align: right;
-    margin-top: 0px;
-}}
-.small-viva {{
-    font-size: 13px;
-    color: #94a3b8;
-    text-align: right;
-    margin-top: 0px;
-}}
-.footer-line {{
-    display: flex;
-    justify-content: flex-end;
-    align-items: center;            
-    margin-top: 8px;
-}}
-ul {{
-    padding-left: 20px;
-}}
-</style>
-</head>
+r#"{head}
 <body>
 
 <div class="card">
 <h1>Подписка на Рилзопровод</h1>
-
 
 <div class="stat">Статус: <span class="{status_class}">{status_text}</span></div>
 <div class="stat">Дата окончания: {expires}</div>
@@ -401,45 +325,64 @@ ul {{
 
 <h3>Ссылки для подключения</h3>
 
-Xray <a href="{base_link}&format=plain" target="_blank">Универсальная ссылка (рекомендуется)</a>
+<h3> Xray Vless</h3>
+
+<a href="{base_link}&format=plain" target="_blank">Универсальная ссылка</a>
 <br>
 <button onclick="copyText('{base_link}&format=plain&proto=Xray')">Скопировать ссылку</button>
 <br>
+<p><b>Дополнительные форматы: </b></p>
+<ul class="proxy-list">
+<li class="proxy-item"><a href="{base_link}&format=txt&proto=Xray" target="_blank">TXT</a></li>
+<li class="proxy-item"><a href="{base_link}&format=clash&proto=Xray" target="_blank">Clash</a></li>
+</ul>
 <br>
-Hysteria2(Beta) <a href="{base_link}&format=plain&proto=Hysteria2" target="_blank">Универсальная ссылка (рекомендуется)</a>
-<br>
-<button onclick="copyText('{base_link}&format=plain')">Скопировать ссылку</button>
-
-
-<p><b>Дополнительные форматы Xray: </b></p>
-<ul>
-<li><a href="{base_link}&format=txt&proto=Xray" target="_blank">TXT</a>  для v2ray</li>
-<li><a href="{base_link}&format=clash&proto=Xray" target="_blank">Clash</a> — для Clash / Clash Meta</li>
-</ul>
-
-<p><b>Дополнительные форматы Hysteria2: </b></p>
-<ul>
-<li><a href="{base_link}&format=txt&proto=Hysteria2" target="_blank">TXT</a>  для v2ray</li>
-</ul>
-
-<hr>
-
-<h3>Поддерживаемые приложения</h3>
-<ul>
-<li> iOS / macOS — Shadowrocket, Streisand, Clash Verge</li>
-<li> Android — Hiddify, v2rayNG, Nekobox</li>
-<li> Windows — Hiddify, v2rayN, Clash Verge</li>
-<li> Linux — Clash, v2ray-core</li>
-</ul>
-
-<hr>
 
 <div class="qr">
-<h3>QR-код</h3>
 <canvas id="qr"></canvas>
 
-<div class="small">Отсканируйте в VPN-приложении</div>
+<div class="small">Отсканируйте в приложении</div>
 </div>
+
+<h3>Поддерживаемые приложения</h3>
+
+<ul>
+<li> Happ, Hiddify, v2rayNG, Shadowrocket, Streisand, Clash Verge, Nekobox</li>
+</ul>
+
+<br><br><br>
+
+<hr>
+<br>
+<h3>Hysteria2(Beta)</h3>
+
+<a href="{base_link}&format=plain&proto=Hysteria2" target="_blank">Универсальная ссылка</a>
+<br>
+<button onclick="copyText('{base_link}&format=plain&proto=Hysteria2)">Скопировать ссылку</button>
+
+<p><b>Дополнительные форматы: </b></p>
+<ul class="proxy-list">
+<li class="proxy-item"><a href="{base_link}&format=txt&proto=Hysteria2" target="_blank">TXT</a></li>
+</ul>
+
+<div class="qr">
+<canvas id="qr2"></canvas>
+
+<div class="small">Отсканируйте в приложении</div>
+</div>
+
+<h3>Поддерживаемые приложения</h3>
+
+<ul>
+<li> Shadowrocket, hiddify, v2rayN</li>
+</ul>
+
+<hr> <br>
+
+<h3>BONUS TRACK: Mtproto(tg-proxy)</h3>
+
+<a href="{base_link_mtproto}" target="_blank">Открыть</a>
+<br><br><br>
 
 <hr>
 
@@ -448,7 +391,7 @@ Hysteria2(Beta) <a href="{base_link}&format=plain&proto=Hysteria2" target="_blan
  <button onclick="copyText('{ref}')">Скопировать код</button>
 </div>
 
-<div class="small">Вы пригласили: {invited}</div>
+<div class="small">Вы пригласили: {invited} </div>
 <div class="small">Вы получили {bonus_days} бесплатных дней</div>
 
 <div class="small"><a href="{web_host}/ref.html"> Информация о реферальной программе</a></div>
@@ -457,12 +400,7 @@ Hysteria2(Beta) <a href="{base_link}&format=plain&proto=Hysteria2" target="_blan
 
 <br><hr>
 
-<div class=footer-line>
-<div class=small-viva> 
- <a href=https://t.me/frkn_support>Поддержка &nbsp·</a></div>
-
-<div class=small-viva > &nbsp Vive la résistance! </div>
-</div>
+{footer}
 
 <script src="https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js"></script>
 
@@ -475,7 +413,13 @@ function copyText(text) {{
 window.onload = () => {{
     QRCode.toCanvas(
         document.getElementById("qr"),
-        "{main_link}",
+        "{main_link_vless}",
+        {{ width: 220 }}
+    );
+
+    QRCode.toCanvas(
+        document.getElementById("qr2"),
+        "{main_link_h2}",
         {{ width: 220 }}
     );
 }};
@@ -483,6 +427,8 @@ window.onload = () => {{
 
 </body>
 </html>"#,
+        head = HEAD,
+        footer = FOOTER,
         status_class = status_class,
         status_text = status_text,
         expires = expires,
@@ -629,6 +575,11 @@ where
             tags.push(Tag::Hysteria2);
             tags
         }
+
+        TagReq::Mtproto => {
+            tags.push(Tag::Mtproto);
+            tags
+        }
     };
 
     if let Some(conns) = conns {
@@ -742,4 +693,100 @@ where
             )));
         }
     }
+}
+
+/// Gets Subscriprion link
+// GET /sub/mtproto?id=
+pub async fn mtproto_link_handler<N, C, S>(
+    param: MtprotoQueryParam,
+    memory: MemSync<N, C, S>,
+) -> Result<Box<dyn warp::Reply + Send>, warp::Rejection>
+where
+    N: NodeStorageOp + Sync + Send + Clone + 'static,
+    C: ConnectionApiOp
+        + ConnectionBaseOp
+        + Sync
+        + Send
+        + Clone
+        + 'static
+        + From<Connection>
+        + std::fmt::Debug
+        + PartialEq,
+    S: SubscriptionOp + Send + Sync + Clone + 'static + PartialEq,
+{
+    let mem = memory.memory.read().await;
+
+    let nodes = mem.nodes.get_by_env(&param.env);
+
+    if mem.subscriptions.get(&param.id).is_none() {
+        return Ok(Box::new(http::not_found(&format!(
+            "Subscription {} is not found",
+            param.id
+        ))));
+    };
+
+    let links: Vec<String> = nodes
+        .iter()
+        .flat_map(|node_vec| node_vec.iter())
+        .filter_map(|node| {
+            node.inbounds
+                .values()
+                .find(|inb| inb.tag == Tag::Mtproto)
+                .and_then(|inbound| mtproto_conn(node.address, inbound, &node.label).ok())
+        })
+        .collect();
+
+    let html_links = links
+        .iter()
+        .filter_map(|l| {
+            let url = Url::parse(l).ok()?;
+
+            let label = url
+                .fragment()
+                .map(|f| {
+                    percent_encoding::percent_decode_str(f)
+                        .decode_utf8_lossy()
+                        .to_string()
+                })
+                .unwrap_or_else(|| "Telegram Proxy".into());
+
+            Some(format!(
+                "<li class=\"proxy-item\"><a href=\"{href}\">
+                <span class=\"proxy-label\">{label}</span>
+                <span class=\"proxy-action\">Connect</span>
+                </a></li>",
+                href = l,
+                label = label
+            ))
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    let html = format!(
+        r#"{head}
+<body>
+
+<div class="card">
+<h1>Mtproto (tg-proxy)</h1>
+
+<hr>
+
+<h3>Ссылки для подключения</h3>
+
+<ul class="proxy-list">{html_links}</ul>
+<br><br><br>
+<hr>
+{footer}
+
+</body>
+</html>"#,
+        head = HEAD,
+        footer = FOOTER,
+        html_links = html_links
+    );
+
+    Ok(Box::new(warp::reply::with_status(
+        warp::reply::with_header(html, "Content-Type", "text/html; charset=utf-8"),
+        StatusCode::OK,
+    )))
 }

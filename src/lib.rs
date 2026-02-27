@@ -4,6 +4,7 @@ pub mod h2_op;
 pub mod http;
 pub mod memory;
 pub mod metrics;
+pub mod mtproto_op;
 pub mod utils;
 pub mod wireguard_op;
 pub mod xray_api;

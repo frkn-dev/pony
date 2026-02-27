@@ -27,7 +27,7 @@ pub async fn run(settings: AuthServiceSettings) -> Result<()> {
     let (shutdown_tx, _) = broadcast::channel::<()>(1);
 
     let node_config = NodeConfig::from_raw(settings.node.clone());
-    let node = Node::new(node_config?, None, None, None);
+    let node = Node::new(node_config?, None, None, None, None);
 
     let memory: Arc<RwLock<AuthServiceState>> =
         Arc::new(RwLock::new(MemoryCache::with_node(node.clone())));

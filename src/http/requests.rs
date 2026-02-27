@@ -29,6 +29,7 @@ pub enum TagReq {
     Xray,
     Wireguard,
     Hysteria2,
+    Mtproto,
 }
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct SubIdQueryParam {
@@ -45,6 +46,13 @@ pub struct SubQueryParam {
     pub env: String,
     #[serde(default = "default_proto")]
     pub proto: TagReq,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct MtprotoQueryParam {
+    pub id: uuid::Uuid,
+    #[serde(default = "default_env")]
+    pub env: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -136,6 +144,7 @@ pub struct InboundResponse {
     pub stream_settings: Option<StreamSettings>,
     pub wg: Option<WireguardSettings>,
     pub h2: Option<H2Settings>,
+    pub mtproto_secret: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -152,6 +161,9 @@ pub struct ConnCreateRequest {
 
 impl ConnCreateRequest {
     pub fn validate(&self) -> Result<(), String> {
+        if self.proto == Tag::Mtproto {
+            return Err("Mtproto is not supported for Connection".into());
+        }
         if self.password.is_some() && self.wg.is_some() {
             return Err("Cannot specify both password and wg".into());
         }

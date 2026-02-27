@@ -38,6 +38,8 @@ pub enum ProtoTag {
     Wireguard,
     #[serde(rename = "Hysteria2")]
     Hysteria2,
+    #[serde(rename = "Mtproto")]
+    Mtproto,
 }
 
 impl fmt::Display for ProtoTag {
@@ -50,6 +52,7 @@ impl fmt::Display for ProtoTag {
             ProtoTag::Shadowsocks => write!(f, "Shadowsocks"),
             ProtoTag::Wireguard => write!(f, "Wireguard"),
             ProtoTag::Hysteria2 => write!(f, "Hysteria2"),
+            ProtoTag::Mtproto => write!(f, "Mtproto"),
         }
     }
 }
@@ -65,6 +68,9 @@ impl ProtoTag {
     pub fn is_hysteria2(&self) -> bool {
         *self == ProtoTag::Hysteria2
     }
+    pub fn is_mtproto(&self) -> bool {
+        *self == ProtoTag::Mtproto
+    }
 }
 
 impl std::str::FromStr for ProtoTag {
@@ -79,6 +85,7 @@ impl std::str::FromStr for ProtoTag {
             "Shadowsocks" => Ok(ProtoTag::Shadowsocks),
             "Wireguard" => Ok(ProtoTag::Wireguard),
             "Hysteria2" => Ok(ProtoTag::Hysteria2),
+            "Mtproto" => Ok(ProtoTag::Mtproto),
             _ => Err(()),
         }
     }

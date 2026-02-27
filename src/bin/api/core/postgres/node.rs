@@ -79,12 +79,12 @@ impl PgNode {
         INSERT INTO inbounds (
             id, node_id, tag, port, stream_settings,
             uplink, downlink, conn_count,
-            wg_pubkey, wg_privkey, wg_interface, wg_network, wg_address, dns, h2
+            wg_pubkey, wg_privkey, wg_interface, wg_network, wg_address, dns, h2, mtproto_secret
         )
         VALUES (
             $1, $2, $3, $4, $5,
             $6, $7, $8,
-            $9, $10, $11, $12, $13, $14, $15
+            $9, $10, $11, $12, $13, $14, $15, $16
         )
         ON CONFLICT (node_id, tag) DO UPDATE SET
             port = EXCLUDED.port,
@@ -98,7 +98,8 @@ impl PgNode {
             wg_network = EXCLUDED.wg_network,
             wg_address = EXCLUDED.wg_address,
             dns = EXCLUDED.dns,
-            h2 = EXCLUDED.h2
+            h2 = EXCLUDED.h2,
+            mtproto_secret = EXCLUDED.mtproto_secret
     ";
 
         for inbound in node.inbounds.values() {
@@ -145,6 +146,7 @@ impl PgNode {
                     &wg_address,
                     &dns,
                     &h2_settings,
+                    &inbound.mtproto_secret,
                 ],
             )
             .await?;
@@ -164,7 +166,7 @@ impl PgNode {
                 n.id AS node_id, n.uuid, n.env, n.hostname, n.address, n.status,
                 n.created_at, n.modified_at, n.label, n.interface, n.cores, n.max_bandwidth_bps,
                 i.id AS inbound_id, i.tag, i.port, i.stream_settings, i.uplink, i.downlink,
-                i.conn_count, i.wg_pubkey, i.wg_privkey, i.wg_interface, i.wg_network, i.wg_address, i.dns, i.h2
+                i.conn_count, i.wg_pubkey, i.wg_privkey, i.wg_interface, i.wg_network, i.wg_address, i.dns, i.h2, i.mtproto_secret
              FROM nodes n
              LEFT JOIN inbounds i ON n.id = i.node_id",
                 &[],
@@ -254,6 +256,8 @@ impl PgNode {
                         _ => None,
                     };
 
+                    let mtproto_secret = row.get::<_, Option<String>>("mtproto_secret");
+
                     let inbound = Inbound {
                         tag: row.get("tag"),
                         port: row.get::<_, i32>("port") as u16,
@@ -267,6 +271,7 @@ impl PgNode {
                         conn_count: row.get("conn_count"),
                         wg,
                         h2,
+                        mtproto_secret,
                     };
 
                     node_entry.inbounds.insert(inbound.tag, inbound);

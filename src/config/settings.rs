@@ -3,6 +3,7 @@ use crate::Result;
 use default_net::{get_default_interface, get_interfaces};
 use serde::de::DeserializeOwned;
 use serde::Deserialize;
+use serde::Serialize;
 use std::env;
 use std::fs;
 use std::net::Ipv4Addr;
@@ -143,6 +144,10 @@ fn default_web_host() -> String {
 
 fn default_h2_config_path() -> String {
     "dev/h2.yaml".to_string()
+}
+
+fn default_mtproto_port() -> u16 {
+    8443
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]
@@ -405,6 +410,15 @@ pub struct H2Config {
     pub path: String,
 }
 
+#[derive(Clone, Default, Debug, Serialize, Deserialize, PartialEq)]
+pub struct MtprotoConfig {
+    #[serde(default = "default_disabled")]
+    pub enabled: bool,
+    #[serde(default = "default_mtproto_port")]
+    pub port: u16,
+    pub secret: String,
+}
+
 #[derive(Clone, Debug, Deserialize, Default)]
 pub struct ZmqSubscriberConfig {
     #[serde(default = "default_zmq_sub_endpoint")]
@@ -511,6 +525,8 @@ pub struct AgentSettings {
     pub wg: WgConfig,
     #[serde(default)]
     pub h2: H2Config,
+    #[serde(default)]
+    pub mtproto: MtprotoConfig,
     #[serde(default)]
     pub zmq: ZmqSubscriberConfig,
     #[serde(default)]

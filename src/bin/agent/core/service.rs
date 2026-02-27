@@ -120,6 +120,13 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
         None
     };
 
+    // Init Mtproto
+    let mtproto_config = if settings.mtproto.enabled {
+        Some(settings.mtproto.clone())
+    } else {
+        None
+    };
+
     let subscriber = ZmqSubscriber::new(
         &settings.zmq.endpoint,
         &settings.node.uuid,
@@ -127,7 +134,13 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
     );
 
     let node_config = NodeConfig::from_raw(settings.node.clone());
-    let node = Node::new(node_config?, xray_config, wg_config.clone(), h2_config);
+    let node = Node::new(
+        node_config?,
+        xray_config,
+        wg_config.clone(),
+        h2_config,
+        mtproto_config,
+    );
 
     let memory: Arc<RwLock<AgentState>> =
         Arc::new(RwLock::new(MemoryCache::with_node(node.clone())));

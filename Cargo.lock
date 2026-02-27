@@ -2131,6 +2131,7 @@ dependencies = [
  "log",
  "netstat2",
  "openssl",
+ "percent-encoding",
  "postgres-types",
  "prost",
  "prost-derive",

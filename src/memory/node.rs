@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use super::tag::ProtoTag as Tag;
 use crate::config::h2::H2Settings;
-use crate::config::settings::NodeConfig;
+use crate::config::settings::{MtprotoConfig, NodeConfig};
 use crate::config::wireguard::WireguardSettings;
 use crate::config::xray::{Config as XrayConfig, Inbound};
 use crate::http::requests::NodeResponse;
@@ -74,6 +74,7 @@ impl Node {
         xray_config: Option<XrayConfig>,
         wg_config: Option<WireguardSettings>,
         h2_config: Option<H2Settings>,
+        mtproto_config: Option<MtprotoConfig>,
     ) -> Self {
         let now = Utc::now();
         let mut inbounds: HashMap<Tag, Inbound> = HashMap::new();
@@ -101,6 +102,24 @@ impl Node {
                         conn_count: None,
                         wg: wg_config,
                         h2: None,
+                        mtproto_secret: None,
+                    },
+                );
+            }
+
+            if let Some(ref config) = mtproto_config {
+                inbounds.insert(
+                    Tag::Mtproto,
+                    Inbound {
+                        port: config.port,
+                        tag: Tag::Mtproto,
+                        stream_settings: None,
+                        uplink: None,
+                        downlink: None,
+                        conn_count: None,
+                        wg: None,
+                        h2: None,
+                        mtproto_secret: Some(config.secret.clone()),
                     },
                 );
             }
@@ -117,6 +136,7 @@ impl Node {
                         conn_count: None,
                         wg: None,
                         h2: h2_config,
+                        mtproto_secret: None,
                     },
                 );
             }
@@ -189,6 +209,10 @@ impl Node {
         } else {
             Err(format!("Inbound {}  not found", tag))
         }
+    }
+
+    pub fn inbound(&self, tag: Tag) -> Option<&Inbound> {
+        self.inbounds.values().find(|i| i.tag == tag)
     }
 }
 

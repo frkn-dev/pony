@@ -1,4 +1,5 @@
 pub mod connection;
+pub mod html;
 pub mod node;
 pub mod sub;
 

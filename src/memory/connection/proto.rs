@@ -14,6 +14,7 @@ pub enum Proto {
     Shadowsocks { password: String },
     Xray(Tag),
     Hysteria2 { token: uuid::Uuid },
+    Mtproto { secret: String },
 }
 
 impl Proto {
@@ -23,6 +24,7 @@ impl Proto {
             Proto::Shadowsocks { .. } => Tag::Shadowsocks,
             Proto::Hysteria2 { .. } => Tag::Hysteria2,
             Proto::Xray(tag) => *tag,
+            Proto::Mtproto { .. } => unreachable!(),
         }
     }
 

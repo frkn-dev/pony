@@ -307,6 +307,7 @@ where
         ProtoTag::Hysteria2 => Proto::Hysteria2 {
             token: conn_req.token.unwrap(),
         },
+        ProtoTag::Mtproto => unreachable!("Mtproto handled earlier"),
     };
 
     drop(mem);

@@ -83,6 +83,7 @@ pub struct Inbound {
     pub conn_count: Option<i64>,
     pub wg: Option<WireguardSettings>,
     pub h2: Option<H2Settings>,
+    pub mtproto_secret: Option<String>,
 }
 
 impl Inbound {
@@ -93,6 +94,7 @@ impl Inbound {
             tag: self.tag,
             wg: self.wg.clone(),
             h2: self.h2.clone(),
+            mtproto_secret: self.mtproto_secret.clone(),
         }
     }
 

@@ -247,6 +247,9 @@ where
                     Tag::Hysteria2 => {
                         return Err(PonyError::Custom("Hysteria2 is not supported".into()))
                     }
+                    Tag::Mtproto => {
+                        return Err(PonyError::Custom("Mtproto is not supported".into()))
+                    }
                 }
             }
 
@@ -298,6 +301,9 @@ where
                     }
                     Tag::Hysteria2 => {
                         return Err(PonyError::Custom("Hysteria2 is not supported".into()))
+                    }
+                    Tag::Mtproto => {
+                        return Err(PonyError::Custom("Mtproto is not supported".into()))
                     }
                 }
             }

@@ -121,6 +121,14 @@ where
             .and(with_state(self.sync.clone()))
             .and_then(subscription_link_handler);
 
+        let get_mtproto_links = warp::get()
+            .and(warp::path("sub"))
+            .and(warp::path("mtproto"))
+            .and(warp::path::end())
+            .and(warp::query::<MtprotoQueryParam>())
+            .and(with_state(self.sync.clone()))
+            .and_then(mtproto_link_handler);
+
         let get_subscription_info_route = warp::get()
             .and(warp::path("sub"))
             .and(warp::path("info"))
@@ -203,6 +211,7 @@ where
             .or(get_subscription_info_route)
             .or(post_subscription_route)
             .or(put_subscription_route)
+            .or(get_mtproto_links)
             // Node
             .or(get_nodes_route)
             .or(get_node_route)

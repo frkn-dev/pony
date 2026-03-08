@@ -358,7 +358,7 @@ r#"{head}
 
 <a href="{base_link}&format=plain&proto=Hysteria2" target="_blank">Универсальная ссылка</a>
 <br>
-<button onclick="copyText('{base_link}&format=plain&proto=Hysteria2)">Скопировать ссылку</button>
+<button onclick="copyText('{base_link}&format=plain&proto=Hysteria2')">Скопировать ссылку</button>
 
 <p><b>Дополнительные форматы: </b></p>
 <ul class="proxy-list">
@@ -379,7 +379,7 @@ r#"{head}
 
 <hr> <br>
 
-<h3>BONUS TRACK: Mtproto(tg-proxy)</h3>
+<h3>BONUS TRACK: MTproto(tg-proxy)</h3>
 
 <a href="{base_link_mtproto}" target="_blank">Открыть</a>
 <br><br><br>

@@ -294,7 +294,7 @@ where
 
             Proto::Wireguard {
                 param: wg_param,
-                node_id: node_id,
+                node_id,
             }
         }
         ProtoTag::Shadowsocks => Proto::Shadowsocks {
@@ -318,8 +318,7 @@ where
         ConnectionStat::default(),
         proto,
         expired_at,
-    )
-    .into();
+    );
 
     log::debug!("New connection to create {}", conn);
     let conn_id = uuid::Uuid::new_v4();
@@ -345,11 +344,11 @@ where
 
             let _ = publisher.send_binary(&topic, bytes.as_ref()).await;
 
-            return Ok(http::success_response(
+            Ok(http::success_response(
                 format!("Connection {} has been created", id),
                 Some(id),
                 http::Instance::Connection(conn),
-            ));
+            ))
         }
 
         Ok(StorageOperationStatus::AlreadyExist(id)) => Ok(http::not_modified(&format!(
@@ -563,12 +562,12 @@ where
     let conn_id = conn_param.id;
 
     if let Some(conn) = mem.connections.get(&conn_id) {
-        return Ok(http::success_response(
+        Ok(http::success_response(
             "Connection is found".to_string(),
             Some(conn_id),
             http::Instance::Connection(conn.clone().into()),
-        ));
+        ))
     } else {
-        return Ok(http::not_found("Connection is not found"));
+        Ok(http::not_found("Connection is not found"))
     }
 }

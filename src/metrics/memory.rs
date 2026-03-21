@@ -1,6 +1,6 @@
 use sysinfo::{MemoryRefreshKind, System};
 
-use super::metrics::{AsMetric, Metric, MetricType};
+use super::{AsMetric, Metric, MetricType};
 use crate::utils::current_timestamp;
 
 struct MemUsage {
@@ -20,25 +20,25 @@ impl AsMetric for MemUsage {
                 //dev.localhost.mem.total
                 metric: format!("{env}.{hostname}.{name}.total"),
                 value: self.total,
-                timestamp: timestamp,
+                timestamp,
             },
             Metric {
                 //dev.localhost.mem.free
                 metric: format!("{env}.{hostname}.{name}.free"),
                 value: self.free,
-                timestamp: timestamp,
+                timestamp,
             },
             Metric {
                 //dev.localhost.mem.used
                 metric: format!("{env}.{hostname}.{name}.used"),
                 value: self.used,
-                timestamp: timestamp,
+                timestamp,
             },
             Metric {
                 //dev.localhost.mem.available
                 metric: format!("{env}.{hostname}.{name}.available"),
                 value: self.available,
-                timestamp: timestamp,
+                timestamp,
             },
         ]
     }
@@ -47,7 +47,7 @@ impl AsMetric for MemUsage {
 pub fn mem_metrics(env: &str, hostname: &str) -> Vec<MetricType> {
     let mut system = System::new();
 
-    let _ = system.refresh_memory_specifics(MemoryRefreshKind::nothing().with_ram());
+    system.refresh_memory_specifics(MemoryRefreshKind::nothing().with_ram());
     let mem = MemUsage {
         free: system.free_memory(),
         total: system.total_memory(),

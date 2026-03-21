@@ -15,6 +15,7 @@ use pony::SubscriptionOp;
 use super::super::Api;
 use super::filters::*;
 use super::handlers::connection::*;
+use super::handlers::key::*;
 use super::handlers::node::*;
 use super::handlers::sub::*;
 use super::rejection;
@@ -203,6 +204,33 @@ where
             .and(with_state(self.sync.clone()))
             .and_then(put_connection_handler);
 
+        // Keys Routes
+
+        let get_key_validation_route = warp::get()
+            .and(warp::path("key"))
+            .and(warp::path("validate"))
+            .and(warp::path::end())
+            .and(warp::query::<KeyQueryParams>())
+            .and(with_state(self.sync.clone()))
+            .and_then(get_key_validate_handler);
+
+        let post_key_route = warp::post()
+            .and(warp::path("key"))
+            .and(warp::path::end())
+            .and(auth.clone())
+            .and(warp::body::json())
+            .and(with_state(self.sync.clone()))
+            .and(with_param_vec(params.key_sign_token))
+            .and_then(post_key_handler);
+
+        let post_activate_key_route = warp::post()
+            .and(warp::path("key"))
+            .and(warp::path("activate"))
+            .and(warp::path::end())
+            .and(warp::body::json())
+            .and(with_state(self.sync.clone()))
+            .and_then(post_activate_key_handler);
+
         let routes = get_healthcheck_route
             // Subscription
             .or(get_subscription_connections_route)
@@ -223,6 +251,10 @@ where
             .or(post_connection_route)
             .or(delete_connection_route)
             .or(put_connection_route)
+            // Key
+            .or(get_key_validation_route)
+            .or(post_key_route)
+            .or(post_activate_key_route)
             .recover(rejection);
 
         if let Some(ipv4) = self.settings.api.address {

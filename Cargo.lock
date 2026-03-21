@@ -216,6 +216,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "base32"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "022dfe9eb35f19ebbcb51e0b40a5ab759f46ad60cadf7297e0bd085afb50e076"
+
+[[package]]
 name = "base64"
 version = "0.21.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2116,17 +2122,20 @@ version = "0.2.7"
 dependencies = [
  "anyhow",
  "async-trait",
+ "base32",
  "base64 0.22.1",
  "chrono",
  "clap",
  "clickhouse",
  "config",
  "console-subscriber",
+ "data-encoding",
  "default-net",
  "defguard_wireguard_rs",
  "fern",
  "futures",
  "hex",
+ "hmac",
  "ipnet",
  "log",
  "netstat2",
@@ -2143,6 +2152,7 @@ dependencies = [
  "serde_json",
  "serde_urlencoded",
  "serde_yaml",
+ "sha2",
  "sysinfo",
  "thiserror 2.0.12",
  "time",

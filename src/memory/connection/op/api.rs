@@ -21,7 +21,7 @@ impl Operations for Conn {
     }
 
     fn get_subscription_id(&self) -> Option<uuid::Uuid> {
-        self.subscription_id.clone()
+        self.subscription_id
     }
     fn set_subscription_id(&mut self, subscription_id: &uuid::Uuid) {
         self.subscription_id = Some(*subscription_id);
@@ -52,12 +52,12 @@ impl Operations for Conn {
         let sub_id = self.subscription_id;
 
         Message {
-            conn_id: (*conn_id).into(),
+            conn_id: (*conn_id),
             subscription_id: sub_id,
             action: Action::Create,
             password,
             token,
-            tag: tag,
+            tag,
             wg,
             expires_at: expires_at.map(Into::into),
         }
@@ -85,12 +85,12 @@ impl Operations for Conn {
         let sub_id = self.subscription_id;
 
         Message {
-            conn_id: (*conn_id).into(),
+            conn_id: (*conn_id),
             subscription_id: sub_id,
             action: Action::Update,
             password,
             token,
-            tag: tag,
+            tag,
             wg,
             expires_at: expires_at.map(Into::into),
         }
@@ -118,12 +118,12 @@ impl Operations for Conn {
         let sub_id = self.subscription_id;
 
         Message {
-            conn_id: (*conn_id).into(),
+            conn_id: (*conn_id),
             subscription_id: sub_id,
             action: Action::Delete,
             password,
             token,
-            tag: tag,
+            tag,
             wg,
             expires_at: expires_at.map(Into::into),
         }

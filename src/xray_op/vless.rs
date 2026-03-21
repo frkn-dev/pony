@@ -27,7 +27,7 @@ impl ConnInfo {
             email: format!("{}@{}", uuid, "pony"),
             uuid: *uuid,
             encryption: Some("none".to_string()),
-            flow: flow,
+            flow,
         }
     }
 }
@@ -52,7 +52,7 @@ impl fmt::Display for ConnFlow {
 #[async_trait::async_trait]
 impl ProtocolConn for ConnInfo {
     fn tag(&self) -> Tag {
-        self.in_tag.clone()
+        self.in_tag
     }
     fn email(&self) -> String {
         self.email.clone()
@@ -104,10 +104,10 @@ pub fn vless_xtls_conn(
         .append_pair("security", "reality")
         .append_pair("flow", "xtls-rprx-vision")
         .append_pair("type", "tcp")
-        .append_pair("sni", &sni)
+        .append_pair("sni", sni)
         .append_pair("fp", "chrome")
         .append_pair("pbk", &pbk)
-        .append_pair("sid", &sid);
+        .append_pair("sid", sid);
 
     url.set_fragment(Some(&format!("{} XTLS", label)));
 

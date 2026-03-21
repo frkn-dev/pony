@@ -35,14 +35,7 @@ impl Subscriber {
 
         Self {
             socket: Arc::new(Mutex::new(socket)),
-            topics: topics,
-        }
-    }
-
-    pub fn clone(&self) -> Self {
-        Self {
-            socket: Arc::clone(&self.socket),
-            topics: self.topics.clone(),
+            topics,
         }
     }
 
@@ -82,6 +75,15 @@ impl Subscriber {
                 log::error!("ZMQ recv_multipart join error: {}", e);
                 None
             }
+        }
+    }
+}
+
+impl Clone for Subscriber {
+    fn clone(&self) -> Self {
+        Self {
+            socket: Arc::clone(&self.socket),
+            topics: self.topics.clone(),
         }
     }
 }

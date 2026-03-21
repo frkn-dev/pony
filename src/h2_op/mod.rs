@@ -38,11 +38,11 @@ pub fn hysteria2_conn(
 
             url.set_fragment(Some(label));
 
-            return Ok(url.to_string());
+            Ok(url.to_string())
         } else {
-            Err(PonyError::Custom("Token is not valid".to_string()).into())
+            Err(PonyError::Custom("Token is not valid".to_string()))
         }
     } else {
-        Err(PonyError::Custom("H2 Inbound is not valid".to_string()).into())
+        Err(PonyError::Custom("H2 Inbound is not valid".to_string()))
     }
 }

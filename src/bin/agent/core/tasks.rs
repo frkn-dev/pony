@@ -81,7 +81,7 @@ where
             let mut aligned = AlignedVec::new();
             aligned.extend_from_slice(&payload_bytes);
 
-            let archived = match { rkyv::check_archived_root::<Vec<Message>>(&aligned) } {
+            let archived = match rkyv::check_archived_root::<Vec<Message>>(&aligned) {
                 Ok(a) => a,
                 Err(e) => {
                     log::error!("SUB: Invalid rkyv root: {:?}", e);
@@ -109,7 +109,7 @@ where
     async fn handle_message(&self, msg: Message) -> Result<()> {
         match msg.action {
             Action::Create | Action::Update => {
-                let conn_id: uuid::Uuid = msg.conn_id.clone().into();
+                let conn_id: uuid::Uuid = msg.conn_id;
 
                 match msg.tag {
                     Tag::Wireguard => {
@@ -178,7 +178,9 @@ where
                         );
 
                         let client = self.xray_handler_client.as_ref().ok_or_else(|| {
-                            PonyError::Grpc(Status::unavailable("Xray handler unavailable"))
+                            PonyError::Grpc(Box::new(Status::unavailable(
+                                "Xray handler unavailable",
+                            )))
                         })?;
 
                         client
@@ -214,7 +216,9 @@ where
                             );
 
                             let client = self.xray_handler_client.as_ref().ok_or_else(|| {
-                                PonyError::Grpc(Status::unavailable("Xray handler unavailable"))
+                                PonyError::Grpc(Box::new(Status::unavailable(
+                                    "Xray handler unavailable",
+                                )))
                             })?;
 
                             client
@@ -255,7 +259,7 @@ where
 
             Action::Delete => {
                 let tag = msg.tag;
-                let conn_id = msg.conn_id.clone().into();
+                let conn_id = msg.conn_id;
                 match tag {
                     Tag::Wireguard => {
                         let wg_api = self.wg_client.as_ref().ok_or_else(|| {
@@ -281,7 +285,9 @@ where
                     | Tag::Vmess
                     | Tag::Shadowsocks => {
                         let client = self.xray_handler_client.as_ref().ok_or_else(|| {
-                            PonyError::Grpc(Status::unavailable("Xray handler unavailable"))
+                            PonyError::Grpc(Box::new(Status::unavailable(
+                                "Xray handler unavailable",
+                            )))
                         })?;
 
                         client
@@ -309,7 +315,7 @@ where
             }
 
             Action::ResetStat => {
-                self.reset_stat(&msg.conn_id.clone().into())
+                self.reset_stat(&msg.conn_id)
                     .await
                     .map_err(|e| PonyError::Custom(format!("Couldn't reset stat: {}", e)))?;
                 log::debug!("Reset stat for {}", msg.conn_id);

@@ -64,15 +64,15 @@ where
     log::debug!("Auth req {} {} {}", req.auth, req.addr, req.tx);
     let mem = memory.read().await;
     if let Some(id) = mem.connections.validate_token(&req.auth) {
-        return Ok(warp::reply::json(&AuthResponse {
+        Ok(warp::reply::json(&AuthResponse {
             ok: true,
             id: Some(id.to_string()),
-        }));
+        }))
     } else {
-        return Ok(warp::reply::json(&AuthResponse {
+        Ok(warp::reply::json(&AuthResponse {
             ok: false,
             id: None,
-        }));
+        }))
     }
 }
 
@@ -120,9 +120,9 @@ where
         let env = node.env;
 
         let conn_type_param = ConnTypeParam {
-            proto: proto,
-            last_update: last_update,
-            env: env,
+            proto,
+            last_update,
+            env,
         };
 
         let mut endpoint_url = Url::parse(&endpoint)?;
@@ -147,9 +147,10 @@ where
             Ok(())
         } else {
             log::error!("Connections Request failed: {} - {}", status, body);
-            Err(PonyError::Custom(
-                format!("Connections Request failed: {} - {}", status, body).into(),
-            ))
+            Err(PonyError::Custom(format!(
+                "Connections Request failed: {} - {}",
+                status, body
+            )))
         }
     }
 }

@@ -22,7 +22,7 @@ impl ConnInfo {
             in_tag: Tag::Shadowsocks,
             level: 0,
             email: format!("{}@{}", uuid, "pony"),
-            password: password,
+            password,
             cipher_type: "chacha20-ietf-poly1305".to_string(),
         }
     }
@@ -31,7 +31,7 @@ impl ConnInfo {
 #[async_trait::async_trait]
 impl ProtocolConn for ConnInfo {
     fn tag(&self) -> Tag {
-        self.in_tag.clone()
+        self.in_tag
     }
     fn email(&self) -> String {
         self.email.clone()

@@ -63,7 +63,7 @@ where
     let sub_id = uuid::Uuid::new_v4();
     let expires_at: Option<DateTime<Utc>> = sub_req
         .days
-        .map(|days| Utc::now() + chrono::Duration::days(days.into()));
+        .map(|days| Utc::now() + chrono::Duration::days(days));
 
     let ref_code = sub_req
         .refer_code
@@ -294,7 +294,7 @@ where
     let bonus_days = if let Some(days) = sub.bonus_days() {
         format!("{}", days)
     } else {
-        format!("0")
+        "0".to_string()
     };
 
     let base_link = format!("{}/sub?id={}&env={}", host, id, env);
@@ -313,14 +313,30 @@ r#"{head}
 <h1>Подписка на Рилзопровод</h1>
 
 <div class="stat">Статус: <span class="{status_class}">{status_text}</span></div>
-<div class="stat">Дата окончания: {expires}</div>
-<div class="stat">Осталось дней: {days}</div>
+<div class="stat">Дата окончания: <span id="expires">{expires}</span></div>
+<div class="stat">Осталось дней: <span id="days">{days}</span>
+&nbsp;&nbsp;
+<a href="{web_host}/activation-keys.html" target="_blank" class="small">
+        Докинуть дней
+    </a>
 <div class="small-id">Id: <b>{subscription_id}</b></div>
-
-
+<hr>
+<div class="stat">Трафик: ↓ {down_str} &nbsp;&nbsp; ↑ {up_str}</div>
 <hr>
 
-<div class="stat">Трафик: ↓ {down_str} &nbsp;&nbsp; ↑ {up_str}</div>
+<div class="key">
+<h3>Активировать ключ</h3>
+
+<div class="stat">
+    <input id="keyInput" placeholder="XXXXX-XXXXX-XXXXX-XXXXX-XXXXX-X" style="padding:8px; width:270px;" />
+    <button onclick="activateKey()">Активировать</button><br><br>
+    &nbsp;&nbsp; <a href="{web_host}/activation-keys.html" target="_blank" class="small">
+           &nbsp;&nbsp;&nbsp;&nbsp;Что такое ключ активации и где его взять?
+       </a>
+</div>
+
+<div id="keyResult" class="small"></div>
+</div>
 <hr>
 
 <h3>Ссылки для подключения</h3>
@@ -377,7 +393,7 @@ r#"{head}
 <li> Shadowrocket, hiddify, v2rayN</li>
 </ul>
 
-<hr> <br>
+<br><br><br><hr>
 
 <h3>BONUS TRACK: MTproto(tg-proxy)</h3>
 
@@ -385,6 +401,8 @@ r#"{head}
 <br><br><br>
 
 <hr>
+
+
 
 <h3>Реферальная программа</h3>
 <div class="stat">Ваш реферальный код: <b>{ref}</b>
@@ -405,6 +423,51 @@ r#"{head}
 <script src="https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js"></script>
 
 <script>
+
+async function activateKey() {{
+    const key = document.getElementById("keyInput").value;
+    const resultEl = document.getElementById("keyResult");
+
+    if (!key) {{
+        resultEl.innerText = "Введите ключ";
+        return;
+    }}
+
+    try {{
+        const res = await fetch("/key/activate", {{
+            method: "POST",
+            headers: {{
+                "Content-Type": "application/json"
+            }},
+            body: JSON.stringify({{
+                code: key,
+                subscription_id: "{subscription_id}"
+            }})
+        }});
+
+        const data = await res.json();
+
+        if (res.ok && data.status === 200 && data.response) {{
+            const {{ days, expires_at }} = data.response;
+
+            if (days && expires_at) {{
+                document.getElementById("days").innerText = days;
+                document.getElementById("expires").innerText = expires_at;
+            }}
+            setTimeout(() => location.reload(), 1000);
+            const key = data.response?.instance?.Key;
+            if (key) {{
+                const addedDays = key.days;
+                resultEl.innerText = `✅ Ключ активирован! +${{addedDays}} дней`;
+            }}
+        }} else {{
+            resultEl.innerText = "❌ " + data.message;
+        }}
+    }} catch (e) {{
+        resultEl.innerText = "Ошибка сети";
+    }}
+}}
+
 function copyText(text) {{
     navigator.clipboard.writeText(text).then(() => {{
         alert("Скопировано");
@@ -493,16 +556,14 @@ where
     };
 
     match connections {
-        None => {
-            return Ok(http::not_found(&format!(
-                "Connections {}  are not found",
-                sub_param.id
-            )));
-        }
+        None => Ok(http::not_found(&format!(
+            "Connections {}  are not found",
+            sub_param.id
+        ))),
         Some(c) => {
             let cons: Vec<_> = c
                 .iter()
-                .filter(|(_id, conn)| conn.get_deleted() == false)
+                .filter(|(_id, conn)| !conn.get_deleted())
                 .filter(|(_id, conn)| conn.get_env() == env)
                 .map(|(id, conn)| (*id, conn.clone().into()))
                 .collect();
@@ -641,7 +702,7 @@ where
                 .status(StatusCode::OK)
                 .body(yaml);
 
-            return Ok(Box::new(response));
+            Ok(Box::new(response))
         }
 
         "txt" => {
@@ -662,10 +723,10 @@ where
 
             let body = links.join("\n");
 
-            return Ok(Box::new(warp::reply::with_status(
+            Ok(Box::new(warp::reply::with_status(
                 warp::reply::with_header(body, "Content-Type", "text/plain"),
                 StatusCode::OK,
-            )));
+            )))
         }
 
         _ => {
@@ -687,10 +748,10 @@ where
             let sub = base64::engine::general_purpose::STANDARD.encode(links.join("\n"));
             let body = format!("{}\n", sub);
 
-            return Ok(Box::new(warp::reply::with_status(
+            Ok(Box::new(warp::reply::with_status(
                 warp::reply::with_header(body, "Content-Type", "text/plain"),
                 StatusCode::OK,
-            )));
+            )))
         }
     }
 }

@@ -20,7 +20,7 @@ pub async fn rejection(reject: Rejection) -> Result<impl Reply, Rejection> {
             error_response,
             StatusCode::METHOD_NOT_ALLOWED,
         ))
-    } else if let Some(_) = reject.find::<AuthError>() {
+    } else if reject.find::<AuthError>().is_some() {
         let error_response = warp::reply::json(&serde_json::json!({
             "error": "UNAUTHORIZED"
         }));

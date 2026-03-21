@@ -49,13 +49,13 @@ impl WireguardSettings {
             .collect();
 
         Self {
-            pubkey: pubkey,
-            privkey: privkey,
+            pubkey,
+            privkey,
             interface: config.interface.clone(),
-            network: network,
+            network,
             port: config.port,
-            address: address,
-            dns: dns,
+            address,
+            dns,
         }
     }
 }

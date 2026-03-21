@@ -23,11 +23,10 @@ pub enum Status {
 
 impl PartialEq for Status {
     fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (Status::Online, Status::Online) => true,
-            (Status::Offline, Status::Offline) => true,
-            _ => false,
-        }
+        matches!(
+            (self, other),
+            (Status::Online, Status::Online) | (Status::Offline, Status::Offline)
+        )
     }
 }
 
@@ -152,7 +151,7 @@ impl Node {
             label: settings.label,
             interface: settings.default_interface,
             modified_at: now,
-            inbounds: inbounds,
+            inbounds,
             cores: settings.cores,
             max_bandwidth_bps: settings.max_bandwidth_bps,
         }

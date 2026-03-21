@@ -3,7 +3,7 @@ use std::thread::sleep;
 use std::time::Duration;
 use sysinfo::{CpuRefreshKind, RefreshKind, System};
 
-use super::metrics::{AsMetric, Metric, MetricType};
+use super::{AsMetric, Metric, MetricType};
 use crate::utils::{current_timestamp, round_to_two_decimal_places};
 
 struct CpuUsage<'a> {
@@ -60,9 +60,7 @@ pub fn cpu_metrics(env: &str, hostname: &str) -> Vec<MetricType> {
             name: cpu.name(),
             usage: round_to_two_decimal_places(cpu.cpu_usage()),
         })
-        .into_iter()
-        .map(|cpu| cpu.as_metric(cpu.name, env, hostname))
-        .flatten()
+        .flat_map(|cpu| cpu.as_metric(cpu.name, env, hostname))
         .collect();
 
     cpu_metrics

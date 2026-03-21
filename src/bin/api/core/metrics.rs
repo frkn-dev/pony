@@ -4,8 +4,8 @@ use pony::metrics::cpuusage::cpu_metrics;
 use pony::metrics::heartbeat::heartbeat_metrics;
 use pony::metrics::loadavg::loadavg_metrics;
 use pony::metrics::memory::mem_metrics;
-use pony::metrics::metrics::Metric;
-use pony::metrics::metrics::MetricType;
+use pony::metrics::Metric;
+use pony::metrics::MetricType;
 use pony::metrics::Metrics;
 use pony::Connection;
 use pony::ConnectionApiOp;
@@ -52,7 +52,7 @@ where
 
     async fn collect_hb_metrics<M>(&self) -> MetricType {
         if let Some(hostname) = &self.settings.node.hostname {
-            heartbeat_metrics(&self.settings.node.env, &self.settings.node.uuid, &hostname)
+            heartbeat_metrics(&self.settings.node.env, &self.settings.node.uuid, hostname)
         } else {
             MetricType::F64(Metric::new(
                 "hb.unknown".into(),

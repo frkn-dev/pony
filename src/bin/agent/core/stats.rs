@@ -138,9 +138,9 @@ where
         log::debug!("conn_stats {:?}", conn_id);
 
         let (downlink_result, uplink_result, online_result) = tokio::join!(
-            self.stat(conn_id.clone(), Stat::Conn(StatKind::Downlink), false),
-            self.stat(conn_id.clone(), Stat::Conn(StatKind::Uplink), false),
-            self.stat(conn_id.clone(), Stat::Conn(StatKind::Online), false)
+            self.stat(conn_id, Stat::Conn(StatKind::Downlink), false),
+            self.stat(conn_id, Stat::Conn(StatKind::Uplink), false),
+            self.stat(conn_id, Stat::Conn(StatKind::Online), false)
         );
 
         match (downlink_result, uplink_result, online_result) {
@@ -184,22 +184,20 @@ where
 
     async fn inbound_stats(&self, inbound: Prefix) -> Result<InboundStat, Status> {
         let downlink_result = self
-            .stat(inbound.clone(), Stat::Inbound(StatKind::Downlink), false)
+            .stat(inbound, Stat::Inbound(StatKind::Downlink), false)
             .await;
 
         let uplink_result = self
-            .stat(inbound.clone(), Stat::Inbound(StatKind::Uplink), false)
+            .stat(inbound, Stat::Inbound(StatKind::Uplink), false)
             .await;
 
-        let conn_count_result = self.conn_count(inbound.as_tag().unwrap().clone()).await;
+        let conn_count_result = self.conn_count(*inbound.as_tag().unwrap()).await;
 
         match (downlink_result, uplink_result, conn_count_result) {
             (Ok(downlink), Ok(uplink), Ok(conn_count)) => {
-                if let (Some(downlink), Some(uplink), Some(conn_count)) = (
-                    downlink.stat.clone(),
-                    uplink.stat.clone(),
-                    conn_count.clone(),
-                ) {
+                if let (Some(downlink), Some(uplink), Some(conn_count)) =
+                    (downlink.stat.clone(), uplink.stat.clone(), conn_count)
+                {
                     log::debug!(
                     "Node Stats successfully fetched: inbound={:?}, downlink={:?}, uplink={:?}, conn_count={:?} ",
                     inbound, downlink, uplink, conn_count
@@ -207,7 +205,7 @@ where
                     Ok(InboundStat {
                         downlink: downlink.value,
                         uplink: uplink.value,
-                        conn_count: conn_count,
+                        conn_count,
                     })
                 } else {
                     let error_msg = format!(
@@ -241,7 +239,7 @@ where
     async fn conn_count(&self, inbound: Tag) -> Result<Option<i64>, Status> {
         if let Some(client) = &self.xray_handler_client {
             let mut handler_client = client.lock().await;
-            match handler_client.conn_count_op(inbound.clone()).await {
+            match handler_client.conn_count_op(inbound).await {
                 Ok(count) => Ok(Some(count)),
                 Err(e) => Err(Status::internal(format!(
                     "Failed to fetch conn count for inbound {}: {}",
@@ -280,9 +278,7 @@ where
         env: String,
         node_uuid: uuid::Uuid,
     ) -> PonyResult<()> {
-        let inbound_stat = self
-            .inbound_stats(Prefix::InboundPrefix(tag.clone()))
-            .await?;
+        let inbound_stat = self.inbound_stats(Prefix::InboundPrefix(tag)).await?;
         let mut mem = self.memory.write().await;
         let _ = mem
             .nodes
@@ -324,10 +320,7 @@ where
                 let env = node.env.clone();
                 let node_uuid = node.uuid;
                 tasks.push(tokio::spawn(async move {
-                    if let Err(e) = agent
-                        .collect_inbound_stats(tag.clone(), env, node_uuid)
-                        .await
-                    {
+                    if let Err(e) = agent.collect_inbound_stats(tag, env, node_uuid).await {
                         log::error!("Failed to collect stats for inbound {}: {}", tag.clone(), e);
                     }
                 }));

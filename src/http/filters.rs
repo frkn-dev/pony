@@ -11,7 +11,7 @@ pub fn auth(token: Arc<String>) -> impl Filter<Extract = (), Error = Rejection> 
             async move {
                 if auth_header
                     .strip_prefix("Bearer ")
-                    .map_or(false, |t| t == token.as_str())
+                    .is_some_and(|t| t == token.as_str())
                 {
                     Ok(())
                 } else {

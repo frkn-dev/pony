@@ -30,7 +30,7 @@ impl Subscription {
     ) -> Subscription {
         let now = Utc::now();
         Self {
-            id: id,
+            id,
             expires_at: exp_at,
             referred_by: ref_by,
             refer_code: ref_code,
@@ -50,10 +50,10 @@ impl Default for Subscription {
         let refer_code = get_uuid_last_octet_simple(&id);
 
         Self {
-            id: id,
+            id,
             expires_at: None,
             referred_by: None,
-            refer_code: refer_code,
+            refer_code,
             bonus_days: None,
             created_at: now,
             updated_at: now,
@@ -139,11 +139,7 @@ impl Subscription {
             99999
         };
 
-        let bonus_days = if let Some(days) = self.bonus_days {
-            days
-        } else {
-            0
-        };
+        let bonus_days = self.bonus_days.unwrap_or(0);
 
         SubscriptionStats {
             id: self.id,
@@ -208,15 +204,12 @@ impl Operations for Subscription {
 
     fn days_remaining(&self) -> Option<i64> {
         let now = Utc::now();
-        if let Some(expires_at) = self.expires_at {
-            Some((expires_at - now).num_days())
-        } else {
-            None
-        }
+        self.expires_at
+            .map(|expires_at| (expires_at - now).num_days())
     }
 
     fn bonus_days(&self) -> Option<i32> {
-        self.bonus_days.clone()
+        self.bonus_days
     }
 
     fn set_bonus_days(&mut self, days: i32) {

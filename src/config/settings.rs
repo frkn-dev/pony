@@ -84,6 +84,11 @@ fn default_api_web_port() -> u16 {
 fn default_api_token() -> String {
     "token".to_string()
 }
+
+fn default_key_sign_token() -> Vec<u8> {
+    b"sign-token".to_vec()
+}
+
 fn default_label() -> String {
     "🏴‍☠️🏴‍☠️🏴‍☠️ dev".to_string()
 }
@@ -180,6 +185,8 @@ pub struct ApiServiceConfig {
     pub subscription_expire_interval: u64,
     #[serde(default = "default_node_healthcheck_timeout")]
     pub node_health_check_timeout: i16,
+    #[serde(default = "default_key_sign_token")]
+    pub key_sign_token: Vec<u8>,
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]
@@ -297,9 +304,10 @@ impl NodeConfig {
                 if let Some(_interface) = interfaces.iter().find(|i| &i.name == interface_name) {
                     interface_name.clone()
                 } else {
-                    return Err(PonyError::Custom(
-                        format!("Validation error: Interface {} not found", interface_name).into(),
-                    ));
+                    return Err(PonyError::Custom(format!(
+                        "Validation error: Interface {} not found",
+                        interface_name
+                    )));
                 }
             } else {
                 match get_default_interface() {
@@ -328,9 +336,10 @@ impl NodeConfig {
                     }
                 }
             } else {
-                return Err(PonyError::Custom(
-                    format!("Validation error: Interface {} not found", interface_name).into(),
-                ));
+                return Err(PonyError::Custom(format!(
+                    "Validation error: Interface {} not found",
+                    interface_name
+                )));
             }
         } else {
             // Ни адрес, ни интерфейс не указаны - используем дефолтный интерфейс
@@ -354,9 +363,9 @@ impl NodeConfig {
 
         Ok(NodeConfig {
             env: raw.env,
-            hostname: hostname,
+            hostname,
             default_interface: interface,
-            address: address,
+            address,
             uuid: raw.uuid,
             label: raw.label,
             max_bandwidth_bps: raw.max_bandwidth_bps,

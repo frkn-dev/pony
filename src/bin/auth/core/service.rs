@@ -79,7 +79,7 @@ pub async fn run(settings: AuthServiceSettings) -> Result<()> {
         }
     });
 
-    let _ = {
+    {
         log::info!("ZMQ listener starting...");
 
         let zmq_task = tokio::spawn({
@@ -97,7 +97,7 @@ pub async fn run(settings: AuthServiceSettings) -> Result<()> {
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
     };
 
-    let _ = {
+    {
         let settings = settings.clone();
         if let Err(e) = auth
             .get_connections(
@@ -112,7 +112,7 @@ pub async fn run(settings: AuthServiceSettings) -> Result<()> {
         }
     };
 
-    let _ = {
+    {
         let mut shutdown = shutdown_tx.subscribe();
         let memory = memory.clone();
         let addr = settings

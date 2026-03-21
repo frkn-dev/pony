@@ -7,7 +7,7 @@ use std::fmt;
 
 use crate::memory::connection::wireguard::Param as WgParam;
 
-#[derive(Archive, Deserialize, Serialize, Debug, Clone)]
+#[derive(Archive, Deserialize, Serialize, Debug, Clone, SerdeDes)]
 #[archive(check_bytes)]
 #[archive_attr(derive(Debug))]
 pub struct RkyvDateTime {
@@ -50,7 +50,7 @@ impl fmt::Display for Action {
     }
 }
 
-#[derive(Archive, Serialize, Deserialize, Clone, Debug)]
+#[derive(Archive, Serialize, Deserialize, Clone, Debug, SerdeDes)]
 #[archive(check_bytes)]
 pub struct Message {
     pub conn_id: uuid::Uuid,

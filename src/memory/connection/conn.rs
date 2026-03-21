@@ -25,21 +25,21 @@ pub struct Conn {
 
 impl fmt::Display for Conn {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Connection {{\n")?;
+        writeln!(f, "Connection {{")?;
 
         if let Some(subscription_id) = self.subscription_id {
-            write!(f, "  subscription_id: {},\n", subscription_id)?;
+            writeln!(f, "  subscription_id: {},", subscription_id)?;
         } else {
-            write!(f, "  subscription_id: None,\n")?;
+            writeln!(f, "  subscription_id: None,")?;
         }
-        write!(f, "  env: {},\n", self.env)?;
-        write!(f, "  conn stat: {}\n", self.stat)?;
-        write!(f, "  created_at: {},\n", self.created_at)?;
-        write!(f, "  modified_at: {},\n", self.modified_at)?;
-        write!(f, "  expired_at: {:?},\n", self.expired_at)?;
-        write!(f, "  proto: {:?},\n", self.proto)?;
-        write!(f, "  deleted: {}\n", self.is_deleted)?;
-        write!(f, "}}")
+        writeln!(f, "  env: {},", self.env)?;
+        writeln!(f, "  conn stat: {},", self.stat)?;
+        writeln!(f, "  created_at: {},", self.created_at)?;
+        writeln!(f, "  modified_at: {},", self.modified_at)?;
+        writeln!(f, "  expired_at: {:?},", self.expired_at)?;
+        writeln!(f, "  proto: {:?},", self.proto)?;
+        writeln!(f, "  deleted: {}", self.is_deleted)?;
+        writeln!(f, "}}")
     }
 }
 
@@ -65,12 +65,12 @@ impl Conn {
 
         Self {
             env: env.to_string(),
-            stat: stat,
+            stat,
             created_at: now,
             modified_at: now,
-            expired_at: expired_at,
-            proto: proto,
-            subscription_id: subscription_id,
+            expired_at,
+            proto,
+            subscription_id,
             is_deleted: false,
         }
     }

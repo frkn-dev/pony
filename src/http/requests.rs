@@ -204,3 +204,20 @@ pub struct ConnUpdateRequest {
     pub is_deleted: Option<bool>,
     pub days: Option<i64>,
 }
+
+#[derive(Serialize, Deserialize)]
+pub struct KeyQueryParams {
+    pub key: String,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct KeyReq {
+    pub days: i16,
+    pub distributor: Option<String>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct ActivateKeyReq {
+    pub code: String,
+    pub subscription_id: uuid::Uuid,
+}

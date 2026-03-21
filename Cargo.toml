@@ -2,10 +2,10 @@
 name = "pony"
 version = "0.2.7"
 edition = "2021"
-build = "build.rs" 
+build = "build.rs"
 
 [profile.release]
-strip = true 
+strip = true
 debug = false
 lto = true
 codegen-units = 1
@@ -18,9 +18,10 @@ strip = true
 anyhow = "1"
 async-trait = "0.1"
 base64 = "0.22"
+base32 = "0.5.1"
 chrono = { version = "0.4", features = ["serde", "rkyv"] }
 config = "0.14"
-console-subscriber = {version = "0.4", optional = true} 
+console-subscriber = {version = "0.4", optional = true}
 clickhouse = { version = "0.13.0" }
 clap = { version = "4.4", features = ["derive"] }
 defguard_wireguard_rs = {version = "0.7.2", features=["serde"]}
@@ -30,7 +31,7 @@ futures = "0.3"
 hex = "0.4"
 ipnet = { version = "2", features=["serde"] }
 log = "0.4"
-netstat2 = { version = "0.11.1" } 
+netstat2 = { version = "0.11.1" }
 openssl = { version = "0.10", features = ["vendored"] }
 percent-encoding = "2"
 prost = { version = "0.13" }
@@ -57,6 +58,9 @@ qrcode = "0.14"
 zmq = "0.10"
 warp = "0.3"
 x25519-dalek =  { version = "2", features = ["static_secrets"] }
+hmac = "0.12"
+sha2 = "0.10"
+data-encoding = "2.5"
 
 
 [build-dependencies]
@@ -64,8 +68,8 @@ tonic-build = "0.12"
 walkdir = "2.0"
 
 [dev-dependencies]
-tracing = "0.1" 
-tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] } 
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
 tokio-util = "0.7"
 
 [features]
@@ -88,5 +92,3 @@ path = "src/bin/auth/main.rs"
 [[bin]]
 name = "utils"
 path = "src/bin/utils.rs"
-
-

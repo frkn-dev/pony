@@ -36,7 +36,7 @@ impl Base {
             stat: ConnectionStat::default(),
             created_at: now,
             modified_at: now,
-            expired_at: expired_at,
+            expired_at,
             subscription_id: sub_id,
             proto,
             is_deleted: false,

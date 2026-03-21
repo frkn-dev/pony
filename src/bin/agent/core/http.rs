@@ -50,9 +50,9 @@ where
         let env = node.env;
 
         let conn_type_param = ConnTypeParam {
-            proto: proto,
-            last_update: last_update,
-            env: env,
+            proto,
+            last_update,
+            env,
         };
 
         let mut endpoint_url = Url::parse(&endpoint)?;
@@ -77,9 +77,10 @@ where
             Ok(())
         } else {
             log::error!("Connections Request failed: {} - {}", status, body);
-            Err(PonyError::Custom(
-                format!("Connections Request failed: {} - {}", status, body).into(),
-            ))
+            Err(PonyError::Custom(format!(
+                "Connections Request failed: {} - {}",
+                status, body
+            )))
         }
     }
 
@@ -131,9 +132,10 @@ where
             Ok(())
         } else {
             log::error!("Registration failed: {} - {}", status, body);
-            Err(PonyError::Custom(
-                format!("Registration failed: {} - {}", status, body).into(),
-            ))
+            Err(PonyError::Custom(format!(
+                "Registration failed: {} - {}",
+                status, body
+            )))
         }
     }
 }

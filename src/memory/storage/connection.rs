@@ -29,6 +29,7 @@ where
     C: Clone + Send + Sync + 'static,
 {
     fn len(&self) -> usize;
+    fn is_empty(&self) -> bool;
     fn add(&mut self, conn_id: &uuid::Uuid, new_conn: C) -> Result<OperationStatus>;
     fn remove(&mut self, conn_id: &uuid::Uuid) -> Result<()>;
     fn get(&self, conn_id: &uuid::Uuid) -> Option<C>;
@@ -47,6 +48,10 @@ where
 {
     fn len(&self) -> usize {
         self.0.len()
+    }
+
+    fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 
     fn validate_token(&self, token: &uuid::Uuid) -> Option<uuid::Uuid> {

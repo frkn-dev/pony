@@ -1,6 +1,6 @@
 use sysinfo::{LoadAvg, System};
 
-use super::metrics::{AsMetric, Metric, MetricType};
+use super::{AsMetric, Metric, MetricType};
 use crate::utils::current_timestamp;
 
 struct LoadAvgWrapper {
@@ -17,19 +17,19 @@ impl AsMetric for LoadAvgWrapper {
                 //dev.localhost.loadavg.1m
                 metric: format!("{env}.{hostname}.{name}.1m"),
                 value: self.load_avg.one,
-                timestamp: timestamp,
+                timestamp,
             },
             Metric {
                 //dev.localhost.loadavg.5m
                 metric: format!("{env}.{hostname}.{name}.5m"),
                 value: self.load_avg.five,
-                timestamp: timestamp,
+                timestamp,
             },
             Metric {
                 //dev.localhost.loadavg.15m
                 metric: format!("{env}.{hostname}.{name}.15m"),
                 value: self.load_avg.fifteen,
-                timestamp: timestamp,
+                timestamp,
             },
         ]
     }

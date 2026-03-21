@@ -2,10 +2,11 @@ use serde::Serialize;
 use warp::http::StatusCode;
 use warp::reply::Json;
 
-use crate::Connection;
-use crate::ConnectionStat;
-use crate::Subscription;
-use crate::Tag;
+use crate::memory::connection::conn::Conn as Connection;
+use crate::memory::connection::stat::Stat as ConnectionStat;
+use crate::memory::key::Key;
+use crate::memory::subscription::Subscription;
+use crate::memory::tag::ProtoTag as Tag;
 
 pub fn bad_request(msg: &str) -> warp::reply::WithStatus<Json> {
     let resp = ResponseMessage::<Option<uuid::Uuid>> {
@@ -84,5 +85,6 @@ pub enum Instance {
     Subscription(Subscription),
     Stat(Vec<(uuid::Uuid, ConnectionStat, Tag)>),
     Connections(Vec<(uuid::Uuid, Connection)>),
+    Key(Key),
     None,
 }

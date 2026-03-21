@@ -9,14 +9,14 @@ CREATE TABLE connections (
     env TEXT NOT NULL,
     created_at TIMESTAMP DEFAULT NOW(),
     modified_at TIMESTAMP DEFAULT NOW(),
-    daily_limit_mb INTEGER DEFAULT 1000,   
+    daily_limit_mb INTEGER DEFAULT 1000,
     password TEXT NOT NULL,
     is_trial bool NOT NULL,
     online BIGINT NOT NULL DEFAULT 0,
     uplink BIGINT NOT NULL DEFAULT 0,
-    downlink BIGINT NOT NULL DEFAULT 0,   
-    status conn_status NOT NULL, 
-    proto proto NOT NULL  
+    downlink BIGINT NOT NULL DEFAULT 0,
+    status conn_status NOT NULL,
+    proto proto NOT NULL
 );
 
 
@@ -27,7 +27,7 @@ CREATE TABLE nodes (
     address INET NOT NULL,
     status node_status NOT NULL,
     uuid UUID NOT NULL,
-    inbounds JSONB NOT NULL, 
+    inbounds JSONB NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     modified_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     label TEXT NOT NULL,
@@ -69,7 +69,7 @@ CREATE TABLE inbounds (
     wg_pubkey TEXT,
     wg_privkey TEXT,
     wg_interface TEXT,
-    wg_network TEXT, 
+    wg_network TEXT,
     wg_address TEXT
 );
 
@@ -103,13 +103,13 @@ ALTER TABLE nodes ADD COLUMN max_bandwidth_bps BIGINT NOT NULL DEFAULT 100000000
 ALTER TABLE connections
 DROP COLUMN is_trial,
 DROP COLUMN daily_limit_mb,
-DROP COLUMN status; 
+DROP COLUMN status;
 
 
 
 CREATE TYPE proto_new AS ENUM (
     'vless_tcp_reality',
-    'vless_grpc_reality', 
+    'vless_grpc_reality',
     'vless_xhttp_reality',
     'vmess',
     'shadowsocks',
@@ -117,8 +117,8 @@ CREATE TYPE proto_new AS ENUM (
 );
 
 
-ALTER TABLE connections 
-ALTER COLUMN proto TYPE proto_new 
+ALTER TABLE connections
+ALTER COLUMN proto TYPE proto_new
 USING CASE proto::text
     WHEN 'vless_grpc' THEN 'vless_grpc_reality'::proto_new
     WHEN 'vless_xtls' THEN 'vless_tcp_reality'::proto_new
@@ -127,8 +127,8 @@ USING CASE proto::text
     ELSE 'vmess'::proto_new
 END;
 
-ALTER TABLE inbounds 
-ALTER COLUMN tag TYPE proto_new 
+ALTER TABLE inbounds
+ALTER COLUMN tag TYPE proto_new
 USING CASE tag::text
     WHEN 'vless_grpc' THEN 'vless_grpc_reality'::proto_new
     WHEN 'vless_xtls' THEN 'vless_tcp_reality'::proto_new
@@ -141,7 +141,7 @@ DROP TYPE proto CASCADE;
 ALTER TYPE proto_new RENAME TO proto;
 SELECT DISTINCT proto FROM connections;
 
-CREATE UNIQUE INDEX IF NOT EXISTS inbounds_node_tag_unique 
+CREATE UNIQUE INDEX IF NOT EXISTS inbounds_node_tag_unique
 ON inbounds (node_id, tag);
 
 
@@ -159,8 +159,8 @@ ALTER TABLE connections RENAME COLUMN user_id TO subscription_id;
 CREATE TABLE subscriptions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     expires_at TIMESTAMP WITH TIME ZONE ,
-    referred_by CHAR(13),  
-        
+    referred_by CHAR(13),
+
     created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
     is_deleted BOOL NOT NULL DEFAULT false
@@ -175,15 +175,12 @@ ADD COLUMN refer_code CHAR(13);
 
 CREATE INDEX idx_subscriptions_refcode ON subscriptions(refer_code);
 
-UPDATE subscriptions                                              
+UPDATE subscriptions
 SET refer_code = split_part(id::text, '-', 5)
 WHERE refer_code IS NULL;
 
 ALTER TABLE subscriptions
 ADD COLUMN bonus_days INTEGER DEFAULT NULL;
-
-
-
 
 ALTER TABLE subscriptions
 ALTER COLUMN refer_code SET NOT NULL;
@@ -204,3 +201,33 @@ ALTER TYPE proto ADD VALUE 'mtproto';
 
 
 
+
+====
+
+CREATE TABLE keys (
+    id UUID PRIMARY KEY,
+    code TEXT NOT NULL UNIQUE,
+    activated BOOLEAN DEFAULT false,
+    days INT DEFAULT 0,
+    created_at TIMESTAMPT DEFAULT NOW(),
+    modified_at TIMESTAMPT DEFAULT NOW(),
+    subscription_id UUID DEFAULT NULL,
+    distributor VARCHAR(4) NOT NULL DEFAULT 'FRKN'
+);
+
+ALTER TABLE keys
+ADD COLUMN distributor VARCHAR(4) NOT NULL DEFAULT 'FRKN';
+
+ALTER TABLE keys
+ALTER COLUMN created_at TYPE TIMESTAMPTZ USING created_at AT TIME ZONE 'UTC',
+ALTER COLUMN modified_at TYPE TIMESTAMPTZ USING modified_at AT TIME ZONE 'UTC';
+
+CREATE INDEX idx_keys_code ON keys(code);
+
+ALTER TABLE keys
+ADD CONSTRAINT fk_subscription
+FOREIGN KEY (subscription_id)
+REFERENCES subscriptions(id);
+
+ALTER TABLE keys
+ALTER COLUMN days TYPE SMALLINT USING days::SMALLINT;

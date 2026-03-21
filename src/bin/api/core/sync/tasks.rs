@@ -16,6 +16,8 @@ use pony::SubscriptionOp;
 use pony::SubscriptionStorageOp;
 use pony::SyncError;
 
+use chrono::{Duration, Utc};
+
 use super::MemSync;
 use crate::core::postgres::connection::ConnRow;
 
@@ -88,6 +90,7 @@ where
         sub_id: &uuid::Uuid,
         sub_req: SubUpdateReq,
     ) -> SyncResult<OperationStatus>;
+    async fn add_days(&self, sub_id: &uuid::Uuid, days: i16) -> SyncResult<OperationStatus>;
 }
 
 #[async_trait::async_trait]
@@ -217,7 +220,7 @@ where
         conn.validate()?;
 
         // Create database row
-        let conn_row: ConnRow = (*conn_id, conn.clone().into()).into();
+        let conn_row: ConnRow = (*conn_id, conn.clone()).into();
 
         // Insert into database first
         if let Err(e) = self.db.conn().insert(conn_row).await {
@@ -503,5 +506,32 @@ where
 
         log::info!("Successfully updated subscription: {}", sub_id);
         Ok(OperationStatus::Updated(*sub_id))
+    }
+
+    async fn add_days(&self, sub_id: &uuid::Uuid, days: i16) -> SyncResult<OperationStatus> {
+        let sub_db = self.db.sub();
+
+        let mut mem = self.memory.write().await;
+
+        let sub = match mem.subscriptions.find_by_id_mut(sub_id) {
+            Some(s) => s,
+            None => {
+                log::warn!("Subscription {} not found for update", sub_id);
+                return Ok(OperationStatus::NotFound(*sub_id));
+            }
+        };
+
+        let now = Utc::now();
+
+        let new_expires = match sub.expires_at() {
+            Some(exp) if exp > now => exp + Duration::days(days as i64),
+            _ => now + Duration::days(days as i64),
+        };
+        let _ = sub.set_expires_at(new_expires);
+
+        match sub_db.add_days(sub_id, days).await {
+            Ok(sub) => Ok(OperationStatus::Updated(sub.id)),
+            Err(e) => Err(SyncError::Database(e)),
+        }
     }
 }

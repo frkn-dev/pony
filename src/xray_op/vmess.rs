@@ -31,7 +31,7 @@ impl ConnInfo {
 #[async_trait::async_trait]
 impl ProtocolConn for ConnInfo {
     fn tag(&self) -> Tag {
-        self.in_tag.clone()
+        self.in_tag
     }
     fn email(&self) -> String {
         self.email.clone()

@@ -1,4 +1,4 @@
-use super::metrics::{Metric, MetricType};
+use super::{Metric, MetricType};
 use crate::utils::current_timestamp;
 
 use std::sync::atomic::{AtomicUsize, Ordering};

@@ -135,7 +135,7 @@ impl Tasks for Api<HashMap<String, Vec<Node>>, Connection, Subscription> {
                             conns
                                 .iter()
                                 .filter(|(_id, c)| !c.get_deleted())
-                                .filter_map(|(id, c)| Some((*id, c.clone().into())))
+                                .map(|(id, c)| (*id, c.clone()))
                                 .collect()
                         })
                         .unwrap_or_default()
@@ -196,7 +196,7 @@ impl Tasks for Api<HashMap<String, Vec<Node>>, Connection, Subscription> {
                             conns
                                 .iter()
                                 .filter(|(_id, c)| c.get_deleted())
-                                .filter_map(|(id, c)| Some((*id, c.clone().into())))
+                                .map(|(id, c)| (*id, c.clone()))
                                 .collect()
                         })
                         .unwrap_or_default()
@@ -383,7 +383,7 @@ impl Tasks for Api<HashMap<String, Vec<Node>>, Connection, Subscription> {
             mem.connections
                 .iter()
                 .filter(|(_, conn)| !conn.get_deleted())
-                .map(|(k, v)| (k.clone(), v.clone()))
+                .map(|(k, v)| (*k, v.clone()))
                 .collect::<Vec<_>>()
         };
 

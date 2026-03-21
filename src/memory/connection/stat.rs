@@ -3,27 +3,25 @@ use serde::Serialize;
 use std::fmt;
 
 use super::super::stat::Kind;
-use crate::metrics::metrics::Metric;
+use crate::metrics::Metric;
 
 use rkyv::{Archive, Deserialize as RkyvDeserialize, Serialize as RkyvSerialize};
 
 #[derive(
-    Archive, Deserialize, Serialize, RkyvDeserialize, RkyvSerialize, Debug, Clone, PartialEq,
+    Archive,
+    Default,
+    Deserialize,
+    Serialize,
+    RkyvDeserialize,
+    RkyvSerialize,
+    Debug,
+    Clone,
+    PartialEq,
 )]
 pub struct Stat {
     pub downlink: i64,
     pub uplink: i64,
     pub online: i64,
-}
-
-impl Default for Stat {
-    fn default() -> Self {
-        Stat {
-            downlink: 0,
-            uplink: 0,
-            online: 0,
-        }
-    }
 }
 
 impl Stat {

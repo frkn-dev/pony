@@ -73,7 +73,7 @@ jobs:
             - name: Install protobuf-compiler
               run: sudo apt-get install -y protobuf-compiler
 
-            - name: Build API
+            - name: Test API
               run: cargo test
 
     build-api:

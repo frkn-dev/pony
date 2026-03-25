@@ -68,10 +68,9 @@ where
         .refer_code
         .unwrap_or_else(|| get_uuid_last_octet_simple(&sub_id));
 
-    let is_promo = promo_codes.iter().any(|c| c == &ref_code);
-
     let sub_id_to_update = if let Some(ref_by) = sub_req.referred_by.clone() {
         let mem = memory.memory.read().await;
+        let is_promo = promo_codes.iter().any(|c| c == &ref_by);
 
         if let Some(sub) = mem.subscriptions.find_by_refer_code(&ref_by) {
             if !is_promo {

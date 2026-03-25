@@ -23,7 +23,7 @@ where
 {
     fn count_invited_by(&self, refer_code: &str) -> usize {
         self.values()
-            .filter(|s| s.referred_by().as_deref() == Some(refer_code))
+            .filter(|s| s.referred_by() == Some(refer_code))
             .count()
     }
 

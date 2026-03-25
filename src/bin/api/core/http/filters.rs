@@ -47,3 +47,9 @@ pub fn with_param_vec(
 ) -> impl Filter<Extract = (Vec<u8>,), Error = std::convert::Infallible> + Clone {
     warp::any().map(move || param.clone())
 }
+
+pub fn with_param_vec_string(
+    param: Vec<String>,
+) -> impl Filter<Extract = (Vec<String>,), Error = std::convert::Infallible> + Clone {
+    warp::any().map(move || param.clone())
+}

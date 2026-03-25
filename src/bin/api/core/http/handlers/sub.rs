@@ -40,6 +40,7 @@ pub async fn post_subscription_handler<N, C, S>(
     sub_req: SubReq,
     memory: MemSync<N, C, S>,
     bonus: i64,
+    promo_codes: Vec<String>,
 ) -> Result<impl warp::Reply, warp::Rejection>
 where
     N: NodeStorageOp + Sync + Send + Clone + 'static,
@@ -67,11 +68,15 @@ where
         .refer_code
         .unwrap_or_else(|| get_uuid_last_octet_simple(&sub_id));
 
+    let is_promo = promo_codes.iter().any(|c| c == &ref_code);
+
     let sub_id_to_update = if let Some(ref_by) = sub_req.referred_by.clone() {
         let mem = memory.memory.read().await;
 
         if let Some(sub) = mem.subscriptions.find_by_refer_code(&ref_by) {
-            bonus_days = 7;
+            if !is_promo {
+                bonus_days = 7;
+            }
             Some(sub.id())
         } else {
             return Ok(http::bad_request("Refer code no found"));

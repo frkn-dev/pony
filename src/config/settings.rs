@@ -187,6 +187,14 @@ fn default_bonus_days() -> i64 {
     7
 }
 
+fn default_promo_codes() -> Vec<String> {
+    vec![
+        "FRKN.ORG".to_string(),
+        "mobile".to_string(),
+        "mobile-dev".to_string(),
+    ]
+}
+
 #[derive(Clone, Debug, Deserialize, Default)]
 pub struct ApiServiceConfig {
     #[serde(default = "default_api_web_listen")]
@@ -221,6 +229,8 @@ pub struct ApiServiceConfig {
     pub key_sign_token: Vec<u8>,
     #[serde(default = "default_bonus_days")]
     pub bonus_days: i64,
+    #[serde(default = "default_promo_codes")]
+    pub promo_codes: Vec<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]

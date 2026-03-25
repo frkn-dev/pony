@@ -209,25 +209,14 @@ CREATE TABLE keys (
     code TEXT NOT NULL UNIQUE,
     activated BOOLEAN DEFAULT false,
     days INT DEFAULT 0,
-    created_at TIMESTAMPT DEFAULT NOW(),
-    modified_at TIMESTAMPT DEFAULT NOW(),
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    modified_at TIMESTAMPTZ DEFAULT NOW(),
     subscription_id UUID DEFAULT NULL,
     distributor VARCHAR(4) NOT NULL DEFAULT 'FRKN'
 );
 
-ALTER TABLE keys
-ADD COLUMN distributor VARCHAR(4) NOT NULL DEFAULT 'FRKN';
-
-ALTER TABLE keys
-ALTER COLUMN created_at TYPE TIMESTAMPTZ USING created_at AT TIME ZONE 'UTC',
-ALTER COLUMN modified_at TYPE TIMESTAMPTZ USING modified_at AT TIME ZONE 'UTC';
 
 CREATE INDEX idx_keys_code ON keys(code);
-
-ALTER TABLE keys
-ADD CONSTRAINT fk_subscription
-FOREIGN KEY (subscription_id)
-REFERENCES subscriptions(id);
 
 ALTER TABLE keys
 ALTER COLUMN days TYPE SMALLINT USING days::SMALLINT;

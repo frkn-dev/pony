@@ -148,6 +148,7 @@ where
             .and(warp::body::json())
             .and(with_state(self.sync.clone()))
             .and(with_i64(params.bonus_days))
+            .and(with_param_vec_string(params.promo_codes))
             .and_then(post_subscription_handler);
 
         let put_subscription_route = warp::put()

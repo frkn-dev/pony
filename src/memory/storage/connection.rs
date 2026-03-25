@@ -1,7 +1,8 @@
-use chrono::Utc;
 use std::collections::hash_map::Entry;
 
 use super::super::cache::Connections;
+use super::super::connection::conn::Conn as Connection;
+use super::super::connection::conn::ConnPatch as ConnectionPatch;
 use super::super::connection::op::api::Operations as ConnectionApiOp;
 use super::super::connection::op::base::Operations as ConnectionBaseOp;
 use super::super::connection::stat::Stat as ConnectionStat;
@@ -9,8 +10,6 @@ use super::super::stat::Kind as StatKind;
 use super::super::storage::Status as OperationStatus;
 use super::super::tag::ProtoTag as Tag;
 use crate::error::{PonyError, Result};
-use crate::http::requests::ConnUpdateRequest;
-use crate::Connection;
 use crate::Proto;
 
 pub trait ApiOp<C>
@@ -18,10 +17,9 @@ where
     C: Clone + Send + Sync + 'static,
 {
     fn add(&mut self, conn_id: &uuid::Uuid, new_conn: C) -> Result<OperationStatus>;
-    fn update(&mut self, conn_id: &uuid::Uuid, conn_req: ConnUpdateRequest) -> OperationStatus;
     fn reset_stat(&mut self, conn_id: &uuid::Uuid, stat: StatKind);
     fn get_by_subscription_id(&self, subscription_id: &uuid::Uuid) -> Option<Vec<(uuid::Uuid, C)>>;
-    fn apply_update(conn: &mut Connection, conn_req: ConnUpdateRequest) -> Option<Connection>;
+    fn apply_update(conn: &mut Connection, patch: ConnectionPatch) -> Option<Connection>;
 }
 
 pub trait BaseOp<C>
@@ -29,6 +27,7 @@ where
     C: Clone + Send + Sync + 'static,
 {
     fn len(&self) -> usize;
+    fn is_empty(&self) -> bool;
     fn add(&mut self, conn_id: &uuid::Uuid, new_conn: C) -> Result<OperationStatus>;
     fn remove(&mut self, conn_id: &uuid::Uuid) -> Result<()>;
     fn get(&self, conn_id: &uuid::Uuid) -> Option<C>;
@@ -47,6 +46,10 @@ where
 {
     fn len(&self) -> usize {
         self.0.len()
+    }
+
+    fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 
     fn validate_token(&self, token: &uuid::Uuid) -> Option<uuid::Uuid> {
@@ -158,98 +161,54 @@ where
             }
         }
     }
-    fn update(&mut self, conn_id: &uuid::Uuid, conn_req: ConnUpdateRequest) -> OperationStatus {
-        match self.entry(*conn_id) {
-            Entry::Occupied(mut entry) => {
-                let conn = entry.get_mut();
 
-                if conn_req.is_deleted.is_none() && conn.get_deleted() {
-                    return OperationStatus::NotFound(*conn_id);
-                }
-
-                if let Some(_password) = &conn_req.password {
-                    if conn.get_proto().proto() != Tag::Shadowsocks {
-                        return OperationStatus::BadRequest(
-                            *conn_id,
-                            "Password is allowed only for Shadowsocks".to_string(),
-                        );
-                    }
-                }
-
-                let mut changed = false;
-
-                if let Some(deleted) = &conn_req.is_deleted {
-                    if !conn.get_deleted() && *deleted {
-                        return OperationStatus::NotModified(*conn_id);
-                    }
-                    if conn.get_deleted() != *deleted {
-                        conn.set_deleted(*deleted);
-                        changed = true;
-                    }
-                }
-                if let Some(env) = &conn_req.env {
-                    if conn.get_env() != *env {
-                        conn.set_env(env);
-                        changed = true;
-                    }
-                }
-                if let Some(password) = &conn_req.password {
-                    if conn.get_password() != Some(password.clone()) {
-                        let _ = conn.set_password(Some(password.to_string()));
-                        changed = true;
-                    }
-                }
-
-                if changed {
-                    conn.set_modified_at();
-                    OperationStatus::Updated(*conn_id)
-                } else {
-                    OperationStatus::NotModified(*conn_id)
-                }
-            }
-            Entry::Vacant(_entry) => OperationStatus::NotFound(*conn_id),
-        }
-    }
-
-    fn apply_update(conn: &mut Connection, conn_req: ConnUpdateRequest) -> Option<Connection> {
-        if conn_req.is_deleted.is_none() && conn.get_deleted() {
+    fn apply_update(conn: &mut Connection, patch: ConnectionPatch) -> Option<Connection> {
+        if patch.is_deleted.is_none() && conn.get_deleted() {
             return None;
         }
 
-        if let Some(_password) = &conn_req.password {
-            if conn.get_proto().proto() != Tag::Shadowsocks {
+        if let Some(proto) = &patch.proto {
+            if conn.get_proto() != *proto {
+                return None;
+            }
+        }
+
+        if let Some(_password) = conn.get_password() {
+            if conn.get_proto().proto() != Tag::Shadowsocks && patch.proto.is_some() {
                 return None;
             }
         }
 
         let mut changed = false;
 
-        if let Some(deleted) = &conn_req.is_deleted {
-            if !conn.get_deleted() && *deleted {
-                return None;
-            }
-            if conn.get_deleted() != *deleted {
-                conn.set_deleted(*deleted);
-                changed = true;
-            }
-        }
-        if let Some(env) = &conn_req.env {
-            if conn.get_env() != *env {
-                conn.set_env(env);
-                changed = true;
-            }
-        }
-        if let Some(password) = &conn_req.password {
-            if conn.get_password() != Some(password.clone()) {
-                let _ = conn.set_password(Some(password.to_string()));
+        // deleted
+        if let Some(deleted) = patch.is_deleted {
+            if conn.get_deleted() != deleted {
+                conn.set_deleted(deleted);
                 changed = true;
             }
         }
 
-        if let Some(days) = conn_req.days {
-            let new_expired_at = Utc::now() + chrono::Duration::days(days);
-            if conn.get_expired_at() != Some(new_expired_at) {
-                conn.set_expired_at(Some(new_expired_at));
+        // env
+        if let Some(env) = patch.env {
+            if conn.get_env() != env {
+                conn.set_env(&env);
+                changed = true;
+            }
+        }
+
+        // expired_at
+        if let Some(exp) = patch.expired_at {
+            if conn.get_expired_at() != Some(exp) {
+                conn.set_expired_at(Some(exp));
+                changed = true;
+            }
+        }
+
+        // subscription_id
+        if let Some(sub_id) = patch.subscription_id {
+            if conn.get_subscription_id() != Some(sub_id) {
+                conn.set_subscription_id(&sub_id);
                 changed = true;
             }
         }

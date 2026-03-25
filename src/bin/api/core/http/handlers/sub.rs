@@ -4,16 +4,15 @@ use chrono::Utc;
 use pony::mtproto_op::mtproto_conn;
 use url::Url;
 
-use pony::http::requests::MtprotoQueryParam;
-use pony::http::requests::TagReq;
+use super::super::param::MtprotoQueryParam;
+use super::super::request::TagReq;
 use warp::http::Response;
 use warp::http::StatusCode;
 
+use super::super::param::SubIdQueryParam;
+use super::super::param::SubQueryParam;
+use super::super::request::Subscription as SubReq;
 use pony::http::helpers as http;
-use pony::http::requests::SubCreateReq;
-use pony::http::requests::SubIdQueryParam;
-use pony::http::requests::SubQueryParam;
-use pony::http::requests::SubUpdateReq;
 use pony::http::ResponseMessage;
 use pony::utils;
 use pony::utils::get_uuid_last_octet_simple;
@@ -31,15 +30,16 @@ use pony::SubscriptionOp;
 use pony::SubscriptionStorageOp;
 use pony::Tag;
 
-use super::html::{FOOTER, HEAD};
+use super::html::{FOOTER, HEAD, LOGO};
 use crate::core::sync::tasks::SyncOp;
 use crate::core::sync::MemSync;
 
 /// Handler creates subscription
 // POST /subscription
 pub async fn post_subscription_handler<N, C, S>(
-    sub_req: SubCreateReq,
+    sub_req: SubReq,
     memory: MemSync<N, C, S>,
+    bonus: i64,
 ) -> Result<impl warp::Reply, warp::Rejection>
 where
     N: NodeStorageOp + Sync + Send + Clone + 'static,
@@ -61,13 +61,37 @@ where
         + std::convert::From<pony::Subscription>,
 {
     let sub_id = uuid::Uuid::new_v4();
-    let expires_at: Option<DateTime<Utc>> = sub_req
-        .days
-        .map(|days| Utc::now() + chrono::Duration::days(days.into()));
+    let mut bonus_days = 0;
 
     let ref_code = sub_req
         .refer_code
         .unwrap_or_else(|| get_uuid_last_octet_simple(&sub_id));
+
+    let sub_id_to_update = if let Some(ref_by) = sub_req.referred_by.clone() {
+        let mem = memory.memory.read().await;
+
+        if let Some(sub) = mem.subscriptions.find_by_refer_code(&ref_by) {
+            bonus_days = 7;
+            Some(sub.id())
+        } else {
+            return Ok(http::bad_request("Refer code no found"));
+        }
+    } else {
+        None
+    };
+
+    if let Some(id) = sub_id_to_update {
+        if let Err(e) = SyncOp::add_days(&memory, &id, bonus).await {
+            return Ok(http::internal_error(&format!(
+                "Couldn't create subscription: {}",
+                e
+            )));
+        }
+    }
+
+    let expires_at: Option<DateTime<Utc>> = sub_req
+        .days
+        .map(|days| Utc::now() + chrono::Duration::days(days + bonus_days));
 
     let sub = Subscription::new(sub_id, sub_req.referred_by, ref_code, expires_at);
 
@@ -97,7 +121,7 @@ where
 // PUT /subscription
 pub async fn put_subscription_handler<N, C, S>(
     sub_param: SubIdQueryParam,
-    sub_req: SubUpdateReq,
+    sub_req: SubReq,
     memory: MemSync<N, C, S>,
 ) -> Result<impl warp::Reply, warp::Rejection>
 where
@@ -121,7 +145,7 @@ where
 {
     let sub_id = sub_param.id;
 
-    match SyncOp::update_sub(&memory, &sub_id, sub_req.clone()).await {
+    match SyncOp::update_sub(&memory, &sub_id, sub_req).await {
         Ok(StorageOperationStatus::Updated(id)) => Ok(http::success_response(
             format!("Subscription {} has been updated", id),
             Some(sub_id),
@@ -203,8 +227,8 @@ where
 pub async fn subscription_info_handler<N, C, S>(
     sub_param: SubQueryParam,
     memory: MemSync<N, C, S>,
-    host: String,
     web_host: String,
+    api_web_host: String,
 ) -> Result<Box<dyn warp::Reply + Send>, warp::Rejection>
 where
     N: NodeStorageOp + Sync + Send + Clone + 'static,
@@ -291,125 +315,286 @@ where
     let down_str = format_bytes(downlink);
     let up_str = format_bytes(uplink);
 
-    let bonus_days = if let Some(days) = sub.bonus_days() {
-        format!("{}", days)
+    let is_ru = env == "ru";
+
+    let title = if is_ru {
+        "Подписка на Рилзопровод (RU)"
     } else {
-        format!("0")
+        "Подписка на Рилзопровод"
     };
 
-    let base_link = format!("{}/sub?id={}&env={}", host, id, env);
-    let base_link_mtproto = format!("{}/sub/mtproto?id={}&env={}", host, id, env);
-    let main_link_vless = format!("{}/sub?id={}&format=txt&env={}&proto=Xray", host, id, env);
+    let ru_link = format!("{}/sub/info?id={}&env={}", api_web_host, id, "ru");
+    let main_link = format!("{}/sub/info?id={}", api_web_host, id);
+    let ru_block = if is_ru {
+        format!(
+            r#"<a href="{main_link}" class="small text-link right">Мне нужны иностранные сервера</a>"#
+        )
+    } else {
+        format!(
+            r#"<a href="{ru_link}" class="small text-link right">Мне нужны российские сервера</a>"#
+        )
+    };
+
+    let base_link = format!("{}/sub?id={}&env={}", api_web_host, id, env);
+    let base_link_mtproto = format!("{}/sub/mtproto?id={}&env={}", api_web_host, id, env);
+    let main_link_vless = format!(
+        "{}/sub?id={}&format=txt&env={}&proto=Xray",
+        api_web_host, id, env
+    );
     let main_link_h2 = format!(
         "{}/sub?id={}&format=txt&env={}&proto=Hysteria2",
-        host, id, env
+        api_web_host, id, env
     );
 
     let html = format!(
 r#"{head}
-<body>
-
 <div class="card">
-<h1>Подписка на Рилзопровод</h1>
-
+{ru_block}
+<header>
+  <div class="logo">
+    <img src="{logo}" alt="FRKN Logo" />
+    <a href="{web_host}">FRKN</a>
+  </div>
+</header>
+<body>
+<h1>{title}</h1>
 <div class="stat">Статус: <span class="{status_class}">{status_text}</span></div>
-<div class="stat">Дата окончания: {expires}</div>
-<div class="stat">Осталось дней: {days}</div>
+<div class="stat">Дата окончания: <span id="expires">{expires}</span></div>
+<div class="stat">
+  Осталось дней: <span id="days">{days}</span>
+  <a class="link-btn small" id="scrollToAdd" style="margin-left:8px;">Докинуть</a>
+</div>
 <div class="small-id">Id: <b>{subscription_id}</b></div>
-
-
 <hr>
-
-<div class="stat">Трафик: ↓ {down_str} &nbsp;&nbsp; ↑ {up_str}</div>
+<div class="stat small-id">Трафик: ↓ {down_str} &nbsp;&nbsp; ↑ {up_str}</div>
 <hr>
 
 <h3>Ссылки для подключения</h3>
 
-<h3> Xray Vless</h3>
-
-<a href="{base_link}&format=plain" target="_blank">Универсальная ссылка</a>
-<br>
-<button onclick="copyText('{base_link}&format=plain&proto=Xray')">Скопировать ссылку</button>
-<br>
-<p><b>Дополнительные форматы: </b></p>
-<ul class="proxy-list">
-<li class="proxy-item"><a href="{base_link}&format=txt&proto=Xray" target="_blank">TXT</a></li>
-<li class="proxy-item"><a href="{base_link}&format=clash&proto=Xray" target="_blank">Clash</a></li>
-</ul>
-<br>
-
-<div class="qr">
-<canvas id="qr"></canvas>
-
-<div class="small">Отсканируйте в приложении</div>
+<div class="tabs">
+    <button class="tab active" data-tab="xray">Xray</button>
+    <button class="tab" data-tab="hysteria">Hysteria2</button>
+    <button class="tab" data-tab="mtproto">MTproto</button>
+    <button class="tab" data-tab="wg">Wireguard</button>
+    <button class="tab" data-tab="awg">Amnezia Wireguard</button>
+    <button class="tab" data-tab="tt">TrustTunnel</button>
 </div>
 
-<h3>Поддерживаемые приложения</h3>
+<div id="tab-xray" class="tab-content active">
+    <ul class="proxy-list">
+        <li class="proxy-item" onclick="copyText('{base_link}&format=plain&proto=Xray')">
+            <div class="proxy-label">Универсальная</div>
+            <div class="proxy-action">Скопировать</div>
+        </li>
+        <li class="proxy-item" onclick="copyText('{base_link}&format=txt&proto=Xray')">
+            <div class="proxy-label">TXT</div>
+            <div class="proxy-action">Скопировать</div>
+        </li>
+        <li class="proxy-item" onclick="copyText('{base_link}&format=clash&proto=Xray')">
+            <div class="proxy-label">Clash</div>
+            <div class="proxy-action">Скопировать</div>
+        </li>
+    </ul>
 
-<ul>
-<li> Happ, Hiddify, v2rayNG, Shadowrocket, Streisand, Clash Verge, Nekobox</li>
-</ul>
+    <div class="qr">
+        <canvas id="qr"></canvas>
+        <div class="small">Отсканируйте в приложении</div>
+    </div>
+    <br><br>
 
-<br><br><br>
-
-<hr>
-<br>
-<h3>Hysteria2(Beta)</h3>
-
-<a href="{base_link}&format=plain&proto=Hysteria2" target="_blank">Универсальная ссылка</a>
-<br>
-<button onclick="copyText('{base_link}&format=plain&proto=Hysteria2')">Скопировать ссылку</button>
-
-<p><b>Дополнительные форматы: </b></p>
-<ul class="proxy-list">
-<li class="proxy-item"><a href="{base_link}&format=txt&proto=Hysteria2" target="_blank">TXT</a></li>
-</ul>
-
-<div class="qr">
-<canvas id="qr2"></canvas>
-
-<div class="small">Отсканируйте в приложении</div>
+    <div class="small">
+       <h3>Поддерживаемые приложения</h3>
+       <ul>
+       <li>Happ, Hiddify, v2rayNG, Shadowrocket, Streisand, Clash Verge, Nekobox</li>
+       </ul>
+    </div>
 </div>
 
-<h3>Поддерживаемые приложения</h3>
+<div id="tab-hysteria" class="tab-content">
+    <ul class="proxy-list">
+         <li class="proxy-item" onclick="copyText('{base_link}&format=plain&proto=Hysteria2')">
+             <div class="proxy-label">Универсальная</div>
+             <div class="proxy-action">Скопировать</div>
+         </li>
+        <li class="proxy-item" onclick="copyText('{base_link}&format=txt&proto=Hysteria2')">
+            <div class="proxy-label">TXT</div>
+            <div class="proxy-action">Скопировать</div>
+        </li>
+    </ul>
 
-<ul>
-<li> Shadowrocket, hiddify, v2rayN</li>
-</ul>
+    <div class="qr">
+        <canvas id="qr2"></canvas>
+        <div class="small">Отсканируйте в приложении</div>
+    </div>
 
-<hr> <br>
+    <br><br>
+    <div class="small">
+        <h3>Поддерживаемые приложения</h3>
+        <ul>
+            <li>Shadowrocket, hiddify, v2rayN</li>
+        </ul>
+    </div>
+</div>
 
-<h3>BONUS TRACK: MTproto(tg-proxy)</h3>
+<div id="tab-mtproto" class="tab-content">
+    <a href="{base_link_mtproto}" target="_blank">Bonus Track: Telegram Proxy - Открыть</a>
 
-<a href="{base_link_mtproto}" target="_blank">Открыть</a>
-<br><br><br>
+    <br><br>
+    <div class="small">
+        <h3>Поддерживаемые приложения</h3>
+        <p> Телеграм поддерживает ссылки mtproto напрямую</p>
+    </div>
+</div>
+
+<div id="tab-wg" class="tab-content">
+    Wireguard скоро будет доступен
+    <br><br>
+    <div class="small">
+        <h3>Поддерживаемые приложения</h3>
+        <p> </p>
+    </div>
+</div>
+
+<div id="tab-awg" class="tab-content">
+    Amnezia Wireguard скоро будет доступен
+    <br><br>
+    <div class="small">
+        <h3>Поддерживаемые приложения</h3>
+        <p> </p>
+    </div>
+</div>
+
+<div id="tab-tt" class="tab-content">
+    TrustTunnel скоро будет доступен
+    <br><br>
+    <div class="small">
+        <h3>Поддерживаемые приложения</h3>
+        <p> </p>
+    </div>
+</div>
 
 <hr>
+<div class="key" id="key">
+<h3>Докинуть дней (Активировать ключ) </h3>
 
+<div class="stat">
+    <input id="keyInput" placeholder="XXXXX-XXXXX-XXXXX-XXXXX-XXXXX-X" style="padding:8px; width:270px;" />
+    <button onclick="activateKey()">Активировать</button><br><br>
+    &nbsp;&nbsp; <a href="{web_host}/activation-keys.html" target="_blank" class="small text-link">
+           Что такое ключ активации и где его взять?
+       </a>
+</div>
+
+<div id="keyResult" class="small"></div>
+</div>
+
+<hr>
 <h3>Реферальная программа</h3>
-<div class="stat">Ваш реферальный код: <b>{ref}</b>
+<div class="stat">Твой реферальный код: <b>{ref}</b><br>
  <button onclick="copyText('{ref}')">Скопировать код</button>
-</div>
+ <button onclick="copyText('{web_host}/?code={ref}#subscribe')">Скопировать ссылку для друга</button></div>
+
 
 <div class="small">Вы пригласили: {invited} </div>
-<div class="small">Вы получили {bonus_days} бесплатных дней</div>
 
-<div class="small"><a href="{web_host}/ref.html"> Информация о реферальной программе</a></div>
+<div class="small">Добавим по 7 дней доступа и тебе и другу</a></div>
 
-</div>
 
 <br><hr>
 
 {footer}
 
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js"></script>
 
 <script>
-function copyText(text) {{
-    navigator.clipboard.writeText(text).then(() => {{
-        alert("Скопировано");
+document.querySelectorAll(".tab").forEach(btn => {{
+    btn.onclick = () => {{
+        const name = btn.dataset.tab;
+
+        document.querySelectorAll(".tab").forEach(el => el.classList.remove("active"));
+        document.querySelectorAll(".tab-content").forEach(el => el.classList.remove("active"));
+
+        btn.classList.add("active");
+        document.getElementById("tab-" + name).classList.add("active");
+    }};
+}});
+</script>
+
+<script>
+const scrollBtn = document.getElementById("scrollToAdd");
+const keySection = document.getElementById("key");
+
+if (scrollBtn && keySection) {{
+    scrollBtn.addEventListener("click", () => {{
+        keySection.scrollIntoView({{ behavior: "smooth" }});
     }});
 }}
+</script>
+
+<script>async function activateKey() {{
+    const key = document.getElementById("keyInput").value;
+    const resultEl = document.getElementById("keyResult");
+
+    if (!key) {{
+        resultEl.innerText = "Введите ключ";
+        return;
+    }}
+
+    try {{
+        const res = await fetch("/key/activate", {{
+            method: "POST",
+            headers: {{
+                "Content-Type": "application/json"
+            }},
+            body: JSON.stringify({{
+                code: key,
+                subscription_id: "{subscription_id}"
+            }})
+        }});
+
+        const data = await res.json();
+
+        if (res.ok && data.status === 200 && data.response) {{
+            const {{ days, expires_at }} = data.response;
+
+            if (days && expires_at) {{
+                document.getElementById("days").innerText = days;
+                document.getElementById("expires").innerText = expires_at;
+            }}
+            setTimeout(() => location.reload(), 1000);
+            const key = data.response?.instance?.Key;
+            if (key) {{
+                const addedDays = key.days;
+                resultEl.innerText = `✅ Ключ активирован! +${{addedDays}} дней`;
+            }}
+        }} else {{
+            resultEl.innerText = "❌ " + data.message;
+        }}
+    }} catch (e) {{
+        resultEl.innerText = "Ошибка сети";
+    }}
+}}
+
+function showToast(text) {{
+const toast = document.getElementById("toast");
+   if (!toast) return;
+
+   toast.innerText = text;
+   toast.classList.add("show");
+
+   setTimeout(() => {{
+       toast.classList.remove("show");
+   }}, 2000);
+}}
+
+function copyText(text) {{
+    navigator.clipboard.writeText(text).then(() => {{
+        showToast("Скопировано");
+    }});
+}}
+
 window.onload = () => {{
     QRCode.toCanvas(
         document.getElementById("qr"),
@@ -424,22 +609,26 @@ window.onload = () => {{
     );
 }};
 </script>
-
+<div id="toast" class="toast">Скопировано</div>
 </body>
 </html>"#,
-        head = HEAD,
-        footer = FOOTER,
-        status_class = status_class,
-        status_text = status_text,
-        expires = expires,
-        days = days,
-        down_str = down_str,
-        up_str = up_str,
-        base_link = base_link,
-        ref = sub.refer_code(),
-        invited = invited,
-        subscription_id = id,
-        bonus_days = bonus_days    );
+    head = HEAD,
+    footer = FOOTER,
+            status_class = status_class,
+            status_text = status_text,
+            expires = expires,
+            days = days,
+            down_str = down_str,
+            up_str = up_str,
+            base_link = base_link,
+            ref = sub.refer_code(),
+            invited = invited,
+            subscription_id = id,
+            title = title,
+            ru_block = ru_block,
+            logo = LOGO,
+
+        );
 
     Ok(Box::new(warp::reply::with_status(
         warp::reply::with_header(html, "Content-Type", "text/html; charset=utf-8"),
@@ -493,16 +682,14 @@ where
     };
 
     match connections {
-        None => {
-            return Ok(http::not_found(&format!(
-                "Connections {}  are not found",
-                sub_param.id
-            )));
-        }
+        None => Ok(http::not_found(&format!(
+            "Connections {}  are not found",
+            sub_param.id
+        ))),
         Some(c) => {
             let cons: Vec<_> = c
                 .iter()
-                .filter(|(_id, conn)| conn.get_deleted() == false)
+                .filter(|(_id, conn)| !conn.get_deleted())
                 .filter(|(_id, conn)| conn.get_env() == env)
                 .map(|(id, conn)| (*id, conn.clone().into()))
                 .collect();
@@ -557,29 +744,17 @@ where
 
     let env = sub_param.env;
 
-    let mut tags = vec![];
-    tags = match sub_param.proto {
-        TagReq::Xray => {
-            tags.push(Tag::VlessTcpReality);
-            tags.push(Tag::VlessGrpcReality);
-            tags.push(Tag::VlessXhttpReality);
-            tags.push(Tag::Vmess);
-            tags.push(Tag::Shadowsocks);
-            tags
-        }
-        TagReq::Wireguard => {
-            tags.push(Tag::Wireguard);
-            tags
-        }
-        TagReq::Hysteria2 => {
-            tags.push(Tag::Hysteria2);
-            tags
-        }
-
-        TagReq::Mtproto => {
-            tags.push(Tag::Mtproto);
-            tags
-        }
+    let tags = match sub_param.proto {
+        TagReq::Xray => vec![
+            Tag::VlessTcpReality,
+            Tag::VlessGrpcReality,
+            Tag::VlessXhttpReality,
+            Tag::Vmess,
+            Tag::Shadowsocks,
+        ],
+        TagReq::Wireguard => vec![Tag::Wireguard],
+        TagReq::Hysteria2 => vec![Tag::Hysteria2],
+        TagReq::Mtproto => vec![Tag::Mtproto],
     };
 
     if let Some(conns) = conns {
@@ -601,9 +776,9 @@ where
 
             if let Some(nodes) = mem.nodes.get_by_env(&conn.get_env()) {
                 for node in nodes.iter() {
-                    if let Some(inbound) = &node.inbounds.get(&conn.get_proto().proto()) {
+                    if let Some(inbound) = node.inbounds.get(&conn.get_proto().proto()) {
                         inbounds_by_node.push((
-                            inbound.as_inbound_response(),
+                            inbound.clone(),
                             conn_id,
                             node.label.clone(),
                             node.address,
@@ -641,56 +816,40 @@ where
                 .status(StatusCode::OK)
                 .body(yaml);
 
-            return Ok(Box::new(response));
+            Ok(Box::new(response))
         }
 
         "txt" => {
             let links = inbounds_by_node
                 .iter()
                 .filter_map(|(inbound, conn_id, label, ip, token)| {
-                    utils::create_conn_link(
-                        inbound.tag,
-                        conn_id,
-                        inbound.clone(),
-                        label,
-                        *ip,
-                        token,
-                    )
-                    .ok()
+                    utils::create_conn_link(inbound.tag, conn_id, inbound, label, *ip, token).ok()
                 })
                 .collect::<Vec<_>>();
 
             let body = links.join("\n");
 
-            return Ok(Box::new(warp::reply::with_status(
+            Ok(Box::new(warp::reply::with_status(
                 warp::reply::with_header(body, "Content-Type", "text/plain"),
                 StatusCode::OK,
-            )));
+            )))
         }
 
         _ => {
             let links = inbounds_by_node
                 .iter()
                 .filter_map(|(inbound, conn_id, label, ip, token)| {
-                    utils::create_conn_link(
-                        inbound.tag,
-                        conn_id,
-                        inbound.clone(),
-                        label,
-                        *ip,
-                        token,
-                    )
-                    .ok()
+                    utils::create_conn_link(inbound.tag, conn_id, inbound, label, *ip, token).ok()
                 })
                 .collect::<Vec<_>>();
 
             let sub = base64::engine::general_purpose::STANDARD.encode(links.join("\n"));
             let body = format!("{}\n", sub);
 
-            return Ok(Box::new(warp::reply::with_status(
+            Ok(Box::new(warp::reply::with_status(
                 warp::reply::with_header(body, "Content-Type", "text/plain"),
                 StatusCode::OK,
-            )));
+            )))
         }
     }
 }
@@ -751,7 +910,7 @@ where
                 .unwrap_or_else(|| "Telegram Proxy".into());
 
             Some(format!(
-                "<li class=\"proxy-item\"><a href=\"{href}\">
+                "<li class=\"mt-proxy-item\"><a href=\"{href}\">
                 <span class=\"proxy-label\">{label}</span>
                 <span class=\"proxy-action\">Connect</span>
                 </a></li>",
@@ -767,16 +926,16 @@ where
 <body>
 
 <div class="card">
-<h1>Mtproto (tg-proxy)</h1>
+<h1>Bonus Tack: Mtproto (tg-proxy)</h1>
 
 <hr>
 
 <h3>Ссылки для подключения</h3>
-
 <ul class="proxy-list">{html_links}</ul>
 <br><br><br>
 <hr>
 {footer}
+</div>
 
 </body>
 </html>"#,

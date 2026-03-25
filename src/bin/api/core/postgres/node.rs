@@ -1,12 +1,11 @@
 use defguard_wireguard_rs::net::IpAddrMask;
 
+use chrono::DateTime;
+use chrono::Utc;
 use std::collections::HashMap;
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
 use std::sync::Arc;
-
-use chrono::DateTime;
-use chrono::Utc;
 use tokio::sync::Mutex;
 
 use pony::config::h2::H2Settings;
@@ -209,8 +208,7 @@ impl PgNode {
 
             let h2: Option<H2Settings> = row
                 .get::<_, Option<serde_json::Value>>("h2")
-                .map(|v| serde_json::from_value(v).ok())
-                .flatten();
+                .and_then(|v| serde_json::from_value(v).ok());
 
             if let Some(ipv4_addr) = to_ipv4(address) {
                 let node_entry = nodes_map.entry(node_id).or_insert_with(|| Node {
@@ -225,7 +223,7 @@ impl PgNode {
                     label: label.clone(),
                     inbounds: HashMap::new(),
                     cores: cores as usize,
-                    max_bandwidth_bps: max_bandwidth_bps,
+                    max_bandwidth_bps,
                 });
 
                 if let Some(_inbound_id) = inbound_id {
@@ -251,7 +249,7 @@ impl PgNode {
                             network,
                             address,
                             port: row.get::<_, i32>("port") as u16,
-                            dns: dns,
+                            dns,
                         }),
                         _ => None,
                     };
@@ -263,9 +261,7 @@ impl PgNode {
                         port: row.get::<_, i32>("port") as u16,
                         stream_settings: row
                             .get::<_, Option<serde_json::Value>>("stream_settings")
-                            .map(|v| serde_json::from_value(v).ok())
-                            .flatten(),
-
+                            .and_then(|v| serde_json::from_value(v).ok()),
                         uplink: row.get("uplink"),
                         downlink: row.get("downlink"),
                         conn_count: row.get("conn_count"),

@@ -8,21 +8,22 @@ where
 {
     fn find_by_id(&self, id: &uuid::Uuid) -> Option<&S>;
     fn find_by_id_mut(&mut self, id: &uuid::Uuid) -> Option<&mut S>;
-    fn find_by_referral_code(&self, code: &str) -> Option<&S>;
+    fn find_by_refer_code(&self, code: &str) -> Option<&S>;
     fn all(&self) -> Vec<S>;
     fn add(&mut self, new_subscription: S) -> OperationStatus;
     fn delete(&mut self, id: &uuid::Uuid);
     fn update(&mut self, subscription: S);
-    fn count_invited_by(&self, referral_code: &str) -> usize;
+    fn count_invited_by(&self, refer_code: &str) -> usize;
+    fn exist_refer_code(&self, code: &str) -> bool;
 }
 
 impl<S> Operations<S> for Subscriptions<S>
 where
     S: SubscriptionOp + Send + Sync + Clone + 'static + PartialEq + SubscriptionOp,
 {
-    fn count_invited_by(&self, referral_code: &str) -> usize {
+    fn count_invited_by(&self, refer_code: &str) -> usize {
         self.values()
-            .filter(|s| s.referred_by().as_deref() == Some(referral_code))
+            .filter(|s| s.referred_by().as_deref() == Some(refer_code))
             .count()
     }
 
@@ -33,8 +34,12 @@ where
         self.get_mut(id)
     }
 
-    fn find_by_referral_code(&self, code: &str) -> Option<&S> {
-        self.values().find(|s| s.refer_code() == code.to_string())
+    fn find_by_refer_code(&self, code: &str) -> Option<&S> {
+        self.values().find(|s| s.refer_code() == code)
+    }
+
+    fn exist_refer_code(&self, code: &str) -> bool {
+        self.values().any(|s| s.refer_code() == code)
     }
 
     fn all(&self) -> Vec<S> {

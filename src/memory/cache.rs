@@ -56,6 +56,17 @@ where
     pub nodes: T,
 }
 
+impl<T: Default, C, S: Default + std::cmp::PartialEq> Default for Cache<T, C, S>
+where
+    T: NodeStorageOp + Sync + Send + Clone + 'static,
+    C: ConnectionApiOp + ConnectionBaseOp + Clone + Send + Sync + 'static + PartialEq,
+    S: SubscriptionOp + Clone + Send + Sync + 'static,
+{
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<T: Default, C, S: Default + std::cmp::PartialEq> Cache<T, C, S>
 where
     T: NodeStorageOp + Sync + Send + Clone + 'static,

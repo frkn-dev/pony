@@ -1,11 +1,12 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use warp::http::StatusCode;
 use warp::reply::Json;
 
-use crate::Connection;
-use crate::ConnectionStat;
-use crate::Subscription;
-use crate::Tag;
+use crate::memory::connection::conn::Conn as Connection;
+use crate::memory::connection::stat::Stat as ConnectionStat;
+use crate::memory::key::Key;
+use crate::memory::subscription::Subscription;
+use crate::memory::tag::ProtoTag as Tag;
 
 pub fn bad_request(msg: &str) -> warp::reply::WithStatus<Json> {
     let resp = ResponseMessage::<Option<uuid::Uuid>> {
@@ -57,6 +58,7 @@ pub fn success_response(
     id: Option<uuid::Uuid>,
     instance: Instance,
 ) -> warp::reply::WithStatus<Json> {
+    let id = id.unwrap_or(uuid::Uuid::nil());
     let resp = ResponseMessage {
         status: StatusCode::OK.as_u16(),
         message: msg,
@@ -72,17 +74,18 @@ struct ResponseMessage<T> {
     response: T,
 }
 
-#[derive(Serialize)]
-struct InstanceWithId {
-    id: Option<uuid::Uuid>,
-    instance: Instance,
+#[derive(Serialize, Deserialize, Debug)]
+pub struct InstanceWithId<T> {
+    pub id: uuid::Uuid,
+    pub instance: T,
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub enum Instance {
     Connection(Connection),
     Subscription(Subscription),
     Stat(Vec<(uuid::Uuid, ConnectionStat, Tag)>),
     Connections(Vec<(uuid::Uuid, Connection)>),
+    Key(Key),
     None,
 }

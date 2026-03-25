@@ -103,7 +103,7 @@ impl TryFrom<HysteriaServerConfig> for H2Settings {
 
         let port = listen
             .split(':')
-            .last()
+            .next_back()
             .unwrap_or("443")
             .parse::<u16>()
             .map_err(|_| PonyError::Custom("Hysteria2: invalid port".into()))?;

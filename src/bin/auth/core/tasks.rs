@@ -74,7 +74,7 @@ where
             let mut aligned = AlignedVec::new();
             aligned.extend_from_slice(&payload_bytes);
 
-            let archived = match { rkyv::check_archived_root::<Vec<Message>>(&aligned) } {
+            let archived = match rkyv::check_archived_root::<Vec<Message>>(&aligned) {
                 Ok(a) => a,
                 Err(e) => {
                     log::error!("SUB: Invalid rkyv root: {:?}", e);
@@ -105,7 +105,7 @@ where
         log::debug!("Got {} messages", messages.len());
 
         for msg in messages {
-            let conn_id: uuid::Uuid = msg.conn_id.into();
+            let conn_id: uuid::Uuid = msg.conn_id;
 
             let res: Result<()> = match msg.action {
                 Action::Create | Action::Update => {

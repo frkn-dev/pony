@@ -3,8 +3,8 @@ use std::net::Ipv4Addr;
 use url::Url;
 
 use super::ProtocolConn;
+use crate::config::xray::Inbound;
 use crate::error::{PonyError, Result as PonyResult};
-use crate::http::requests::InboundResponse;
 use crate::memory::tag::ProtoTag as Tag;
 use crate::xray_api::xray::proxy::vless;
 use crate::xray_api::xray::{common::protocol::User, common::serial::TypedMessage};
@@ -27,7 +27,7 @@ impl ConnInfo {
             email: format!("{}@{}", uuid, "pony"),
             uuid: *uuid,
             encryption: Some("none".to_string()),
-            flow: flow,
+            flow,
         }
     }
 }
@@ -52,7 +52,7 @@ impl fmt::Display for ConnFlow {
 #[async_trait::async_trait]
 impl ProtocolConn for ConnInfo {
     fn tag(&self) -> Tag {
-        self.in_tag.clone()
+        self.in_tag
     }
     fn email(&self) -> String {
         self.email.clone()
@@ -78,7 +78,7 @@ impl ProtocolConn for ConnInfo {
 pub fn vless_xtls_conn(
     conn_id: &uuid::Uuid,
     ipv4: Ipv4Addr,
-    inbound: InboundResponse,
+    inbound: Inbound,
     label: &str,
 ) -> PonyResult<String> {
     let port = inbound.port;
@@ -104,10 +104,10 @@ pub fn vless_xtls_conn(
         .append_pair("security", "reality")
         .append_pair("flow", "xtls-rprx-vision")
         .append_pair("type", "tcp")
-        .append_pair("sni", &sni)
+        .append_pair("sni", sni)
         .append_pair("fp", "chrome")
         .append_pair("pbk", &pbk)
-        .append_pair("sid", &sid);
+        .append_pair("sid", sid);
 
     url.set_fragment(Some(&format!("{} XTLS", label)));
 
@@ -117,7 +117,7 @@ pub fn vless_xtls_conn(
 pub fn vless_grpc_conn(
     conn_id: &uuid::Uuid,
     ipv4: Ipv4Addr,
-    inbound: InboundResponse,
+    inbound: Inbound,
     label: &str,
 ) -> PonyResult<String> {
     let port = inbound.port;
@@ -162,7 +162,7 @@ pub fn vless_grpc_conn(
 pub fn vless_xhttp_conn(
     conn_id: &uuid::Uuid,
     ipv4: Ipv4Addr,
-    inbound: InboundResponse,
+    inbound: Inbound,
     label: &str,
 ) -> PonyResult<String> {
     let port = inbound.port;

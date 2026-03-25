@@ -17,10 +17,12 @@ use pony::SubscriptionStorageOp;
 
 use crate::core::postgres::connection::ConnRow;
 use crate::core::postgres::connection::PgConn;
+use crate::core::postgres::keys::PgKey;
 use crate::core::postgres::node::PgNode;
 use crate::core::postgres::subscription::PgSubscription;
 
 pub mod connection;
+pub mod keys;
 pub mod node;
 pub mod subscription;
 
@@ -99,6 +101,10 @@ impl PgContext {
     pub fn sub(&self) -> PgSubscription {
         PgSubscription::new(self.manager.clone())
     }
+
+    pub fn key(&self) -> PgKey {
+        PgKey::new(self.manager.clone())
+    }
 }
 
 #[async_trait::async_trait]
@@ -114,7 +120,7 @@ impl Tasks for MemoryCache<HashMap<String, Vec<Node>>, Connection, Subscription>
         let conn_id = db_conn.conn_id;
         let conn: Connection = db_conn.try_into()?;
 
-        self.connections.add(&conn_id, conn.into()).map_err(|e| {
+        self.connections.add(&conn_id, conn).map_err(|e| {
             format!(
                 "Create: Failed to add connection {} to state: {}",
                 conn_id, e

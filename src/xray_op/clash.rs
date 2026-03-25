@@ -3,8 +3,8 @@ use serde::Serialize;
 use std::net::Ipv4Addr;
 use uuid::Uuid;
 
+use crate::config::xray::Inbound;
 use crate::config::xray::Network;
-use crate::http::requests::InboundResponse;
 use crate::Tag;
 
 #[derive(Serialize)]
@@ -102,7 +102,7 @@ pub struct ClashProxyGroup {
 }
 
 pub fn generate_proxy_config(
-    inbound: &InboundResponse,
+    inbound: &Inbound,
     conn_id: Uuid,
     address: Ipv4Addr,
     label: &str,
@@ -115,10 +115,10 @@ pub fn generate_proxy_config(
             let tcp = stream.tcp_settings.as_ref()?;
             let header = tcp.header.as_ref()?;
             let req = header.request.as_ref()?;
-            let host = req.headers.as_ref()?.get("Host")?.get(0)?.clone();
+            let host = req.headers.as_ref()?.get("Host")?.first()?.clone();
             let path = req.path.first().cloned().unwrap_or_else(|| "/".to_string());
 
-            let name = format!("{} [{}]", label, inbound.tag.to_string());
+            let name = format!("{} [{}]", label, inbound.tag);
 
             Some(ClashProxy::Vmess {
                 name,
@@ -191,11 +191,11 @@ pub fn generate_proxy_config(
                 udp: true,
                 tls: true,
                 network,
-                servername: reality.server_names.get(0).cloned().unwrap_or_default(),
+                servername: reality.server_names.first().cloned().unwrap_or_default(),
                 client_fingerprint: "chrome".to_string(),
                 reality_opts: RealityOpts {
                     public_key: reality.public_key.clone(),
-                    short_id: reality.short_ids.get(0).cloned().unwrap_or_default(),
+                    short_id: reality.short_ids.first().cloned().unwrap_or_default(),
                 },
                 grpc_opts,
                 http_opts,

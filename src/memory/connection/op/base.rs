@@ -123,7 +123,7 @@ impl Operations for Base {
 
     fn get_token(&self) -> Option<uuid::Uuid> {
         match &self.proto {
-            Proto::Hysteria2 { token } => Some(token.clone()),
+            Proto::Hysteria2 { token } => Some(*token),
             _ => None,
         }
     }
@@ -247,7 +247,7 @@ impl Operations for Conn {
     }
     fn get_token(&self) -> Option<uuid::Uuid> {
         match &self.proto {
-            Proto::Hysteria2 { token } => Some(token.clone()),
+            Proto::Hysteria2 { token } => Some(*token),
             _ => None,
         }
     }

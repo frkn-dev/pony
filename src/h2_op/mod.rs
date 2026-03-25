@@ -1,9 +1,10 @@
-use crate::http::requests::InboundResponse;
+use crate::config::xray::Inbound;
+
 use crate::{PonyError, Result};
 use url::Url;
 
 pub fn hysteria2_conn(
-    inbound: &InboundResponse,
+    inbound: &Inbound,
     label: &str,
     token: &Option<uuid::Uuid>,
 ) -> Result<String> {
@@ -38,11 +39,11 @@ pub fn hysteria2_conn(
 
             url.set_fragment(Some(label));
 
-            return Ok(url.to_string());
+            Ok(url.to_string())
         } else {
-            Err(PonyError::Custom("Token is not valid".to_string()).into())
+            Err(PonyError::Custom("Token is not valid".to_string()))
         }
     } else {
-        Err(PonyError::Custom("H2 Inbound is not valid".to_string()).into())
+        Err(PonyError::Custom("H2 Inbound is not valid".to_string()))
     }
 }

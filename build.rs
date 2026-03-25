@@ -1,4 +1,3 @@
-use tonic_build;
 use walkdir::WalkDir;
 
 fn main() {

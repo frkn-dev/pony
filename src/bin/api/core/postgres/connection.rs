@@ -45,7 +45,7 @@ impl From<(uuid::Uuid, Conn)> for ConnRow {
         };
 
         ConnRow {
-            conn_id: conn_id,
+            conn_id,
             password: conn.get_password(),
             env: conn.env.clone(),
             created_at: conn.created_at,
@@ -124,7 +124,7 @@ impl PgConn {
         let client = manager.get_client().await?;
 
         let query = "
-        SELECT 
+        SELECT
             id,
             password,
             token,
@@ -133,7 +133,7 @@ impl PgConn {
             modified_at,
             expired_at,
             subscription_id,
-            online, 
+            online,
             uplink,
             downlink,
             proto,
@@ -209,7 +209,7 @@ impl PgConn {
         let client = manager.get_client().await?;
 
         let query = "
-                       UPDATE connections 
+                       UPDATE connections
                        SET downlink = $1, uplink = $2, online = $3
                        WHERE id = $4";
 
@@ -227,9 +227,20 @@ impl PgConn {
         let mut manager = self.manager.lock().await;
         let client = manager.get_client().await?;
 
-        let query = format!("UPDATE connections SET is_deleted = true WHERE id = $1");
+        let query = "UPDATE connections SET is_deleted = true WHERE id = $1";
 
-        client.execute(&query, &[conn_id]).await?;
+        client.execute(query, &[conn_id]).await?;
+
+        Ok(())
+    }
+
+    pub async fn restore(&self, conn_id: &uuid::Uuid) -> Result<()> {
+        let mut manager = self.manager.lock().await;
+        let client = manager.get_client().await?;
+
+        let query = "UPDATE connections SET is_deleted = false WHERE id = $1";
+
+        client.execute(query, &[conn_id]).await?;
 
         Ok(())
     }
@@ -304,55 +315,5 @@ impl PgConn {
                 Err(PonyError::Database(e))
             }
         }
-    }
-    pub async fn update(&self, conn: ConnRow) -> Result<()> {
-        let mut manager = self.manager.lock().await;
-        let client = manager.get_client().await?;
-
-        let query = "
-        UPDATE connections SET 
-            password = $2,
-            env = $3,
-            modified_at = $4,
-            subscription_id = $5,
-            online = $6,
-            uplink = $7,
-            downlink = $8, 
-            is_deleted = $9,
-            wg_privkey = $10,
-            wg_pubkey = $11,
-            wg_address = $12,
-            node_id = $13,
-            expired_at = $14
-        WHERE id = $1
-    ";
-
-        let rows = client
-            .execute(
-                query,
-                &[
-                    &conn.conn_id,
-                    &conn.password,
-                    &conn.env,
-                    &conn.modified_at,
-                    &conn.subscription_id,
-                    &conn.stat.online,
-                    &conn.stat.uplink,
-                    &conn.stat.downlink,
-                    &conn.is_deleted,
-                    &conn.wg.as_ref().map(|w| &w.keys.privkey),
-                    &conn.wg.as_ref().map(|w| &w.keys.pubkey),
-                    &conn.wg.as_ref().map(|w| w.address.to_string()),
-                    &conn.node_id,
-                    &conn.expired_at,
-                ],
-            )
-            .await?;
-
-        if rows == 0 {
-            return Err(PonyError::Custom("No rows updated".into()));
-        }
-
-        Ok(())
     }
 }

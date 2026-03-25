@@ -84,6 +84,11 @@ fn default_api_web_port() -> u16 {
 fn default_api_token() -> String {
     "token".to_string()
 }
+
+fn default_key_sign_token() -> Vec<u8> {
+    b"sign-token".to_vec()
+}
+
 fn default_label() -> String {
     "🏴‍☠️🏴‍☠️🏴‍☠️ dev".to_string()
 }
@@ -134,12 +139,12 @@ fn default_max_bandwidth_bps() -> i64 {
     100_000_000
 }
 
-fn default_hostname() -> String {
-    "http://localhost:5005".to_string()
+fn default_web_host() -> String {
+    "http://localhost:8000".to_string()
 }
 
-fn default_web_host() -> String {
-    "https://frkn.org".to_string()
+fn default_api_web_host() -> String {
+    "http://localhost:5005".to_string()
 }
 
 fn default_h2_config_path() -> String {
@@ -148,6 +153,38 @@ fn default_h2_config_path() -> String {
 
 fn default_mtproto_port() -> u16 {
     8443
+}
+
+fn default_smtp_username() -> String {
+    "user".to_string()
+}
+
+fn default_smtp_password() -> String {
+    "password".to_string()
+}
+
+fn default_smtp_server() -> String {
+    "smtp.example.com".to_string()
+}
+
+fn default_smtp_port() -> u16 {
+    587
+}
+
+fn default_smtp_from() -> String {
+    "noreply@example.com".to_string()
+}
+
+fn default_email_file() -> String {
+    "trials.csv".to_string()
+}
+
+fn default_email_sign_token() -> Vec<u8> {
+    b"email-sign-token".to_vec()
+}
+
+fn default_bonus_days() -> i64 {
+    7
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]
@@ -170,16 +207,20 @@ pub struct ApiServiceConfig {
     pub metrics_hb_interval: u64,
     #[serde(default = "default_db_sync_interval_sec")]
     pub db_sync_interval_sec: u64,
-    #[serde(default = "default_hostname")]
-    pub hostname: String,
     #[serde(default = "default_web_host")]
     pub web_host: String,
+    #[serde(default = "default_api_web_host")]
+    pub api_web_host: String,
     #[serde(default = "default_subscription_restore_interval_sec")]
     pub subscription_restore_interval: u64,
     #[serde(default = "default_subscription_expire_interval_sec")]
     pub subscription_expire_interval: u64,
     #[serde(default = "default_node_healthcheck_timeout")]
     pub node_health_check_timeout: i16,
+    #[serde(default = "default_key_sign_token")]
+    pub key_sign_token: Vec<u8>,
+    #[serde(default = "default_bonus_days")]
+    pub bonus_days: i64,
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]
@@ -196,10 +237,30 @@ pub struct AuthServiceConfig {
     pub snapshot_interval: u64,
     #[serde(default = "default_snapshot_path")]
     pub snapshot_path: String,
+    #[serde(default = "default_web_host")]
+    pub web_host: String,
     #[serde(default = "default_auth_web_server")]
     pub web_server: Option<Ipv4Addr>,
     #[serde(default = "default_auth_web_port")]
     pub web_port: u16,
+    #[serde(default = "default_email_file")]
+    pub email_file: String,
+    #[serde(default = "default_email_sign_token")]
+    pub email_sign_token: Vec<u8>,
+}
+
+#[derive(Clone, Debug, Deserialize, Default)]
+pub struct SmtpConfig {
+    #[serde(default = "default_smtp_server")]
+    pub server: String,
+    #[serde(default = "default_smtp_port")]
+    pub port: u16,
+    #[serde(default = "default_smtp_username")]
+    pub username: String,
+    #[serde(default = "default_smtp_password")]
+    pub password: String,
+    #[serde(default = "default_smtp_from")]
+    pub from: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]
@@ -297,9 +358,10 @@ impl NodeConfig {
                 if let Some(_interface) = interfaces.iter().find(|i| &i.name == interface_name) {
                     interface_name.clone()
                 } else {
-                    return Err(PonyError::Custom(
-                        format!("Validation error: Interface {} not found", interface_name).into(),
-                    ));
+                    return Err(PonyError::Custom(format!(
+                        "Validation error: Interface {} not found",
+                        interface_name
+                    )));
                 }
             } else {
                 match get_default_interface() {
@@ -328,9 +390,10 @@ impl NodeConfig {
                     }
                 }
             } else {
-                return Err(PonyError::Custom(
-                    format!("Validation error: Interface {} not found", interface_name).into(),
-                ));
+                return Err(PonyError::Custom(format!(
+                    "Validation error: Interface {} not found",
+                    interface_name
+                )));
             }
         } else {
             // Ни адрес, ни интерфейс не указаны - используем дефолтный интерфейс
@@ -354,9 +417,9 @@ impl NodeConfig {
 
         Ok(NodeConfig {
             env: raw.env,
-            hostname: hostname,
+            hostname,
             default_interface: interface,
-            address: address,
+            address,
             uuid: raw.uuid,
             label: raw.label,
             max_bandwidth_bps: raw.max_bandwidth_bps,
@@ -507,6 +570,8 @@ pub struct AuthServiceSettings {
     pub node: NodeConfigRaw,
     #[serde(default)]
     pub api: ApiAccessConfig,
+    #[serde(default)]
+    pub smtp: SmtpConfig,
 }
 
 #[derive(Clone, Debug, Deserialize)]

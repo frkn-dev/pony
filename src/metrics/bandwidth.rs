@@ -5,26 +5,15 @@ use std::time::Duration;
 use log::error;
 use sysinfo::Networks;
 
-use super::metrics::{AsMetric, Metric, MetricType};
+use super::{AsMetric, Metric, MetricType};
 use crate::utils::current_timestamp;
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 struct Bandwidth {
     rx_bps: u64,
     tx_bps: u64,
     rx_err: u64,
     tx_err: u64,
-}
-
-impl Default for Bandwidth {
-    fn default() -> Self {
-        Bandwidth {
-            rx_bps: 0,
-            tx_bps: 0,
-            rx_err: 0,
-            tx_err: 0,
-        }
-    }
 }
 
 impl fmt::Display for Bandwidth {
@@ -74,9 +63,9 @@ impl AsMetric for Bandwidth {
 
 pub fn bandwidth_metrics(env: &str, hostname: &str, target_interface: &str) -> Vec<MetricType> {
     let mut networks = Networks::new_with_refreshed_list();
-    let _ = sleep(Duration::from_secs(1));
+    sleep(Duration::from_secs(1));
 
-    let _ = networks.refresh(true);
+    networks.refresh(true);
     let res = networks
         .iter()
         .find(|&(interface, _)| interface == target_interface);

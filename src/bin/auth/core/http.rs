@@ -1,88 +1,23 @@
-use pony::http::requests::ConnTypeParam;
-use pony::memory::cache::Cache;
+use async_trait::async_trait;
+use serde::{Deserialize, Serialize};
+
 use pony::ConnectionBaseOp;
-use pony::ConnectionStorageBaseOp;
 use pony::NodeStorageOp;
 use pony::SubscriptionOp;
 use pony::Tag;
-use serde::Deserialize;
-use serde::Serialize;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use std::sync::Arc;
-use tokio::sync::RwLock;
-use warp::Filter;
-
-#[derive(Deserialize)]
-pub struct AuthRequest {
-    addr: String,
-    pub auth: uuid::Uuid,
-    tx: u64,
-}
-
-#[derive(Serialize)]
-pub struct AuthResponse {
-    pub ok: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub id: Option<String>,
-}
-
-pub async fn start_auth_server<N, C, S>(
-    memory: Arc<RwLock<Cache<N, C, S>>>,
-    ipaddr: Ipv4Addr,
-    port: u16,
-) where
-    N: NodeStorageOp + Sync + Send + Clone + 'static,
-    S: SubscriptionOp + Sync + Send + Clone + 'static + std::cmp::PartialEq + serde::Serialize,
-    C: ConnectionBaseOp + Sync + Send + Clone + 'static + std::fmt::Display,
-{
-    let health_check = warp::path("health-check").map(|| "Server OK");
-
-    let auth_route = warp::post()
-        .and(warp::path("auth"))
-        .and(warp::body::json())
-        .and(warp::any().map(move || memory.clone()))
-        .and_then(auth_handler);
-
-    let routes = health_check
-        .or(auth_route)
-        .with(warp::cors().allow_any_origin());
-
-    warp::serve(routes)
-        .run(SocketAddr::new(IpAddr::V4(ipaddr), port))
-        .await;
-}
-
-pub async fn auth_handler<N, S, C>(
-    req: AuthRequest,
-    memory: Arc<RwLock<Cache<N, C, S>>>,
-) -> Result<impl warp::Reply, warp::Rejection>
-where
-    N: NodeStorageOp + Sync + Send + Clone + 'static,
-    S: SubscriptionOp + Sync + Send + Clone + 'static + std::cmp::PartialEq + serde::Serialize,
-    C: ConnectionBaseOp + Sync + Send + Clone + 'static + std::fmt::Display,
-{
-    log::debug!("Auth req {} {} {}", req.auth, req.addr, req.tx);
-    let mem = memory.read().await;
-    if let Some(id) = mem.connections.validate_token(&req.auth) {
-        return Ok(warp::reply::json(&AuthResponse {
-            ok: true,
-            id: Some(id.to_string()),
-        }));
-    } else {
-        return Ok(warp::reply::json(&AuthResponse {
-            ok: false,
-            id: None,
-        }));
-    }
-}
-
-use async_trait::async_trait;
-use reqwest::Client as HttpClient;
-use reqwest::Url;
-
 use pony::{PonyError, Result as PonyResult};
 
 use super::AuthService;
+use super::HttpClient;
+
+use reqwest::Url;
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct ConnTypeParam {
+    pub proto: Tag,
+    pub last_update: Option<u64>,
+    pub env: String,
+}
 
 #[async_trait]
 pub trait ApiRequests {
@@ -120,9 +55,9 @@ where
         let env = node.env;
 
         let conn_type_param = ConnTypeParam {
-            proto: proto,
-            last_update: last_update,
-            env: env,
+            proto,
+            last_update,
+            env,
         };
 
         let mut endpoint_url = Url::parse(&endpoint)?;
@@ -147,9 +82,10 @@ where
             Ok(())
         } else {
             log::error!("Connections Request failed: {} - {}", status, body);
-            Err(PonyError::Custom(
-                format!("Connections Request failed: {} - {}", status, body).into(),
-            ))
+            Err(PonyError::Custom(format!(
+                "Connections Request failed: {} - {}",
+                status, body
+            )))
         }
     }
 }

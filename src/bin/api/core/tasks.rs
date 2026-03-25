@@ -3,7 +3,6 @@ use chrono::NaiveTime;
 use chrono::TimeZone;
 use chrono::Utc;
 use futures::future::join_all;
-use pony::http::requests::ConnUpdateRequest;
 use rand::Rng;
 use std::collections::HashMap;
 use std::time::Duration;
@@ -135,7 +134,7 @@ impl Tasks for Api<HashMap<String, Vec<Node>>, Connection, Subscription> {
                             conns
                                 .iter()
                                 .filter(|(_id, c)| !c.get_deleted())
-                                .filter_map(|(id, c)| Some((*id, c.clone().into())))
+                                .map(|(id, c)| (*id, c.clone()))
                                 .collect()
                         })
                         .unwrap_or_default()
@@ -196,7 +195,7 @@ impl Tasks for Api<HashMap<String, Vec<Node>>, Connection, Subscription> {
                             conns
                                 .iter()
                                 .filter(|(_id, c)| c.get_deleted())
-                                .filter_map(|(id, c)| Some((*id, c.clone().into())))
+                                .map(|(id, c)| (*id, c.clone()))
                                 .collect()
                         })
                         .unwrap_or_default()
@@ -213,14 +212,7 @@ impl Tasks for Api<HashMap<String, Vec<Node>>, Connection, Subscription> {
                         let _ = publisher.send_binary(&key, bytes.as_ref()).await;
                     }
 
-                    let conn_upd = ConnUpdateRequest {
-                        env: Some(conn.get_env()),
-                        is_deleted: Some(false),
-                        password: conn.get_password(),
-                        days: None,
-                    };
-
-                    match SyncOp::update_conn(&self.sync, &conn_id, conn_upd).await {
+                    match SyncOp::restore_connection(&self.sync, &conn_id).await {
                         Ok(StorageOperationStatus::Updated(_)) => {
                             log::info!("Expired connection {} restored", conn_id);
                         }
@@ -383,7 +375,7 @@ impl Tasks for Api<HashMap<String, Vec<Node>>, Connection, Subscription> {
             mem.connections
                 .iter()
                 .filter(|(_, conn)| !conn.get_deleted())
-                .map(|(k, v)| (k.clone(), v.clone()))
+                .map(|(k, v)| (*k, v.clone()))
                 .collect::<Vec<_>>()
         };
 

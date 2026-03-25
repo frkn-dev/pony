@@ -1,5 +1,5 @@
 use clickhouse::Client as ChClient;
-use pony::metrics::metrics::Metric;
+use pony::metrics::Metric;
 use serde::de::DeserializeOwned;
 use std::fmt::Debug;
 

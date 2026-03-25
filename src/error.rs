@@ -31,7 +31,7 @@ pub enum PonyError {
     XrayTransport(#[from] tonic::transport::Error),
 
     #[error(transparent)]
-    Grpc(#[from] tonic::Status),
+    Grpc(#[from] Box<tonic::Status>),
 
     #[error(transparent)]
     SerdeUrlEnc(#[from] serde_urlencoded::ser::Error),
@@ -108,3 +108,11 @@ impl<T: std::fmt::Debug> From<tokio::sync::mpsc::error::SendError<T>> for PonyEr
         PonyError::Custom(format!("SendError: {:?}", err))
     }
 }
+
+impl From<tonic::Status> for PonyError {
+    fn from(status: tonic::Status) -> Self {
+        PonyError::Grpc(Box::new(status))
+    }
+}
+
+impl warp::reject::Reject for PonyError {}

@@ -34,7 +34,7 @@ async fn main() -> Result<()> {
         .expect("required config path as an argument");
     println!("Config file {:?}", config_path);
 
-    let settings = ApiSettings::new(&config_path);
+    let settings = ApiSettings::new(config_path);
 
     settings.validate().expect("Wrong settings file");
     println!(">>> Settings: {:?}", settings.clone());
@@ -61,7 +61,7 @@ async fn main() -> Result<()> {
         Ok(db) => db,
         Err(err) => {
             log::error!("Failed to init DB: {}", err);
-            return Err(err.into());
+            return Err(err);
         }
     };
 
@@ -78,7 +78,7 @@ async fn main() -> Result<()> {
         settings.clone(),
     ));
 
-    let _ = measure_time(api.get_state_from_db(), "Init PG DB".to_string()).await?;
+    measure_time(api.get_state_from_db(), "Init PG DB".to_string()).await?;
 
     let api_clone = api.clone();
     tokio::spawn(async move {
@@ -131,7 +131,7 @@ async fn main() -> Result<()> {
         ));
     }
 
-    let _ = tokio::spawn({
+    tokio::spawn({
         log::info!("node_healthcheck task started");
         let job_interval = Duration::from_secs(settings.api.healthcheck_interval);
         let api = api.clone();
@@ -146,7 +146,7 @@ async fn main() -> Result<()> {
         }
     });
 
-    let _ = tokio::spawn({
+    tokio::spawn({
         log::info!("collect_conn_stat task started");
         let api = api.clone();
         let job_interval = Duration::from_secs(settings.api.collect_conn_stat_interval);
@@ -161,7 +161,7 @@ async fn main() -> Result<()> {
         }
     });
 
-    let _ = tokio::spawn({
+    tokio::spawn({
         let api = api.clone();
         let publisher = publisher.clone();
         let job_interval = Duration::from_secs(60);
@@ -173,7 +173,7 @@ async fn main() -> Result<()> {
         }
     });
 
-    let _ = tokio::spawn({
+    tokio::spawn({
         let api = api.clone();
         let publisher = publisher.clone();
         let job_interval = Duration::from_secs(settings.api.subscription_expire_interval);
@@ -185,7 +185,7 @@ async fn main() -> Result<()> {
         }
     });
 
-    let _ = tokio::spawn({
+    tokio::spawn({
         let api = api.clone();
         let publisher = publisher.clone();
         let job_interval = Duration::from_secs(settings.api.subscription_restore_interval);

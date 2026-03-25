@@ -1,17 +1,39 @@
 use async_trait::async_trait;
-use pony::http::requests::ConnTypeParam;
-use pony::Tag;
 use reqwest::Client as HttpClient;
 use reqwest::StatusCode;
 use reqwest::Url;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
-use pony::http::requests::NodeRequest;
+use pony::config::xray::Inbound;
 use pony::ConnectionBaseOp;
 use pony::NodeStorageOp;
 use pony::SubscriptionOp;
+use pony::Tag;
 use pony::{PonyError, Result};
+use std::net::Ipv4Addr;
 
 use super::Agent;
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct ConnTypeParam {
+    pub proto: Tag,
+    pub last_update: Option<u64>,
+    pub env: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct NodeRequest {
+    pub env: String,
+    pub hostname: String,
+    pub address: Ipv4Addr,
+    pub inbounds: HashMap<Tag, Inbound>,
+    pub uuid: uuid::Uuid,
+    pub label: String,
+    pub interface: String,
+    pub cores: usize,
+    pub max_bandwidth_bps: i64,
+}
 
 #[async_trait]
 pub trait ApiRequests {
@@ -50,9 +72,9 @@ where
         let env = node.env;
 
         let conn_type_param = ConnTypeParam {
-            proto: proto,
-            last_update: last_update,
-            env: env,
+            proto,
+            last_update,
+            env,
         };
 
         let mut endpoint_url = Url::parse(&endpoint)?;
@@ -77,9 +99,10 @@ where
             Ok(())
         } else {
             log::error!("Connections Request failed: {} - {}", status, body);
-            Err(PonyError::Custom(
-                format!("Connections Request failed: {} - {}", status, body).into(),
-            ))
+            Err(PonyError::Custom(format!(
+                "Connections Request failed: {} - {}",
+                status, body
+            )))
         }
     }
 
@@ -131,9 +154,10 @@ where
             Ok(())
         } else {
             log::error!("Registration failed: {} - {}", status, body);
-            Err(PonyError::Custom(
-                format!("Registration failed: {} - {}", status, body).into(),
-            ))
+            Err(PonyError::Custom(format!(
+                "Registration failed: {} - {}",
+                status, body
+            )))
         }
     }
 }

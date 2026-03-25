@@ -3,7 +3,6 @@ use std::{fs::File, io::Read};
 
 use crate::config::h2::H2Settings;
 use crate::config::wireguard::WireguardSettings;
-use crate::http::requests::InboundResponse;
 use crate::memory::node::Stat as InboundStat;
 use crate::memory::tag::ProtoTag as Tag;
 use crate::Result;
@@ -116,6 +115,16 @@ impl Inbound {
     pub fn update_conn_count(&mut self, new_conn_count: i64) {
         self.conn_count = Some(new_conn_count);
     }
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct InboundResponse {
+    pub tag: Tag,
+    pub port: u16,
+    pub stream_settings: Option<StreamSettings>,
+    pub wg: Option<WireguardSettings>,
+    pub h2: Option<H2Settings>,
+    pub mtproto_secret: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

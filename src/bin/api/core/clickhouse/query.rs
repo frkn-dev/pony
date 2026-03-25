@@ -4,7 +4,7 @@ use chrono::Utc;
 use uuid::Uuid;
 
 use super::ChContext;
-use pony::metrics::metrics::Metric;
+use pony::metrics::Metric;
 
 #[async_trait]
 pub trait Queries {
@@ -65,7 +65,7 @@ GROUP BY Path"#,
             r#"
 SELECT  metric,
     toInt64(sum(metric_value)) AS value,
-    anyLast(timestamp) AS timestamp 
+    anyLast(timestamp) AS timestamp
 FROM (
   SELECT
     toInt64(toUnixTimestamp(toDateTime(anyLast(Timestamp)))) AS timestamp,

@@ -5,10 +5,6 @@ use rkyv::to_bytes;
 use warp::http::StatusCode;
 
 use pony::http::helpers as http;
-use pony::http::requests::ConnCreateRequest;
-use pony::http::requests::ConnQueryParam;
-use pony::http::requests::ConnTypeParam;
-use pony::http::requests::ConnUpdateRequest;
 use pony::http::IdResponse;
 use pony::http::IpParseError;
 use pony::http::MyRejection;
@@ -30,6 +26,10 @@ use pony::WgParam;
 
 use crate::core::sync::tasks::SyncOp;
 use crate::core::sync::MemSync;
+
+use super::super::param::ConnQueryParam;
+use super::super::param::ConnTypeParam;
+use super::super::request::ConnCreateRequest;
 
 /// Handler get connection
 // GET /connections
@@ -294,7 +294,7 @@ where
 
             Proto::Wireguard {
                 param: wg_param,
-                node_id: node_id,
+                node_id,
             }
         }
         ProtoTag::Shadowsocks => Proto::Shadowsocks {
@@ -318,8 +318,7 @@ where
         ConnectionStat::default(),
         proto,
         expired_at,
-    )
-    .into();
+    );
 
     log::debug!("New connection to create {}", conn);
     let conn_id = uuid::Uuid::new_v4();
@@ -345,11 +344,11 @@ where
 
             let _ = publisher.send_binary(&topic, bytes.as_ref()).await;
 
-            return Ok(http::success_response(
+            Ok(http::success_response(
                 format!("Connection {} has been created", id),
                 Some(id),
                 http::Instance::Connection(conn),
-            ));
+            ))
         }
 
         Ok(StorageOperationStatus::AlreadyExist(id)) => Ok(http::not_modified(&format!(
@@ -461,82 +460,6 @@ where
     }
 }
 
-/// Handler updates connection
-// PUT /connection?id=
-pub async fn put_connection_handler<N, C, S>(
-    conn_param: ConnQueryParam,
-    conn_req: ConnUpdateRequest,
-    publisher: ZmqPublisher,
-    memory: MemSync<N, C, S>,
-) -> Result<impl warp::Reply, warp::Rejection>
-where
-    N: NodeStorageOp + Sync + Send + Clone + 'static,
-    C: ConnectionApiOp
-        + ConnectionBaseOp
-        + Sync
-        + Send
-        + Clone
-        + 'static
-        + From<Connection>
-        + PartialEq,
-    Connection: From<C>,
-    S: SubscriptionOp
-        + Send
-        + Sync
-        + Clone
-        + 'static
-        + std::cmp::PartialEq
-        + std::convert::From<pony::Subscription>,
-{
-    let conn_id = conn_param.id;
-    log::debug!("Connection to update {}", conn_id);
-
-    match SyncOp::update_conn(&memory, &conn_id, conn_req).await {
-        Ok(StorageOperationStatus::Updated(id)) => {
-            let mem = memory.memory.read().await;
-
-            if let Some(conn) = mem.connections.get(&id) {
-                let msg = conn.as_update_message(&id);
-
-                let bytes = match rkyv::to_bytes::<_, 1024>(&msg) {
-                    Ok(b) => b,
-                    Err(e) => {
-                        return Ok(http::internal_error(&format!("Serialization error: {}", e)));
-                    }
-                };
-
-                let _ = publisher.send_binary(&conn.get_env(), bytes.as_ref()).await;
-
-                Ok(http::success_response(
-                    format!("Connection {} has been updated", id),
-                    Some(id),
-                    http::Instance::None,
-                ))
-            } else {
-                Ok(http::not_found(&format!("Connection {} is not found", id)))
-            }
-        }
-        Ok(StorageOperationStatus::NotModified(id)) => Ok(http::not_modified(&format!(
-            "Connection {} is not modified",
-            id
-        ))),
-        Ok(StorageOperationStatus::NotFound(id)) => {
-            Ok(http::not_found(&format!("Connection {} is not found", id)))
-        }
-        Ok(StorageOperationStatus::BadRequest(id, msg)) => {
-            Ok(http::bad_request(&format!("BadRequest {} {}", id, msg)))
-        }
-        Ok(status) => Ok(http::internal_error(&format!(
-            "Unsupported operation status: {}",
-            status
-        ))),
-        Err(err) => Ok(http::internal_error(&format!(
-            "Internal error while processing connection {}: {}",
-            conn_id, err
-        ))),
-    }
-}
-
 /// Get connection detaisl
 // GET /connection?id=
 pub async fn get_connection_handler<N, C, S>(
@@ -563,12 +486,12 @@ where
     let conn_id = conn_param.id;
 
     if let Some(conn) = mem.connections.get(&conn_id) {
-        return Ok(http::success_response(
+        Ok(http::success_response(
             "Connection is found".to_string(),
             Some(conn_id),
             http::Instance::Connection(conn.clone().into()),
-        ));
+        ))
     } else {
-        return Ok(http::not_found("Connection is not found"));
+        Ok(http::not_found("Connection is not found"))
     }
 }

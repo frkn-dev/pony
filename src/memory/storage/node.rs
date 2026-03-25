@@ -135,7 +135,7 @@ impl Operations for Node {
         _proto: &Tag,
         _connections: &Connections<C>,
     ) -> Option<uuid::Uuid> {
-        Some(self.uuid.clone())
+        Some(self.uuid)
     }
     fn clear(&mut self) -> Result<()> {
         Err(PonyError::Custom("Cannot clear Node".to_string()))

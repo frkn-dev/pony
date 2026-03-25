@@ -17,7 +17,7 @@ use defguard_wireguard_rs::Kernel;
 #[cfg(target_os = "macos")]
 use defguard_wireguard_rs::Userspace;
 
-use crate::http::requests::InboundResponse;
+use crate::config::xray::Inbound;
 use crate::PonyError;
 use crate::Result;
 
@@ -182,7 +182,7 @@ impl WgApi {
 pub fn wireguard_conn(
     conn_id: &uuid::Uuid,
     ipv4: &Ipv4Addr,
-    inbound: InboundResponse,
+    inbound: Inbound,
     label: &str,
     private_key: &str,
     client_ip: &IpAddrMask,
@@ -206,7 +206,7 @@ PublicKey           = {server_pubkey}
 Endpoint            = {host}:{port}
 AllowedIPs          = 0.0.0.0/0, ::/0
 PersistentKeepalive = 25
-         
+
 # {label} — conn_id: {conn_id}"#
         );
 

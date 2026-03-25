@@ -17,10 +17,11 @@ use pony::SnapshotManager;
 use pony::Subscriber as ZmqSubscriber;
 
 use super::AuthService;
-use crate::core::http::start_auth_server;
 use crate::core::http::ApiRequests;
 use crate::core::tasks::Tasks;
 use crate::core::AuthServiceState;
+use crate::core::EmailStore;
+use crate::core::HttpClient;
 
 pub async fn run(settings: AuthServiceSettings) -> Result<()> {
     let mut tasks: Vec<JoinHandle<()>> = vec![];
@@ -38,7 +39,28 @@ pub async fn run(settings: AuthServiceSettings) -> Result<()> {
         &settings.node.env,
     );
 
-    let auth = Arc::new(AuthService::new(memory.clone(), subscriber));
+    let email_store = EmailStore::new(
+        settings.auth.email_file.clone(),
+        settings.smtp.clone(),
+        settings.auth.email_sign_token.clone(),
+        settings.auth.web_host.clone(),
+    );
+
+    email_store.load_trials().await?;
+    let http_client = HttpClient::new();
+
+    let auth = Arc::new(AuthService::new(
+        memory.clone(),
+        subscriber,
+        email_store,
+        http_client,
+        settings
+            .auth
+            .web_server
+            .unwrap_or(Ipv4Addr::from_octets([127, 0, 0, 1])),
+        settings.auth.web_port,
+        settings.api.clone(),
+    ));
 
     let snapshot_manager =
         SnapshotManager::new(settings.clone().auth.snapshot_path, memory.clone());
@@ -74,7 +96,7 @@ pub async fn run(settings: AuthServiceSettings) -> Result<()> {
             if let Err(e) = snapshot_manager.create_snapshot().await {
                 log::error!("Failed to create snapshot: {}", e);
             } else {
-                log::info!("Connections snapshot saved successfully");
+                log::info!("Auth snapshot saved successfully");
             }
         }
     });
@@ -99,10 +121,12 @@ pub async fn run(settings: AuthServiceSettings) -> Result<()> {
 
     {
         let settings = settings.clone();
+        let api_token = settings.api.token.clone();
+
         if let Err(e) = auth
             .get_connections(
                 settings.api.endpoint.clone(),
-                settings.api.token.clone(),
+                api_token,
                 pony::Tag::Hysteria2,
                 snapshot_timestamp,
             )
@@ -114,23 +138,19 @@ pub async fn run(settings: AuthServiceSettings) -> Result<()> {
 
     {
         let mut shutdown = shutdown_tx.subscribe();
-        let memory = memory.clone();
-        let addr = settings
-            .auth
-            .web_server
-            .unwrap_or(Ipv4Addr::new(127, 0, 0, 1));
-        let port = settings.auth.web_port;
 
         let auth_handle = tokio::spawn(async move {
             tokio::select! {
-                _ = start_auth_server(memory, addr, port) => {},
+                _ = auth.start_auth_server() => {},
                 _ = shutdown.recv() => {},
             }
         });
         tasks.push(auth_handle);
     };
 
-    let token = Arc::new(settings.api.token.clone());
+    let api_token = settings.api.token.clone();
+
+    let token = Arc::new(api_token.clone());
     if settings.debug.enabled {
         log::debug!(
             "Running debug server: localhost:{}",

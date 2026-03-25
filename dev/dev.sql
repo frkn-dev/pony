@@ -231,3 +231,7 @@ REFERENCES subscriptions(id);
 
 ALTER TABLE keys
 ALTER COLUMN days TYPE SMALLINT USING days::SMALLINT;
+
+
+ALTER TABLE subscriptions
+  ALTER COLUMN referred_by TYPE VARCHAR(13);

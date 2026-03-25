@@ -3,8 +3,8 @@ use serde::Serialize;
 use std::net::Ipv4Addr;
 
 use super::ProtocolConn;
+use crate::config::xray::Inbound;
 use crate::error::{PonyError, Result as PonyResult};
-use crate::http::requests::InboundResponse;
 use crate::memory::tag::ProtoTag as Tag;
 use crate::xray_api::xray::proxy::vmess;
 use crate::xray_api::xray::{common::protocol::User, common::serial::TypedMessage};
@@ -72,7 +72,7 @@ struct VmessConnection {
 pub fn vmess_tcp_conn(
     conn_id: &uuid::Uuid,
     ipv4: Ipv4Addr,
-    inbound: InboundResponse,
+    inbound: Inbound,
     label: &str,
 ) -> PonyResult<String> {
     let port = inbound.port;

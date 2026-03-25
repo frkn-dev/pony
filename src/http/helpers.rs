@@ -1,4 +1,4 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use warp::http::StatusCode;
 use warp::reply::Json;
 
@@ -58,6 +58,7 @@ pub fn success_response(
     id: Option<uuid::Uuid>,
     instance: Instance,
 ) -> warp::reply::WithStatus<Json> {
+    let id = id.unwrap_or(uuid::Uuid::nil());
     let resp = ResponseMessage {
         status: StatusCode::OK.as_u16(),
         message: msg,
@@ -73,13 +74,13 @@ struct ResponseMessage<T> {
     response: T,
 }
 
-#[derive(Serialize)]
-struct InstanceWithId {
-    id: Option<uuid::Uuid>,
-    instance: Instance,
+#[derive(Serialize, Deserialize, Debug)]
+pub struct InstanceWithId<T> {
+    pub id: uuid::Uuid,
+    pub instance: T,
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub enum Instance {
     Connection(Connection),
     Subscription(Subscription),

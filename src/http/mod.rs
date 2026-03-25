@@ -5,7 +5,6 @@ use warp::reject::Reject;
 pub mod debug;
 pub mod filters;
 pub mod helpers;
-pub mod requests;
 
 #[derive(Debug)]
 pub struct AuthError(pub String);

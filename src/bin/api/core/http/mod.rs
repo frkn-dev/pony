@@ -5,6 +5,8 @@ use warp::{http::StatusCode, Rejection, Reply};
 
 mod filters;
 pub mod handlers;
+pub mod param;
+pub mod request;
 pub mod routes;
 
 #[derive(Debug)]

@@ -130,15 +130,12 @@ impl Code {
             return None;
         }
 
-        // 👇 16 - 1 = 15
         let (data_with_sig, check_byte) = bytes.split_at(15);
 
-        // checksum
         if Self::checksum(data_with_sig) != check_byte[0] {
             return None;
         }
 
-        // 👇 6 + 2 + 4 = 12
         let (data, sig) = data_with_sig.split_at(12);
 
         // HMAC

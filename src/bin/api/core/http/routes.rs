@@ -3,8 +3,7 @@ use std::sync::Arc;
 use warp::Filter;
 
 use pony::config::settings::ApiServiceConfig;
-use pony::http::filters::auth;
-use pony::http::requests::*;
+use pony::http::filters::{auth, with_i64};
 use pony::Connection;
 use pony::ConnectionApiOp;
 use pony::ConnectionBaseOp;
@@ -18,7 +17,9 @@ use super::handlers::connection::*;
 use super::handlers::key::*;
 use super::handlers::node::*;
 use super::handlers::sub::*;
+use super::param::*;
 use super::rejection;
+use super::request::*;
 
 use crate::core::http::handlers::healthcheck_handler;
 
@@ -136,8 +137,8 @@ where
             .and(warp::path::end())
             .and(warp::query::<SubQueryParam>())
             .and(with_state(self.sync.clone()))
-            .and(with_param_string(params.hostname))
             .and(with_param_string(params.web_host))
+            .and(with_param_string(params.api_web_host))
             .and_then(subscription_info_handler);
 
         let post_subscription_route = warp::post()
@@ -146,6 +147,7 @@ where
             .and(auth.clone())
             .and(warp::body::json())
             .and(with_state(self.sync.clone()))
+            .and(with_i64(params.bonus_days))
             .and_then(post_subscription_handler);
 
         let put_subscription_route = warp::put()
@@ -194,16 +196,6 @@ where
             .and(with_state(self.sync.clone()))
             .and_then(delete_connection_handler);
 
-        let put_connection_route = warp::put()
-            .and(warp::path("connection"))
-            .and(warp::path::end())
-            .and(auth.clone())
-            .and(warp::query::<ConnQueryParam>())
-            .and(warp::body::json())
-            .and(publisher(self.publisher.clone()))
-            .and(with_state(self.sync.clone()))
-            .and_then(put_connection_handler);
-
         // Keys Routes
 
         let get_key_validation_route = warp::get()
@@ -250,7 +242,6 @@ where
             .or(get_connections_route)
             .or(post_connection_route)
             .or(delete_connection_route)
-            .or(put_connection_route)
             // Key
             .or(get_key_validation_route)
             .or(post_key_route)

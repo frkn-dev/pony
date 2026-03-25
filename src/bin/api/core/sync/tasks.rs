@@ -1,6 +1,3 @@
-use pony::http::requests::ConnUpdateRequest;
-use pony::http::requests::SubUpdateReq;
-use pony::memory::cache::Connections;
 use pony::memory::node::Node;
 use pony::memory::node::Status as NodeStatus;
 use pony::memory::subscription::Subscription;
@@ -18,6 +15,7 @@ use pony::SyncError;
 
 use chrono::{Duration, Utc};
 
+use super::super::http::request::Subscription as SubReq;
 use super::MemSync;
 use crate::core::postgres::connection::ConnRow;
 
@@ -71,12 +69,8 @@ where
     async fn add_node(&self, node_id: &uuid::Uuid, node: Node) -> SyncResult<OperationStatus>;
     async fn add_conn(&self, conn_id: &uuid::Uuid, conn: Conn) -> SyncResult<OperationStatus>;
     async fn add_sub(&self, sub: Subscription) -> SyncResult<OperationStatus>;
-    async fn update_conn(
-        &self,
-        conn_id: &uuid::Uuid,
-        conn: ConnUpdateRequest,
-    ) -> SyncResult<OperationStatus>;
     async fn delete_connection(&self, conn_id: &uuid::Uuid) -> SyncResult<OperationStatus>;
+    async fn restore_connection(&self, conn_id: &uuid::Uuid) -> SyncResult<OperationStatus>;
     async fn update_node_status(
         &self,
         uuid: &uuid::Uuid,
@@ -84,13 +78,9 @@ where
         status: NodeStatus,
     ) -> SyncResult<()>;
     async fn update_conn_stat(&self, conn_id: &uuid::Uuid, stat: ConnectionStat) -> SyncResult<()>;
-
-    async fn update_sub(
-        &self,
-        sub_id: &uuid::Uuid,
-        sub_req: SubUpdateReq,
-    ) -> SyncResult<OperationStatus>;
-    async fn add_days(&self, sub_id: &uuid::Uuid, days: i16) -> SyncResult<OperationStatus>;
+    async fn update_sub(&self, sub_id: &uuid::Uuid, sub_req: SubReq)
+        -> SyncResult<OperationStatus>;
+    async fn add_days(&self, sub_id: &uuid::Uuid, days: i64) -> SyncResult<OperationStatus>;
 }
 
 #[async_trait::async_trait]
@@ -265,54 +255,6 @@ where
         }
     }
 
-    async fn update_conn(
-        &self,
-        conn_id: &uuid::Uuid,
-        conn_req: ConnUpdateRequest,
-    ) -> SyncResult<OperationStatus> {
-        log::info!("Updating connection: {}", conn_id);
-
-        // Get current connection
-        let current_conn = {
-            let memory = self.memory.read().await;
-            memory.connections.get(conn_id)
-        };
-
-        let conn = match current_conn {
-            Some(c) => c,
-            None => {
-                log::warn!("Connection {} not found for update", conn_id);
-                return Ok(OperationStatus::NotFound(*conn_id));
-            }
-        };
-
-        // Apply update
-        let updated_conn =
-            match <Connections<C> as ApiOp<C>>::apply_update(&mut conn.into(), conn_req) {
-                Some(updated) => updated,
-                None => {
-                    log::debug!("No changes detected for connection: {}", conn_id);
-                    return Ok(OperationStatus::NotModified(*conn_id));
-                }
-            };
-
-        // Update database first
-        let conn_row: ConnRow = (*conn_id, updated_conn.clone()).into();
-        if let Err(e) = self.db.conn().update(conn_row).await {
-            log::error!("Failed to update connection {} in database: {}", conn_id, e);
-            return Err(SyncError::Database(e));
-        }
-
-        // Update memory
-        {
-            let mut memory = self.memory.write().await;
-            memory.connections.insert(*conn_id, updated_conn.into());
-        }
-
-        log::info!("Successfully updated connection: {}", conn_id);
-        Ok(OperationStatus::Updated(*conn_id))
-    }
-
     async fn delete_connection(&self, conn_id: &uuid::Uuid) -> SyncResult<OperationStatus> {
         log::info!("Deleting connection: {}", conn_id);
 
@@ -355,6 +297,46 @@ where
         }
 
         log::info!("Successfully deleted connection: {}", conn_id);
+        Ok(OperationStatus::Ok(*conn_id))
+    }
+
+    async fn restore_connection(&self, conn_id: &uuid::Uuid) -> SyncResult<OperationStatus> {
+        log::info!("Restoring connection: {}", conn_id);
+
+        // Check if connection exists and get its current state
+        let current_conn = {
+            let memory = self.memory.read().await;
+            memory.connections.get(conn_id)
+        };
+
+        let _conn = match current_conn {
+            Some(c) => c,
+            None => {
+                log::warn!("Connection {} not found for restoration", conn_id);
+                return Ok(OperationStatus::NotFound(*conn_id));
+            }
+        };
+
+        // Undelete from database first
+        if let Err(e) = self.db.conn().restore(conn_id).await {
+            log::error!(
+                "Failed to restore connection {} from database: {}",
+                conn_id,
+                e
+            );
+            return Err(SyncError::Database(e));
+        }
+
+        // Mark as undeleted in memory
+        {
+            let mut memory = self.memory.write().await;
+            if let Some(conn_mut) = memory.connections.get_mut(conn_id) {
+                conn_mut.set_deleted(false);
+                conn_mut.set_modified_at();
+            }
+        }
+
+        log::info!("Successfully restored connection: {}", conn_id);
         Ok(OperationStatus::Ok(*conn_id))
     }
 
@@ -447,7 +429,7 @@ where
     async fn update_sub(
         &self,
         sub_id: &uuid::Uuid,
-        sub_req: SubUpdateReq,
+        sub_req: SubReq,
     ) -> SyncResult<OperationStatus> {
         log::info!("Updating subscription: {}", sub_id);
 
@@ -463,10 +445,6 @@ where
 
         if let Some(days) = sub_req.days {
             sub.extend(days);
-        }
-
-        if let Some(bonus_days) = sub_req.bonus_days {
-            sub.set_bonus_days(bonus_days);
         }
 
         if let Some(ref_by) = sub_req.referred_by.clone() {
@@ -487,13 +465,7 @@ where
         if let Err(e) = self
             .db
             .sub()
-            .update_subscription(
-                *sub_id,
-                expires_at,
-                sub.bonus_days(),
-                sub.referred_by().as_ref(),
-                &sub.refer_code(),
-            )
+            .update_subscription(*sub_id, expires_at, sub.referred_by(), &sub.refer_code())
             .await
         {
             log::error!(
@@ -508,7 +480,7 @@ where
         Ok(OperationStatus::Updated(*sub_id))
     }
 
-    async fn add_days(&self, sub_id: &uuid::Uuid, days: i16) -> SyncResult<OperationStatus> {
+    async fn add_days(&self, sub_id: &uuid::Uuid, days: i64) -> SyncResult<OperationStatus> {
         let sub_db = self.db.sub();
 
         let mut mem = self.memory.write().await;
@@ -524,8 +496,8 @@ where
         let now = Utc::now();
 
         let new_expires = match sub.expires_at() {
-            Some(exp) if exp > now => exp + Duration::days(days as i64),
-            _ => now + Duration::days(days as i64),
+            Some(exp) if exp > now => exp + Duration::days(days),
+            _ => now + Duration::days(days),
         };
         let _ = sub.set_expires_at(new_expires);
 

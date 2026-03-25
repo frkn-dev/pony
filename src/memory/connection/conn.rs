@@ -82,3 +82,15 @@ pub struct ConnWithId {
     #[serde(flatten)]
     pub conn: Conn,
 }
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ConnPatch {
+    pub env: Option<String>,
+    pub proto: Option<Proto>,
+    pub stat: Option<Stat>,
+    pub subscription_id: Option<uuid::Uuid>,
+    pub created_at: Option<NaiveDateTime>,
+    pub modified_at: Option<NaiveDateTime>,
+    pub expired_at: Option<DateTime<Utc>>,
+    pub is_deleted: Option<bool>,
+}

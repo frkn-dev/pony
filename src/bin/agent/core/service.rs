@@ -376,7 +376,7 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
                                     if let Ok(conn) = create_conn_link(
                                         tag,
                                         &node.uuid,
-                                        inbound.as_inbound_response(),
+                                        &inbound,
                                         &node.label,
                                         node.address,
                                         &None
@@ -460,7 +460,7 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
                                                 if let Ok(conn) = wireguard_conn(
                                                     &conn_id,
                                                     &node.address,
-                                                    inbound.as_inbound_response(),
+                                                    inbound.clone(),
                                                     &node.label,
                                                     &wg.keys.privkey,
                                                     &wg_address,

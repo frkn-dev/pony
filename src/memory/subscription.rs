@@ -15,7 +15,6 @@ pub struct Subscription {
     pub expires_at: Option<DateTime<Utc>>,
     pub referred_by: Option<String>,
     pub refer_code: String,
-    pub bonus_days: Option<i32>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub is_deleted: bool,
@@ -34,7 +33,6 @@ impl Subscription {
             expires_at: exp_at,
             referred_by: ref_by,
             refer_code: ref_code,
-            bonus_days: None,
             created_at: now,
             updated_at: now,
             is_deleted: false,
@@ -54,7 +52,6 @@ impl Default for Subscription {
             expires_at: None,
             referred_by: None,
             refer_code,
-            bonus_days: None,
             created_at: now,
             updated_at: now,
             is_deleted: false,
@@ -73,7 +70,6 @@ impl From<tokio_postgres::Row> for Subscription {
             expires_at,
             referred_by: row.get("referred_by"),
             refer_code: row.get("refer_code"),
-            bonus_days: row.get("bonus_days"),
             created_at,
             updated_at,
             is_deleted: row.get::<_, bool>("is_deleted"),
@@ -125,7 +121,6 @@ pub struct UpdateSubscription {
 pub struct SubscriptionStats {
     pub id: uuid::Uuid,
     pub expires_at: Option<DateTime<Utc>>,
-    pub bonus_days: i32,
     pub days_remaining: i64,
     pub is_active: bool,
 }
@@ -139,12 +134,9 @@ impl Subscription {
             99999
         };
 
-        let bonus_days = self.bonus_days.unwrap_or(0);
-
         SubscriptionStats {
             id: self.id,
             expires_at: self.expires_at,
-            bonus_days,
             days_remaining,
             is_active: days_remaining > 0 && !self.is_deleted,
         }
@@ -157,14 +149,12 @@ pub trait Operations {
     fn expires_at(&self) -> Option<DateTime<Utc>>;
     fn refer_code(&self) -> String;
     fn set_refer_code(&mut self, code: String);
-    fn referred_by(&self) -> Option<String>;
+    fn referred_by(&self) -> Option<&str>;
     fn set_referred_by(&mut self, code: String);
     fn is_active(&self) -> bool;
     fn days_remaining(&self) -> Option<i64>;
     fn set_expires_at(&mut self, expires_at: DateTime<Utc>) -> Result<(), String>;
     fn mark_deleted(&mut self);
-    fn bonus_days(&self) -> Option<i32>;
-    fn set_bonus_days(&mut self, days: i32);
 }
 
 impl Operations for Subscription {
@@ -185,13 +175,14 @@ impl Operations for Subscription {
     }
 
     fn refer_code(&self) -> String {
-        self.refer_code.clone()
+        self.refer_code.trim().to_string()
     }
     fn set_refer_code(&mut self, code: String) {
         self.refer_code = code;
     }
-    fn referred_by(&self) -> Option<String> {
-        self.referred_by.clone()
+
+    fn referred_by(&self) -> Option<&str> {
+        self.referred_by.as_deref().map(str::trim)
     }
 
     fn set_referred_by(&mut self, code: String) {
@@ -206,14 +197,6 @@ impl Operations for Subscription {
         let now = Utc::now();
         self.expires_at
             .map(|expires_at| (expires_at - now).num_days())
-    }
-
-    fn bonus_days(&self) -> Option<i32> {
-        self.bonus_days
-    }
-
-    fn set_bonus_days(&mut self, days: i32) {
-        self.bonus_days = Some(days);
     }
 
     fn set_expires_at(&mut self, expires_at: DateTime<Utc>) -> Result<(), String> {

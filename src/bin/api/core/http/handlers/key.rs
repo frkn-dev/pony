@@ -1,7 +1,4 @@
 use pony::http::helpers as http;
-use pony::http::requests::ActivateKeyReq;
-use pony::http::requests::KeyQueryParams;
-use pony::http::requests::KeyReq;
 use pony::memory::key::Distributor;
 use pony::memory::key::Key;
 use pony::Connection;
@@ -12,6 +9,9 @@ use pony::OperationStatus as StorageOperationStatus;
 use pony::PonyError;
 use pony::SubscriptionOp;
 
+use super::super::param::KeyQueryParams;
+use super::super::request::ActivateKeyReq;
+use super::super::request::KeyReq;
 use crate::core::sync::tasks::SyncOp;
 use crate::core::sync::MemSync;
 
@@ -129,7 +129,7 @@ where
         return Ok(http::bad_request("Key already activated"));
     }
 
-    match SyncOp::add_days(&memory, &req.subscription_id, key.days).await {
+    match SyncOp::add_days(&memory, &req.subscription_id, key.days as i64).await {
         Ok(StorageOperationStatus::Updated(_)) => {
             key.activate(&req.subscription_id);
             if let Err(err) = key_db.activate(&key).await {

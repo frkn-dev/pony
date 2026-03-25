@@ -1,11 +1,8 @@
 use warp::http::StatusCode;
 
-use pony::http::requests::NodeIdParam;
-use pony::http::requests::NodeRequest;
-use pony::http::requests::NodeResponse;
-use pony::http::requests::NodesQueryParams;
 use pony::http::IdResponse;
 use pony::http::ResponseMessage;
+use pony::memory::node::NodeResponse;
 use pony::memory::node::Status as NodeStatus;
 use pony::Connection;
 use pony::ConnectionApiOp;
@@ -13,6 +10,10 @@ use pony::ConnectionBaseOp;
 use pony::NodeStorageOp;
 use pony::OperationStatus as StorageOperationStatus;
 use pony::SubscriptionOp;
+
+use super::super::param::NodeIdParam;
+use super::super::param::NodesQueryParams;
+use super::super::request::NodeRequest;
 
 use crate::core::clickhouse::score::NodeScore;
 use crate::core::clickhouse::ChContext;

@@ -1,17 +1,39 @@
 use async_trait::async_trait;
-use pony::http::requests::ConnTypeParam;
-use pony::Tag;
 use reqwest::Client as HttpClient;
 use reqwest::StatusCode;
 use reqwest::Url;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
-use pony::http::requests::NodeRequest;
+use pony::config::xray::Inbound;
 use pony::ConnectionBaseOp;
 use pony::NodeStorageOp;
 use pony::SubscriptionOp;
+use pony::Tag;
 use pony::{PonyError, Result};
+use std::net::Ipv4Addr;
 
 use super::Agent;
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct ConnTypeParam {
+    pub proto: Tag,
+    pub last_update: Option<u64>,
+    pub env: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct NodeRequest {
+    pub env: String,
+    pub hostname: String,
+    pub address: Ipv4Addr,
+    pub inbounds: HashMap<Tag, Inbound>,
+    pub uuid: uuid::Uuid,
+    pub label: String,
+    pub interface: String,
+    pub cores: usize,
+    pub max_bandwidth_bps: i64,
+}
 
 #[async_trait]
 pub trait ApiRequests {

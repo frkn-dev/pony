@@ -3,7 +3,6 @@ use chrono::NaiveTime;
 use chrono::TimeZone;
 use chrono::Utc;
 use futures::future::join_all;
-use pony::http::requests::ConnUpdateRequest;
 use rand::Rng;
 use std::collections::HashMap;
 use std::time::Duration;
@@ -213,14 +212,7 @@ impl Tasks for Api<HashMap<String, Vec<Node>>, Connection, Subscription> {
                         let _ = publisher.send_binary(&key, bytes.as_ref()).await;
                     }
 
-                    let conn_upd = ConnUpdateRequest {
-                        env: Some(conn.get_env()),
-                        is_deleted: Some(false),
-                        password: conn.get_password(),
-                        days: None,
-                    };
-
-                    match SyncOp::update_conn(&self.sync, &conn_id, conn_upd).await {
+                    match SyncOp::restore_connection(&self.sync, &conn_id).await {
                         Ok(StorageOperationStatus::Updated(_)) => {
                             log::info!("Expired connection {} restored", conn_id);
                         }

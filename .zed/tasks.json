@@ -7,8 +7,16 @@
         "command": "cargo build",
     },
     {
+        "label": "Run agent",
+        "command": "cargo run --bin agent -- dev/config-agent.toml ",
+    },
+    {
         "label": "Run api",
         "command": "cargo run --bin api -- dev/config-api.toml ",
+    },
+    {
+        "label": "Run auth",
+        "command": "cargo run --bin auth -- dev/config-auth.toml ",
     },
     {
         "label": "Run tests",

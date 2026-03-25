@@ -62,8 +62,7 @@ impl PgSubscription {
         &self,
         id: uuid::Uuid,
         expires_at: chrono::DateTime<chrono::Utc>,
-        bonus_days: Option<i32>,
-        referred_by: Option<&String>,
+        referred_by: Option<&str>,
         ref_code: &String,
     ) -> Result<Subscription> {
         let mut manager = self.manager.lock().await;
@@ -75,21 +74,20 @@ impl PgSubscription {
                 r#"
             UPDATE subscriptions
             SET expires_at  = $1,
-                bonus_days  = $2,
-                referred_by = $3,
-                updated_at  = $4,
-                refer_code = $6
+                referred_by = $2,
+                updated_at  = $3,
+                refer_code = $4
             WHERE id = $5
             RETURNING *
             "#,
-                &[&expires_at, &bonus_days, &referred_by, &now, &id, &ref_code],
+                &[&expires_at, &referred_by, &now, &ref_code, &id],
             )
             .await?;
 
         Ok(Subscription::from(row))
     }
 
-    pub async fn add_days(&self, sub_id: &uuid::Uuid, days: i16) -> Result<Subscription> {
+    pub async fn add_days(&self, sub_id: &uuid::Uuid, days: i64) -> Result<Subscription> {
         let mut manager = self.manager.lock().await;
         let client = manager.get_client().await?;
 
@@ -109,7 +107,7 @@ impl PgSubscription {
             _ => now,
         };
 
-        let new_expires_at = base + chrono::Duration::days(days as i64);
+        let new_expires_at = base + chrono::Duration::days(days);
 
         let updated_row = client
             .query_one(

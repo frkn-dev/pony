@@ -11,8 +11,8 @@ use super::tag::ProtoTag as Tag;
 use crate::config::h2::H2Settings;
 use crate::config::settings::{MtprotoConfig, NodeConfig};
 use crate::config::wireguard::WireguardSettings;
+use crate::config::xray::InboundResponse;
 use crate::config::xray::{Config as XrayConfig, Inbound};
-use crate::http::requests::NodeResponse;
 
 #[derive(Clone, Debug, Deserialize, Serialize, Copy, ToSql, FromSql)]
 #[postgres(name = "node_status", rename_all = "snake_case")]
@@ -49,6 +49,19 @@ impl FromStr for Status {
             _ => Ok(Status::Offline),
         }
     }
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct NodeResponse {
+    pub uuid: uuid::Uuid,
+    pub env: String,
+    pub hostname: String,
+    pub address: Ipv4Addr,
+    pub inbounds: HashMap<Tag, InboundResponse>,
+    pub status: Status,
+    pub label: String,
+    pub cores: usize,
+    pub max_bandwidth_bps: i64,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]

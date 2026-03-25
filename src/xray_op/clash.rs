@@ -3,8 +3,8 @@ use serde::Serialize;
 use std::net::Ipv4Addr;
 use uuid::Uuid;
 
+use crate::config::xray::Inbound;
 use crate::config::xray::Network;
-use crate::http::requests::InboundResponse;
 use crate::Tag;
 
 #[derive(Serialize)]
@@ -102,7 +102,7 @@ pub struct ClashProxyGroup {
 }
 
 pub fn generate_proxy_config(
-    inbound: &InboundResponse,
+    inbound: &Inbound,
     conn_id: Uuid,
     address: Ipv4Addr,
     label: &str,

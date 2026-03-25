@@ -11,8 +11,8 @@ use std::time::Instant;
 use tokio::time::{sleep, Duration as TokioDuration};
 use url::Url;
 
+use crate::config::xray::Inbound;
 use crate::h2_op::hysteria2_conn;
-use crate::http::requests::InboundResponse;
 use crate::memory::tag::ProtoTag as Tag;
 use crate::xray_op::vless::vless_grpc_conn;
 use crate::xray_op::vless::vless_xhttp_conn;
@@ -144,7 +144,7 @@ pub fn level_from_settings(level: &str) -> LevelFilter {
 pub fn create_conn_link(
     tag: Tag,
     conn_id: &uuid::Uuid,
-    inbound: InboundResponse,
+    inbound: &Inbound,
     label: &str,
     address: Ipv4Addr,
     token: &Option<uuid::Uuid>,

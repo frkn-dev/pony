@@ -1,9 +1,10 @@
-use crate::http::requests::InboundResponse;
+use crate::config::xray::Inbound;
+
 use crate::{PonyError, Result};
 use url::Url;
 
 pub fn hysteria2_conn(
-    inbound: &InboundResponse,
+    inbound: &Inbound,
     label: &str,
     token: &Option<uuid::Uuid>,
 ) -> Result<String> {

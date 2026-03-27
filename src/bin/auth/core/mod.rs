@@ -132,7 +132,7 @@ where
             .and_then(auth_handler);
 
         let activate_route = warp::post()
-            .and(warp::path("key"))
+            .and(warp::path("activate"))
             .and(warp::body::json::<request::Key>())
             .and(filters::with_store(email_store))
             .and(pony_filters::with_http_client(http_client))

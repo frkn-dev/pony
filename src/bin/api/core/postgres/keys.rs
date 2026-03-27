@@ -15,7 +15,7 @@ impl PgKey {
         Self { manager }
     }
 
-    pub async fn get(&self, code: String) -> Option<Key> {
+    pub async fn get(&self, code: &str) -> Option<Key> {
         let mut manager = self.manager.lock().await;
         let client = manager.get_client().await.ok()?;
 

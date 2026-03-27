@@ -19,6 +19,7 @@ use crate::core::sync::MemSync;
 pub async fn get_key_validate_handler<N, C, S>(
     params: KeyQueryParams,
     memory: MemSync<N, C, S>,
+    secret: Vec<u8>,
 ) -> Result<impl warp::Reply, warp::Rejection>
 where
     N: NodeStorageOp + Sync + Send + Clone + 'static,
@@ -35,18 +36,28 @@ where
     let code = params.key;
     let db = memory.db.key();
 
-    match db.get(code).await {
+    if !code.is_valid(&secret) {
+        return Ok(http::bad_request("Key is not valid"));
+    }
+
+    match db.get(code.as_str()).await {
         Some(key) => {
             if key.activated {
-                return Ok(http::bad_request("Key is already activated"));
+                return Ok(http::success_response(
+                    "Key is valid and already activated".to_string(),
+                    Some(key.id),
+                    http::Instance::Key(key.clone()),
+                ));
             }
 
-            let msg = "Key is valid";
-            let id = key.id;
-            let instance = http::Instance::Key(key);
-            Ok(http::success_response(msg.to_string(), Some(id), instance))
+            let instance = http::Instance::Key(key.clone());
+            Ok(http::success_response(
+                "Key is valid".to_string(),
+                Some(key.id),
+                instance,
+            ))
         }
-        None => Ok(http::not_found("Key is not valid")),
+        None => Ok(http::not_found("Key is not found")),
     }
 }
 
@@ -120,7 +131,7 @@ where
 {
     let key_db = memory.db.key();
 
-    let mut key = match key_db.get(req.code).await {
+    let mut key = match key_db.get(&req.code).await {
         Some(k) => k,
         None => return Ok(http::not_found("Key not found")),
     };

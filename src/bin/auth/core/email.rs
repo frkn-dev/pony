@@ -179,7 +179,6 @@ impl EmailStore {
         </div>
         <p>Привет!</p>
         <p>Твоя подписка для <strong>FRKN</strong> успешно активирована 🎉</p>
-        <p>Первые 24 часа <strong>бесплатно</strong> </p>
 
         <a href="{api_address}/sub/info?id={sub_id}"
 

@@ -8,7 +8,7 @@ use sha2::Sha256;
 
 use crate::PonyError;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Key {
     pub id: uuid::Uuid,
     pub code: String,
@@ -68,7 +68,7 @@ impl From<tokio_postgres::Row> for Key {
 
 type HmacSha256 = Hmac<Sha256>;
 
-#[derive(Debug)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct Code(String);
 
 #[derive(Debug)]
@@ -81,10 +81,18 @@ impl FromStr for Code {
     type Err = CodeError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        if Code::parse(s, b"dummy").is_none() {
-            //Secret is required only for validation
+        let raw = s.replace("-", "");
+
+        let bytes = base32::decode(
+            base32::Alphabet::Rfc4648 { padding: false },
+            &raw.to_uppercase(),
+        )
+        .ok_or(CodeError::InvalidFormat)?;
+
+        if bytes.len() != 16 {
             return Err(CodeError::InvalidFormat);
         }
+
         Ok(Code(s.to_uppercase()))
     }
 }
@@ -170,6 +178,17 @@ impl Code {
 
     pub fn as_str(&self) -> &str {
         &self.0
+    }
+
+    pub fn validate(&self, secret: &[u8]) -> Result<(i16, [u8; 4]), CodeError> {
+        match Self::parse(&self.0, secret) {
+            Some(data) => Ok(data),
+            None => Err(CodeError::InvalidChecksum),
+        }
+    }
+
+    pub fn is_valid(&self, secret: &[u8]) -> bool {
+        Self::parse(&self.0, secret).is_some()
     }
 }
 

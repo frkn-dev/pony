@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use super::request::TagReq;
 
-use pony::memory::tag::ProtoTag as Tag;
+use pony::memory::{key::Code, tag::ProtoTag as Tag};
 
 fn default_format() -> String {
     "plain".to_string()
@@ -63,5 +63,5 @@ pub struct ConnTypeParam {
 
 #[derive(Serialize, Deserialize)]
 pub struct KeyQueryParams {
-    pub key: String,
+    pub key: Code,
 }

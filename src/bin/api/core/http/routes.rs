@@ -198,13 +198,14 @@ where
             .and_then(delete_connection_handler);
 
         // Keys Routes
-
         let get_key_validation_route = warp::get()
             .and(warp::path("key"))
             .and(warp::path("validate"))
             .and(warp::path::end())
+            .and(auth.clone())
             .and(warp::query::<KeyQueryParams>())
             .and(with_state(self.sync.clone()))
+            .and(with_param_vec(params.key_sign_token.clone()))
             .and_then(get_key_validate_handler);
 
         let post_key_route = warp::post()

@@ -17,8 +17,8 @@ use pony::Subscription;
 use pony::SubscriptionOp;
 
 use crate::core::email::EmailStore;
-use crate::core::handlers::auth_handler;
 use crate::core::handlers::trial_handler;
+use crate::core::handlers::{activate_key_handler, auth_handler};
 
 pub mod email;
 pub mod filters;
@@ -43,6 +43,7 @@ const PROTOS: [&str; 4] = [
 pub enum Env {
     Dev,
     Ru,
+    Wl,
 }
 
 impl Display for Env {
@@ -50,6 +51,7 @@ impl Display for Env {
         match self {
             Env::Dev => write!(f, "dev"),
             Env::Ru => write!(f, "ru"),
+            Env::Wl => write!(f, "wl"),
         }
     }
 }
@@ -101,9 +103,13 @@ where
         let health_check = warp::path("health-check").map(|| "Server OK");
 
         let cors = warp::cors()
-            .allow_any_origin()
-            .allow_methods(vec!["POST"])
-            .allow_headers(vec!["Content-Type"]);
+            .allow_origin("http://localhost:8000")
+            .allow_origin("https://frkn.org")
+            .allow_credentials(true)
+            .allow_methods(vec!["GET", "POST", "OPTIONS"])
+            .allow_headers(vec!["Content-Type"])
+            .max_age(86400)
+            .build();
 
         let email_store = self.email_store.clone();
         let memory = self.memory.clone();
@@ -113,10 +119,11 @@ where
         let trial_route = warp::post()
             .and(warp::path("trial"))
             .and(warp::body::json::<request::Trial>())
-            .and(filters::with_store(email_store))
-            .and(pony_filters::with_http_client(http_client))
-            .and(filters::with_api_settings(api))
-            .and_then(trial_handler);
+            .and(filters::with_store(email_store.clone()))
+            .and(pony_filters::with_http_client(http_client.clone()))
+            .and(filters::with_api_settings(api.clone()))
+            .and_then(trial_handler)
+            .with(&cors);
 
         let auth_route = warp::post()
             .and(warp::path("auth"))
@@ -124,7 +131,19 @@ where
             .and(warp::any().map(move || memory.clone()))
             .and_then(auth_handler);
 
-        let routes = health_check.or(auth_route).or(trial_route).with(&cors);
+        let activate_route = warp::post()
+            .and(warp::path("key"))
+            .and(warp::body::json::<request::Key>())
+            .and(filters::with_store(email_store))
+            .and(pony_filters::with_http_client(http_client))
+            .and(filters::with_api_settings(api))
+            .and_then(activate_key_handler)
+            .with(&cors);
+
+        let routes = health_check
+            .or(auth_route)
+            .or(trial_route)
+            .or(activate_route);
 
         warp::serve(routes)
             .run(SocketAddr::new(IpAddr::V4(self.ipaddr), self.port))

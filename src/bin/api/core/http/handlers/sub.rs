@@ -372,35 +372,31 @@ where
         })
         .unwrap_or(false);
 
-    let (has_xray, has_h2) = if xray_node_exists || hysteria_node_exists {
-        if let Some(conns) = mem.connections.get_by_subscription_id(id) {
-            let xray_tags = [
-                Tag::VlessGrpcReality,
-                Tag::VlessTcpReality,
-                Tag::VlessXhttpReality,
-            ];
+    let (has_xray, has_h2) = if let Some(conns) = mem.connections.get_by_subscription_id(id) {
+        let xray_tags = [
+            Tag::VlessGrpcReality,
+            Tag::VlessTcpReality,
+            Tag::VlessXhttpReality,
+        ];
 
-            let mut is_xray = false;
-            let mut is_h2 = false;
+        let mut is_xray = false;
+        let mut is_h2 = false;
 
-            for (_id, conn) in conns {
-                let proto = conn.get_proto().proto();
-                let is_deleted = conn.get_deleted();
+        for (_id, conn) in conns {
+            let proto = conn.get_proto().proto();
+            let is_deleted = conn.get_deleted();
 
-                if !is_deleted && env == &conn.get_env() {
-                    if xray_tags.contains(&proto) {
-                        is_xray = true;
-                    }
-                    if proto == Tag::Hysteria2 {
-                        is_h2 = true;
-                    }
+            if !is_deleted && env == &conn.get_env() {
+                if xray_node_exists && xray_tags.contains(&proto) {
+                    is_xray = true;
+                }
+                if hysteria_node_exists && proto == Tag::Hysteria2 {
+                    is_h2 = true;
                 }
             }
-
-            (is_xray, is_h2)
-        } else {
-            (false, false)
         }
+
+        (is_xray, is_h2)
     } else {
         (false, false)
     };

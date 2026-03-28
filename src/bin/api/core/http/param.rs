@@ -34,13 +34,7 @@ pub struct SubQueryParam {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct MtprotoQueryParam {
-    pub id: uuid::Uuid,
-    #[serde(default = "default_env")]
-    pub env: String,
-}
 
-#[derive(Serialize, Deserialize)]
 pub struct NodesQueryParams {
     pub env: Option<String>,
 }

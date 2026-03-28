@@ -4,7 +4,6 @@ use chrono::Utc;
 use pony::mtproto_op::mtproto_conn;
 use url::Url;
 
-use super::super::param::MtprotoQueryParam;
 use super::super::request::TagReq;
 use warp::http::Response;
 use warp::http::StatusCode;
@@ -274,6 +273,8 @@ where
     }
 
     let env = &sub_param.env;
+    let is_ru = env == "ru";
+    let is_wl = env == "wl";
     let id = &sub_param.id;
 
     let mem = memory.memory.read().await;
@@ -319,28 +320,208 @@ where
     let down_str = format_bytes(downlink);
     let up_str = format_bytes(uplink);
 
-    let is_ru = env == "ru";
-
     let title = if is_ru {
         "Подписка на Рилзопровод (RU)"
+    } else if is_wl {
+        "Подписка на Рилзопровод (БС)"
     } else {
         "Подписка на Рилзопровод"
     };
 
-    let ru_link = format!("{}/sub/info?id={}&env={}", api_web_host, id, "ru");
-    let main_link = format!("{}/sub/info?id={}", api_web_host, id);
-    let ru_block = if is_ru {
-        format!(
-            r#"<a href="{main_link}" class="small text-link right">Мне нужны иностранные сервера</a>"#
-        )
+    let sub_link = format!("{}/sub/info?id={}", api_web_host, id);
+    let ru_link = format!("{}&env={}", sub_link, "ru");
+    let wl_link = format!("{}&env={}", sub_link, "wl");
+    let main_link = format!("{}&env={}", sub_link, "dev");
+
+    let ru_block = if is_ru || is_wl {
+        format!(r#"<a href="{main_link}" class="small text-link right">Иностранные сервера</a>"#)
     } else {
         format!(
-            r#"<a href="{ru_link}" class="small text-link right">Мне нужны российские сервера</a>"#
+            r#"<a href="{ru_link}" class="small text-link right">Российские сервера&nbsp;&nbsp;</a>"#
         )
     };
 
+    let wl_block = if !is_wl {
+        format!(r#"<a href="{wl_link}" class="small text-link right">Обход Белых Списков</a>"#)
+    } else {
+        "".to_string()
+    };
+
+    let xray_node_exists = mem
+        .nodes
+        .get_by_env(env)
+        .map(|nodes| {
+            nodes.iter().any(|node| {
+                node.inbounds.values().any(|inb| {
+                    matches!(
+                        inb.tag,
+                        Tag::VlessGrpcReality | Tag::VlessTcpReality | Tag::VlessXhttpReality
+                    )
+                })
+            })
+        })
+        .unwrap_or(false);
+
+    let hysteria_node_exists = mem
+        .nodes
+        .get_by_env(env)
+        .map(|nodes| {
+            nodes
+                .iter()
+                .any(|node| node.inbounds.values().any(|inb| inb.tag == Tag::Hysteria2))
+        })
+        .unwrap_or(false);
+
+    let (has_xray, has_h2) = if xray_node_exists || hysteria_node_exists {
+        if let Some(conns) = mem.connections.get_by_subscription_id(id) {
+            let xray_tags = [
+                Tag::VlessGrpcReality,
+                Tag::VlessTcpReality,
+                Tag::VlessXhttpReality,
+            ];
+
+            let mut is_xray = false;
+            let mut is_h2 = false;
+
+            for (_id, conn) in conns {
+                let proto = conn.get_proto().proto();
+                let is_deleted = conn.get_deleted();
+
+                if !is_deleted && env == &conn.get_env() {
+                    if xray_tags.contains(&proto) {
+                        is_xray = true;
+                    }
+                    if proto == Tag::Hysteria2 {
+                        is_h2 = true;
+                    }
+                }
+            }
+
+            (is_xray, is_h2)
+        } else {
+            (false, false)
+        }
+    } else {
+        (false, false)
+    };
+
     let base_link = format!("{}/sub?id={}&env={}", api_web_host, id, env);
-    let base_link_mtproto = format!("{}/sub/mtproto?id={}&env={}", api_web_host, id, env);
+
+    let xray_block = if has_xray {
+        format!(
+            r#"
+            <ul class="proxy-list">
+                <li class="proxy-item" onclick="copyText('{base_link}&format=plain&proto=Xray')">
+                    <div class="proxy-label">Универсальная</div>
+                    <div class="proxy-action">Скопировать</div>
+                </li>
+                <li class="proxy-item" onclick="copyText('{base_link}&format=txt&proto=Xray')">
+                    <div class="proxy-label">TXT</div>
+                    <div class="proxy-action">Скопировать</div>
+                </li>
+                <li class="proxy-item" onclick="copyText('{base_link}&format=clash&proto=Xray')">
+                    <div class="proxy-label">Clash</div>
+                    <div class="proxy-action">Скопировать</div>
+                </li>
+            </ul>
+
+            <div class="qr">
+                <canvas id="qr"></canvas>
+                <div class="small">Отсканируйте в приложении</div>
+            </div>
+            <br><br>
+
+            <div class="small">
+               <h3>Поддерживаемые приложения</h3>
+               <ul>
+               <li>Happ, Hiddify, v2rayNG, Shadowrocket, Streisand, Clash Verge, Nekobox</li>
+               </ul>
+            </div>
+        "#
+        )
+    } else {
+        format!(
+            r#"<div class="small">Нет доступных Xray подключений для {}. Обратитесь в поддержку.</div>"#,
+            env
+        )
+    };
+
+    let hysteria_block = if has_h2 {
+        format!(
+            r#"
+            <ul class="proxy-list">
+                 <li class="proxy-item" onclick="copyText('{base_link}&format=plain&proto=Hysteria2')">
+                     <div class="proxy-label">Универсальная</div>
+                     <div class="proxy-action">Скопировать</div>
+                 </li>
+                <li class="proxy-item" onclick="copyText('{base_link}&format=txt&proto=Hysteria2')">
+                    <div class="proxy-label">TXT</div>
+                    <div class="proxy-action">Скопировать</div>
+                </li>
+            </ul>
+
+            <div class="qr">
+                <canvas id="qr2"></canvas>
+                <div class="small">Отсканируйте в приложении</div>
+            </div>
+
+            <br><br>
+            <div class="small">
+                <h3>Поддерживаемые приложения</h3>
+                <ul>
+                    <li>Shadowrocket, hiddify, v2rayN</li>
+                </ul>
+            </div>
+        "#
+        )
+    } else {
+        format!(
+            r#"<div class="small">Нет доступных Hysteria2 подключений для {}. Обратитесь в поддержку.</div>"#,
+            env
+        )
+    };
+
+    let mtproto_block = if let Some(nodes) = mem.nodes.get_by_env(env) {
+        let mtproto_links: Vec<String> = nodes
+            .iter()
+            .filter_map(|node| {
+                node.inbounds
+                    .values()
+                    .find(|inb| inb.tag == Tag::Mtproto)
+                    .and_then(|inbound| mtproto_conn(node.address, inbound, &node.label).ok())
+            })
+            .collect();
+
+        mtproto_links
+            .iter()
+            .filter_map(|l| {
+                let url = Url::parse(l).ok()?;
+                let label = url
+                    .fragment()
+                    .map(|f| {
+                        percent_encoding::percent_decode_str(f)
+                            .decode_utf8_lossy()
+                            .to_string()
+                    })
+                    .unwrap_or_else(|| "Telegram Proxy".into());
+                Some(format!(
+                    r#"<li class="proxy-item">
+                    <div class="proxy-label">{label}</div>
+                    <a class="proxy-action link-btn" href="{href}" target="_blank">Connect</a>
+                </li>"#,
+                    href = l,
+                    label = label
+                ))
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    } else {
+        format!(
+            r#"<div class="small">Нет доступных Mtproto подключений для {}. Обратитесь в поддержку.</div>"#,
+            env
+        )
+    };
+
     let main_link_vless = format!(
         "{}/sub?id={}&format=txt&env={}&proto=Xray",
         api_web_host, id, env
@@ -354,6 +535,7 @@ where
 r#"{head}
 <div class="card">
 {ru_block}
+{wl_block}
 <header>
   <div class="logo">
     <img src="{logo}" alt="FRKN Logo" />
@@ -385,96 +567,29 @@ r#"{head}
 </div>
 
 <div id="tab-xray" class="tab-content active">
-    <ul class="proxy-list">
-        <li class="proxy-item" onclick="copyText('{base_link}&format=plain&proto=Xray')">
-            <div class="proxy-label">Универсальная</div>
-            <div class="proxy-action">Скопировать</div>
-        </li>
-        <li class="proxy-item" onclick="copyText('{base_link}&format=txt&proto=Xray')">
-            <div class="proxy-label">TXT</div>
-            <div class="proxy-action">Скопировать</div>
-        </li>
-        <li class="proxy-item" onclick="copyText('{base_link}&format=clash&proto=Xray')">
-            <div class="proxy-label">Clash</div>
-            <div class="proxy-action">Скопировать</div>
-        </li>
-    </ul>
+{xray_block}
 
-    <div class="qr">
-        <canvas id="qr"></canvas>
-        <div class="small">Отсканируйте в приложении</div>
-    </div>
-    <br><br>
-
-    <div class="small">
-       <h3>Поддерживаемые приложения</h3>
-       <ul>
-       <li>Happ, Hiddify, v2rayNG, Shadowrocket, Streisand, Clash Verge, Nekobox</li>
-       </ul>
-    </div>
 </div>
 
 <div id="tab-hysteria" class="tab-content">
-    <ul class="proxy-list">
-         <li class="proxy-item" onclick="copyText('{base_link}&format=plain&proto=Hysteria2')">
-             <div class="proxy-label">Универсальная</div>
-             <div class="proxy-action">Скопировать</div>
-         </li>
-        <li class="proxy-item" onclick="copyText('{base_link}&format=txt&proto=Hysteria2')">
-            <div class="proxy-label">TXT</div>
-            <div class="proxy-action">Скопировать</div>
-        </li>
-    </ul>
+{hysteria_block}
 
-    <div class="qr">
-        <canvas id="qr2"></canvas>
-        <div class="small">Отсканируйте в приложении</div>
-    </div>
-
-    <br><br>
-    <div class="small">
-        <h3>Поддерживаемые приложения</h3>
-        <ul>
-            <li>Shadowrocket, hiddify, v2rayN</li>
-        </ul>
-    </div>
 </div>
 
 <div id="tab-mtproto" class="tab-content">
-    <a href="{base_link_mtproto}" target="_blank">Bonus Track: Telegram Proxy - Открыть</a>
-
-    <br><br>
-    <div class="small">
-        <h3>Поддерживаемые приложения</h3>
-        <p> Телеграм поддерживает ссылки mtproto напрямую</p>
-    </div>
+   {mtproto_block}
 </div>
 
 <div id="tab-wg" class="tab-content">
-    Wireguard скоро будет доступен
-    <br><br>
-    <div class="small">
-        <h3>Поддерживаемые приложения</h3>
-        <p> </p>
-    </div>
+    <div class="small">Wireguard скоро будет доступен</div>
 </div>
 
 <div id="tab-awg" class="tab-content">
-    Amnezia Wireguard скоро будет доступен
-    <br><br>
-    <div class="small">
-        <h3>Поддерживаемые приложения</h3>
-        <p> </p>
-    </div>
+    <div class="small">Amnezia Wireguard скоро будет доступен</div>
 </div>
 
 <div id="tab-tt" class="tab-content">
-    TrustTunnel скоро будет доступен
-    <br><br>
-    <div class="small">
-        <h3>Поддерживаемые приложения</h3>
-        <p> </p>
-    </div>
+    <div class="small">TrustTunnel скоро будет доступен</div>
 </div>
 
 <hr>
@@ -497,21 +612,14 @@ r#"{head}
 <div class="stat">Твой реферальный код: <b>{ref}</b><br>
  <button onclick="copyText('{ref}')">Скопировать код</button>
  <button onclick="copyText('{web_host}/?code={ref}#subscribe')">Скопировать ссылку для друга</button></div>
-
-
 <div class="small">Вы пригласили: {invited} </div>
-
 <div class="small">Добавим по 7 дней доступа и тебе и другу</a></div>
-
-
 <br><hr>
 
 {footer}
-
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js"></script>
-
 <script>
 document.querySelectorAll(".tab").forEach(btn => {{
     btn.onclick = () => {{
@@ -525,7 +633,6 @@ document.querySelectorAll(".tab").forEach(btn => {{
     }};
 }});
 </script>
-
 <script>
 const scrollBtn = document.getElementById("scrollToAdd");
 const keySection = document.getElementById("key");
@@ -618,21 +725,23 @@ window.onload = () => {{
 </html>"#,
     head = HEAD,
     footer = FOOTER,
-            status_class = status_class,
-            status_text = status_text,
-            expires = expires,
-            days = days,
-            down_str = down_str,
-            up_str = up_str,
-            base_link = base_link,
-            ref = sub.refer_code(),
-            invited = invited,
-            subscription_id = id,
-            title = title,
-            ru_block = ru_block,
-            logo = LOGO,
-
-        );
+    logo = LOGO,
+    status_class = status_class,
+    status_text = status_text,
+    expires = expires,
+    days = days,
+    down_str = down_str,
+    up_str = up_str,
+    ref = sub.refer_code(),
+    invited = invited,
+    subscription_id = id,
+    title = title,
+    ru_block = ru_block,
+    wl_block = wl_block,
+    xray_block = xray_block,
+    hysteria_block = hysteria_block,
+    mtproto_block = mtproto_block
+    );
 
     Ok(Box::new(warp::reply::with_status(
         warp::reply::with_header(html, "Content-Type", "text/html; charset=utf-8"),
@@ -856,100 +965,4 @@ where
             )))
         }
     }
-}
-
-/// Gets Subscriprion link
-// GET /sub/mtproto?id=
-pub async fn mtproto_link_handler<N, C, S>(
-    param: MtprotoQueryParam,
-    memory: MemSync<N, C, S>,
-) -> Result<Box<dyn warp::Reply + Send>, warp::Rejection>
-where
-    N: NodeStorageOp + Sync + Send + Clone + 'static,
-    C: ConnectionApiOp
-        + ConnectionBaseOp
-        + Sync
-        + Send
-        + Clone
-        + 'static
-        + From<Connection>
-        + std::fmt::Debug
-        + PartialEq,
-    S: SubscriptionOp + Send + Sync + Clone + 'static + PartialEq,
-{
-    let mem = memory.memory.read().await;
-
-    let nodes = mem.nodes.get_by_env(&param.env);
-
-    if mem.subscriptions.get(&param.id).is_none() {
-        return Ok(Box::new(http::not_found(&format!(
-            "Subscription {} is not found",
-            param.id
-        ))));
-    };
-
-    let links: Vec<String> = nodes
-        .iter()
-        .flat_map(|node_vec| node_vec.iter())
-        .filter_map(|node| {
-            node.inbounds
-                .values()
-                .find(|inb| inb.tag == Tag::Mtproto)
-                .and_then(|inbound| mtproto_conn(node.address, inbound, &node.label).ok())
-        })
-        .collect();
-
-    let html_links = links
-        .iter()
-        .filter_map(|l| {
-            let url = Url::parse(l).ok()?;
-
-            let label = url
-                .fragment()
-                .map(|f| {
-                    percent_encoding::percent_decode_str(f)
-                        .decode_utf8_lossy()
-                        .to_string()
-                })
-                .unwrap_or_else(|| "Telegram Proxy".into());
-
-            Some(format!(
-                "<li class=\"mt-proxy-item\"><a href=\"{href}\">
-                <span class=\"proxy-label\">{label}</span>
-                <span class=\"proxy-action\">Connect</span>
-                </a></li>",
-                href = l,
-                label = label
-            ))
-        })
-        .collect::<Vec<_>>()
-        .join("\n");
-
-    let html = format!(
-        r#"{head}
-<body>
-
-<div class="card">
-<h1>Bonus Tack: Mtproto (tg-proxy)</h1>
-
-<hr>
-
-<h3>Ссылки для подключения</h3>
-<ul class="proxy-list">{html_links}</ul>
-<br><br><br>
-<hr>
-{footer}
-</div>
-
-</body>
-</html>"#,
-        head = HEAD,
-        footer = FOOTER,
-        html_links = html_links
-    );
-
-    Ok(Box::new(warp::reply::with_status(
-        warp::reply::with_header(html, "Content-Type", "text/html; charset=utf-8"),
-        StatusCode::OK,
-    )))
 }

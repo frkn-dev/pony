@@ -1,5 +1,4 @@
 use chrono::DateTime;
-use chrono::NaiveDateTime;
 use chrono::Utc;
 
 use super::super::base::Base;
@@ -21,7 +20,7 @@ pub trait Operations {
     fn get_online(&self) -> i64;
     fn set_online(&mut self, v: i64);
 
-    fn get_modified_at(&self) -> NaiveDateTime;
+    fn get_modified_at(&self) -> DateTime<Utc>;
     fn set_modified_at(&mut self);
 
     fn get_expired_at(&self) -> Option<DateTime<Utc>>;
@@ -70,11 +69,11 @@ impl Operations for Base {
         self.stat.online = v;
     }
 
-    fn get_modified_at(&self) -> NaiveDateTime {
+    fn get_modified_at(&self) -> DateTime<Utc> {
         self.modified_at
     }
     fn set_modified_at(&mut self) {
-        self.modified_at = Utc::now().naive_utc();
+        self.modified_at = Utc::now();
     }
 
     fn get_expired_at(&self) -> Option<DateTime<Utc>> {
@@ -176,11 +175,11 @@ impl Operations for Conn {
         self.stat.online = v;
     }
 
-    fn get_modified_at(&self) -> NaiveDateTime {
+    fn get_modified_at(&self) -> DateTime<Utc> {
         self.modified_at
     }
     fn set_modified_at(&mut self) {
-        self.modified_at = Utc::now().naive_utc();
+        self.modified_at = Utc::now();
     }
 
     fn get_expired_at(&self) -> Option<DateTime<Utc>> {

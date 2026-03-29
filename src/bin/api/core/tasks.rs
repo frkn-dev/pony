@@ -27,7 +27,6 @@ use crate::core::clickhouse::query::Queries;
 use crate::core::postgres::Tasks as MemoryCacheTasks;
 use crate::core::sync::tasks::SyncOp;
 use crate::Api;
-use crate::ZmqPublisher;
 
 #[async_trait]
 pub trait Tasks {
@@ -35,14 +34,14 @@ pub trait Tasks {
     async fn periodic_db_sync(&self, interval_sec: u64);
     async fn node_healthcheck(&self) -> Result<()>;
     async fn collect_conn_stat(&self) -> Result<()>;
-    async fn cleanup_expired_connections(&self, interval_sec: u64, publisher: ZmqPublisher);
-    async fn cleanup_expired_subscriptions(&self, interval_sec: u64, publisher: ZmqPublisher);
-    async fn restore_subscriptions(&self, interval_sec: u64, publisher: ZmqPublisher);
+    async fn cleanup_expired_connections(&self, interval_sec: u64);
+    async fn cleanup_expired_subscriptions(&self, interval_sec: u64);
+    async fn restore_subscriptions(&self, interval_sec: u64);
 }
 
 #[async_trait]
 impl Tasks for Api<HashMap<String, Vec<Node>>, Connection, Subscription> {
-    async fn cleanup_expired_connections(&self, interval_sec: u64, publisher: ZmqPublisher) {
+    async fn cleanup_expired_connections(&self, interval_sec: u64) {
         let mut interval = tokio::time::interval(Duration::from_secs(interval_sec));
 
         loop {
@@ -51,7 +50,7 @@ impl Tasks for Api<HashMap<String, Vec<Node>>, Connection, Subscription> {
             log::debug!("Run cleanup conections task");
 
             let now = Utc::now();
-            let expired_conns: Vec<uuid::Uuid> = {
+            let expired_conns: Vec<(uuid::Uuid, Connection)> = {
                 let memory = self.sync.memory.read().await;
                 memory
                     .connections
@@ -59,7 +58,7 @@ impl Tasks for Api<HashMap<String, Vec<Node>>, Connection, Subscription> {
                     .filter_map(|(id, conn)| {
                         if let Some(expired_at) = conn.get_expired_at() {
                             if expired_at <= now && !conn.get_deleted() {
-                                Some(*id)
+                                Some((*id, conn.clone()))
                             } else {
                                 None
                             }
@@ -70,8 +69,8 @@ impl Tasks for Api<HashMap<String, Vec<Node>>, Connection, Subscription> {
                     .collect()
             };
 
-            for conn_id in expired_conns {
-                match SyncOp::delete_connection(&self.sync, &conn_id).await {
+            for (conn_id, conn) in expired_conns {
+                match SyncOp::delete_connection(&self.sync, &conn_id, &conn).await {
                     Ok(StorageOperationStatus::Ok(_)) => {
                         log::info!("Expired connection {} deleted", conn_id);
 
@@ -96,7 +95,7 @@ impl Tasks for Api<HashMap<String, Vec<Node>>, Connection, Subscription> {
                                 conn.get_env()
                             };
 
-                            let _ = publisher.send_binary(&key, bytes.as_ref()).await;
+                            let _ = self.sync.publisher.send_binary(&key, bytes.as_ref()).await;
                         }
                     }
                     Ok(status) => {
@@ -110,7 +109,7 @@ impl Tasks for Api<HashMap<String, Vec<Node>>, Connection, Subscription> {
         }
     }
 
-    async fn cleanup_expired_subscriptions(&self, interval_sec: u64, publisher: ZmqPublisher) {
+    async fn cleanup_expired_subscriptions(&self, interval_sec: u64) {
         let mut interval = tokio::time::interval(Duration::from_secs(interval_sec));
 
         loop {
@@ -141,17 +140,7 @@ impl Tasks for Api<HashMap<String, Vec<Node>>, Connection, Subscription> {
                 };
 
                 for (conn_id, conn) in conns_to_delete {
-                    let msg = conn.as_delete_message(&conn_id);
-                    if let Ok(bytes) = rkyv::to_bytes::<_, 1024>(&msg) {
-                        let key = if let Some(node_id) = conn.get_wireguard_node_id() {
-                            node_id.to_string()
-                        } else {
-                            conn.get_env()
-                        };
-                        let _ = publisher.send_binary(&key, bytes.as_ref()).await;
-                    }
-
-                    match SyncOp::delete_connection(&self.sync, &conn_id).await {
+                    match SyncOp::delete_connection(&self.sync, &conn_id, &conn).await {
                         Ok(StorageOperationStatus::Ok(_)) => {
                             log::info!("Expired connection {} deleted", conn_id);
                         }
@@ -171,14 +160,14 @@ impl Tasks for Api<HashMap<String, Vec<Node>>, Connection, Subscription> {
         }
     }
 
-    async fn restore_subscriptions(&self, interval_sec: u64, publisher: ZmqPublisher) {
+    async fn restore_subscriptions(&self, interval_sec: u64) {
         let mut interval = tokio::time::interval(Duration::from_secs(interval_sec));
 
         loop {
             interval.tick().await;
             log::debug!("Run restore subscriptions task");
 
-            let expired_subs: Vec<uuid::Uuid> = {
+            let actibe_subs: Vec<uuid::Uuid> = {
                 let mem = self.sync.memory.read().await;
                 mem.subscriptions
                     .iter()
@@ -186,50 +175,19 @@ impl Tasks for Api<HashMap<String, Vec<Node>>, Connection, Subscription> {
                     .collect()
             };
 
-            for sub_id in expired_subs {
-                let conns_to_restore: Vec<(uuid::Uuid, Connection)> = {
-                    let mem = self.sync.memory.read().await;
-                    mem.connections
-                        .get_by_subscription_id(&sub_id)
-                        .map(|conns| {
-                            conns
-                                .iter()
-                                .filter(|(_id, c)| c.get_deleted())
-                                .map(|(id, c)| (*id, c.clone()))
-                                .collect()
-                        })
-                        .unwrap_or_default()
-                };
-
-                for (conn_id, conn) in conns_to_restore {
-                    let msg = conn.as_update_message(&conn_id);
-                    if let Ok(bytes) = rkyv::to_bytes::<_, 1024>(&msg) {
-                        let key = if let Some(node_id) = conn.get_wireguard_node_id() {
-                            node_id.to_string()
-                        } else {
-                            conn.get_env()
-                        };
-                        let _ = publisher.send_binary(&key, bytes.as_ref()).await;
+            for sub_id in actibe_subs {
+                match SyncOp::restore_connections_by_subscription(&self.sync, &sub_id).await {
+                    Ok(restored) => {
+                        if !restored.is_empty() {
+                            log::info!(
+                                "Restored {} connections for subscription {}",
+                                restored.len(),
+                                sub_id
+                            );
+                        }
                     }
-
-                    match SyncOp::restore_connection(&self.sync, &conn_id).await {
-                        Ok(StorageOperationStatus::Updated(_)) => {
-                            log::info!("Expired connection {} restored", conn_id);
-                        }
-                        Ok(status) => {
-                            log::warn!(
-                                "Connection {} could not be restored: {:?}",
-                                conn_id,
-                                status
-                            );
-                        }
-                        Err(e) => {
-                            log::error!(
-                                "Failed to restore expired connection {}: {:?}",
-                                conn_id,
-                                e
-                            );
-                        }
+                    Err(e) => {
+                        log::error!("Failed to restore expired connection {}: {:?}", sub_id, e);
                     }
                 }
             }

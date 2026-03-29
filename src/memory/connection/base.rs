@@ -1,5 +1,4 @@
 use chrono::DateTime;
-use chrono::NaiveDateTime;
 use chrono::Utc;
 use serde::Deserialize;
 use serde::Serialize;
@@ -16,8 +15,8 @@ use rkyv::{Archive, Deserialize as RkyvDeserialize, Serialize as RkyvSerialize};
 )]
 pub struct Base {
     pub stat: ConnectionStat,
-    pub created_at: NaiveDateTime,
-    pub modified_at: NaiveDateTime,
+    pub created_at: DateTime<Utc>,
+    pub modified_at: DateTime<Utc>,
     pub expired_at: Option<DateTime<Utc>>,
     pub proto: Proto,
     pub subscription_id: Option<uuid::Uuid>,
@@ -30,7 +29,7 @@ impl Base {
         expired_at: Option<DateTime<Utc>>,
         sub_id: Option<uuid::Uuid>,
     ) -> Self {
-        let now = Utc::now().naive_utc();
+        let now = Utc::now();
 
         Self {
             stat: ConnectionStat::default(),

@@ -1,0 +1,17 @@
+listen: :443
+
+acme:
+    domains:
+        - api.example.org
+    email: admin@example.com
+
+auth:
+    type: http
+    http:
+        url: https://api.example.org/auth
+
+masquerade:
+    type: proxy
+    proxy:
+        url: https://www.microsoft.com/
+        rewriteHost: true

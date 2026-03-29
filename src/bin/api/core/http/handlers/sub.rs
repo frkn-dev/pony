@@ -403,7 +403,7 @@ where
 
     let base_link = format!("{}/sub?id={}&env={}", api_web_host, id, env);
 
-    let xray_block = if has_xray {
+    let xray_block = if has_xray && is_active {
         format!(
             r#"
             <ul class="proxy-list">
@@ -442,7 +442,7 @@ where
         )
     };
 
-    let hysteria_block = if has_h2 {
+    let hysteria_block = if has_h2 && is_active {
         format!(
             r#"
             <ul class="proxy-list">
@@ -477,40 +477,56 @@ where
         )
     };
 
-    let mtproto_block = if let Some(nodes) = mem.nodes.get_by_env(env) {
-        let mtproto_links: Vec<String> = nodes
-            .iter()
-            .filter_map(|node| {
-                node.inbounds
-                    .values()
-                    .find(|inb| inb.tag == Tag::Mtproto)
-                    .and_then(|inbound| mtproto_conn(node.address, inbound, &node.label).ok())
-            })
-            .collect();
+    fn proxy_label_from_url(url_str: &str) -> String {
+        if let Ok(url) = Url::parse(url_str) {
+            if let Some(fragment) = url.fragment() {
+                return percent_encoding::percent_decode_str(fragment)
+                    .decode_utf8_lossy()
+                    .to_string();
+            }
+        }
+        "Telegram Proxy".into()
+    }
 
-        mtproto_links
-            .iter()
-            .filter_map(|l| {
-                let url = Url::parse(l).ok()?;
-                let label = url
-                    .fragment()
-                    .map(|f| {
-                        percent_encoding::percent_decode_str(f)
-                            .decode_utf8_lossy()
-                            .to_string()
+    let mtproto_block = if is_active {
+        match mem.nodes.get_by_env(env) {
+            Some(nodes) if !nodes.is_empty() => {
+                let links_html: String = nodes
+                    .iter()
+                    .filter_map(|node| {
+                        node.inbounds
+                            .values()
+                            .find(|inb| inb.tag == Tag::Mtproto)
+                            .and_then(|inb| mtproto_conn(node.address, inb, &node.label).ok())
                     })
-                    .unwrap_or_else(|| "Telegram Proxy".into());
-                Some(format!(
-                    r#"<li class="proxy-item">
-                    <div class="proxy-label">{label}</div>
-                    <a class="proxy-action link-btn" href="{href}" target="_blank">Connect</a>
-                </li>"#,
-                    href = l,
-                    label = label
-                ))
-            })
-            .collect::<Vec<_>>()
-            .join("\n")
+                    .map(|link| {
+                        let label = proxy_label_from_url(&link);
+                        format!(
+                            r#"<li class="proxy-item">
+        <div class="proxy-label">{label}</div>
+        <a class="proxy-action link-btn" href="{href}" target="_blank">Connect</a>
+    </li>"#,
+                            href = link,
+                            label = label
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n");
+
+                if links_html.is_empty() {
+                    format!(
+                        r#"<div class="small">Нет доступных Mtproto подключений для {}. Обратитесь в поддержку.</div>"#,
+                        env
+                    )
+                } else {
+                    links_html
+                }
+            }
+            _ => format!(
+                r#"<div class="small">Нет доступных Mtproto подключений для {}. Обратитесь в поддержку.</div>"#,
+                env
+            ),
+        }
     } else {
         format!(
             r#"<div class="small">Нет доступных Mtproto подключений для {}. Обратитесь в поддержку.</div>"#,

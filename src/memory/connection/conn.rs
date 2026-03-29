@@ -17,8 +17,8 @@ pub struct Conn {
     pub proto: Proto,
     pub stat: Stat,
     pub subscription_id: Option<uuid::Uuid>,
-    pub created_at: NaiveDateTime,
-    pub modified_at: NaiveDateTime,
+    pub created_at: DateTime<Utc>,
+    pub modified_at: DateTime<Utc>,
     pub expired_at: Option<DateTime<Utc>>,
     pub is_deleted: bool,
 }
@@ -61,7 +61,7 @@ impl Conn {
         proto: Proto,
         expired_at: Option<DateTime<Utc>>,
     ) -> Self {
-        let now = Utc::now().naive_utc();
+        let now = Utc::now();
 
         Self {
             env: env.to_string(),

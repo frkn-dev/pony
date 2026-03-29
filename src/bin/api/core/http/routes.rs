@@ -167,7 +167,6 @@ where
             .and(warp::path::end())
             .and(auth.clone())
             .and(warp::query::<ConnTypeParam>())
-            .and(publisher(self.publisher.clone()))
             .and(with_state(self.sync.clone()))
             .and_then(get_connections_handler);
 
@@ -176,7 +175,6 @@ where
             .and(warp::path::end())
             .and(auth.clone())
             .and(warp::body::json())
-            .and(publisher(self.publisher.clone()))
             .and(with_state(self.sync.clone()))
             .and_then(create_connection_handler);
 
@@ -185,7 +183,6 @@ where
             .and(warp::path::end())
             .and(auth.clone())
             .and(warp::query::<ConnQueryParam>())
-            .and(publisher(self.publisher.clone()))
             .and(with_state(self.sync.clone()))
             .and_then(delete_connection_handler);
 

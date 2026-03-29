@@ -100,20 +100,20 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
             Ok(cfg) => {
                 if let Err(e) = cfg.validate() {
                     log::error!("Hysteria2 config validation failed: {}", e);
-                    None
+                    panic!("Hysteria2 config: {}", e);
                 } else {
                     match H2Settings::try_from(cfg) {
                         Ok(settings) => Some(settings),
                         Err(e) => {
                             log::error!("Hysteria2 validation error: {}", e);
-                            None
+                            panic!("Hysteria2 config: {}", e);
                         }
                     }
                 }
             }
             Err(e) => {
                 log::error!("Failed to load Hysteria2 config: {}", e);
-                None
+                panic!("Hysteria2 config: {}", e);
             }
         }
     } else {
@@ -228,7 +228,8 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
                         let tags: Vec<_> = node
                             .inbounds
                             .keys()
-                            .filter(|k| !matches!(k, Tag::Hysteria2))
+                            .filter(|k| !matches!(k, Tag::Hysteria2)) // Hysteria2 uses external auth provider
+                            .filter(|k| !matches!(k, Tag::Mtproto)) // Mtproto doesn't support auth provider
                             .collect();
 
                         for tag in tags {
@@ -322,7 +323,7 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
         tasks.push(xray_stats_task);
     }
 
-    if settings.agent.stat_enabled {
+    if settings.agent.stat_enabled && settings.wg.enabled {
         log::info!("Running WG Stat Task");
         let wg_stats_task = tokio::spawn({
             let agent = Arc::new(agent.clone());
@@ -343,7 +344,7 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
         tasks.push(wg_stats_task);
     }
 
-    if settings.xray.enabled {
+    if settings.xray.enabled && settings.agent.local {
         if let Some(xray_handler_client) = xray_handler_client {
             let conn_task = tokio::spawn({
                 let conn_id = uuid::Uuid::new_v4();
@@ -406,7 +407,7 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
         }
     }
 
-    if settings.wg.enabled {
+    if settings.wg.enabled && settings.agent.local {
         let conn_task = tokio::spawn({
             let agent = agent.clone();
             let settings = settings.clone();

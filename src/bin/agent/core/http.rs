@@ -19,7 +19,8 @@ use super::Agent;
 pub struct ConnTypeParam {
     pub proto: Tag,
     pub last_update: Option<u64>,
-    pub env: String,
+    pub env: Option<String>,
+    pub topic: uuid::Uuid,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -69,12 +70,14 @@ where
                 .clone()
         };
 
+        let id = node.uuid;
         let env = node.env;
 
         let conn_type_param = ConnTypeParam {
             proto,
             last_update,
-            env,
+            env: Some(env),
+            topic: id,
         };
 
         let mut endpoint_url = Url::parse(&endpoint)?;
@@ -95,13 +98,18 @@ where
         let status = res.status();
         let body = res.text().await?;
         if status.is_success() {
-            log::debug!("Connections Request Accepted: {:?}", status);
+            log::debug!("Connections Request Accepted for {}: {} ", proto, status);
             Ok(())
         } else {
-            log::error!("Connections Request failed: {} - {}", status, body);
+            log::error!(
+                "Connections Request failed for {}: {} - {}",
+                proto,
+                status,
+                body
+            );
             Err(PonyError::Custom(format!(
-                "Connections Request failed: {} - {}",
-                status, body
+                "Connections Request failed for {}: {} - {}",
+                proto, status, body
             )))
         }
     }

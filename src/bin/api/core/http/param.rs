@@ -52,7 +52,8 @@ pub struct ConnQueryParam {
 pub struct ConnTypeParam {
     pub proto: Tag,
     pub last_update: Option<u64>,
-    pub env: String,
+    pub env: Option<String>,
+    pub topic: String,
 }
 
 #[derive(Serialize, Deserialize)]

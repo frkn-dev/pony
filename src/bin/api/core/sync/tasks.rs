@@ -1,7 +1,9 @@
+use futures::future::join_all;
 use pony::memory::node::Node;
 use pony::memory::node::Status as NodeStatus;
 use pony::memory::subscription::Subscription;
 use pony::Connection as Conn;
+use pony::Connection;
 use pony::ConnectionApiOp;
 use pony::ConnectionBaseOp;
 use pony::ConnectionStat;
@@ -69,7 +71,11 @@ where
     async fn add_node(&self, node_id: &uuid::Uuid, node: Node) -> SyncResult<OperationStatus>;
     async fn add_conn(&self, conn_id: &uuid::Uuid, conn: Conn) -> SyncResult<OperationStatus>;
     async fn add_sub(&self, sub: Subscription) -> SyncResult<OperationStatus>;
-    async fn delete_connection(&self, conn_id: &uuid::Uuid) -> SyncResult<OperationStatus>;
+    async fn delete_connection(
+        &self,
+        conn_id: &uuid::Uuid,
+        conn: &C,
+    ) -> SyncResult<OperationStatus>;
     async fn restore_connection(&self, conn_id: &uuid::Uuid) -> SyncResult<OperationStatus>;
     async fn update_node_status(
         &self,
@@ -81,6 +87,10 @@ where
     async fn update_sub(&self, sub_id: &uuid::Uuid, sub_req: SubReq)
         -> SyncResult<OperationStatus>;
     async fn add_days(&self, sub_id: &uuid::Uuid, days: i64) -> SyncResult<OperationStatus>;
+    async fn restore_connections_by_subscription(
+        &self,
+        sub_id: &uuid::Uuid,
+    ) -> SyncResult<Vec<uuid::Uuid>>;
 }
 
 #[async_trait::async_trait]
@@ -255,8 +265,24 @@ where
         }
     }
 
-    async fn delete_connection(&self, conn_id: &uuid::Uuid) -> SyncResult<OperationStatus> {
+    async fn delete_connection(
+        &self,
+        conn_id: &uuid::Uuid,
+        conn: &C,
+    ) -> SyncResult<OperationStatus> {
         log::info!("Deleting connection: {}", conn_id);
+
+        {
+            let msg = conn.as_delete_message(conn_id);
+            if let Ok(bytes) = rkyv::to_bytes::<_, 1024>(&msg) {
+                let key = if let Some(node_id) = conn.get_wireguard_node_id() {
+                    node_id.to_string()
+                } else {
+                    conn.get_env()
+                };
+                let _ = self.publisher.send_binary(&key, bytes.as_ref()).await;
+            }
+        }
 
         // Check if connection exists and get its current state
         let current_conn = {
@@ -298,6 +324,91 @@ where
 
         log::info!("Successfully deleted connection: {}", conn_id);
         Ok(OperationStatus::Ok(*conn_id))
+    }
+
+    async fn restore_connections_by_subscription(
+        &self,
+        sub_id: &uuid::Uuid,
+    ) -> SyncResult<Vec<uuid::Uuid>>
+    where
+        N: NodeStorageOp + Sync + Send + Clone + 'static,
+        C: ConnectionApiOp
+            + ConnectionBaseOp
+            + Sync
+            + Send
+            + Clone
+            + 'static
+            + From<Connection>
+            + PartialEq,
+        pony::Connection: From<C>,
+    {
+        let conns_to_restore: Vec<(uuid::Uuid, Connection)> = {
+            let mem = self.memory.read().await;
+
+            match mem.connections.get_by_subscription_id(sub_id) {
+                Some(conns) => conns
+                    .iter()
+                    .filter(|(_, c)| c.get_deleted())
+                    .map(|(id, c)| (*id, c.clone().into()))
+                    .collect(),
+                None => Vec::new(),
+            }
+        };
+
+        if conns_to_restore.is_empty() {
+            return Ok(vec![]);
+        }
+
+        let this = self.clone();
+
+        let tasks = conns_to_restore.into_iter().map(|(conn_id, conn)| {
+            let this = this.clone();
+            async move {
+                let msg = conn.as_update_message(&conn_id);
+
+                let bytes = match rkyv::to_bytes::<_, 1024>(&msg) {
+                    Ok(b) => b,
+                    Err(e) => {
+                        log::error!("Serialization failed for {}: {:?}", conn_id, e);
+                        return None;
+                    }
+                };
+
+                let key = if let Some(node_id) = conn.get_wireguard_node_id() {
+                    node_id.to_string()
+                } else {
+                    conn.get_env()
+                };
+
+                if let Err(e) = this.publisher.send_binary(&key, bytes.as_ref()).await {
+                    log::error!(
+                        "Failed to send restore message for {} to {}: {:?}",
+                        conn_id,
+                        key,
+                        e
+                    );
+                    return None;
+                }
+
+                match this.restore_connection(&conn_id).await {
+                    Ok(OperationStatus::Ok(_)) | Ok(OperationStatus::Updated(_)) => {
+                        log::debug!("Connection {} restored", conn_id);
+                        Some(conn_id)
+                    }
+                    Ok(status) => {
+                        log::warn!("Connection {} not restored: {:?}", conn_id, status);
+                        None
+                    }
+                    Err(e) => {
+                        log::error!("Failed to restore connection {}: {:?}", conn_id, e);
+                        None
+                    }
+                }
+            }
+        });
+
+        let results = join_all(tasks).await;
+        Ok(results.into_iter().flatten().collect())
     }
 
     async fn restore_connection(&self, conn_id: &uuid::Uuid) -> SyncResult<OperationStatus> {
@@ -483,26 +594,57 @@ where
     async fn add_days(&self, sub_id: &uuid::Uuid, days: i64) -> SyncResult<OperationStatus> {
         let sub_db = self.db.sub();
 
-        let mut mem = self.memory.write().await;
-
-        let sub = match mem.subscriptions.find_by_id_mut(sub_id) {
-            Some(s) => s,
-            None => {
-                log::warn!("Subscription {} not found for update", sub_id);
-                return Ok(OperationStatus::NotFound(*sub_id));
-            }
+        let was_inactive = {
+            let mem = self.memory.read().await;
+            mem.subscriptions
+                .get(sub_id)
+                .map(|s| !s.is_active())
+                .unwrap_or(false)
         };
 
-        let now = Utc::now();
+        {
+            let mut mem = self.memory.write().await;
 
-        let new_expires = match sub.expires_at() {
-            Some(exp) if exp > now => exp + Duration::days(days),
-            _ => now + Duration::days(days),
-        };
-        let _ = sub.set_expires_at(new_expires);
+            let sub = match mem.subscriptions.find_by_id_mut(sub_id) {
+                Some(s) => s,
+                None => {
+                    log::warn!("Subscription {} not found for update", sub_id);
+                    return Ok(OperationStatus::NotFound(*sub_id));
+                }
+            };
+
+            let now = Utc::now();
+
+            let new_expires = match sub.expires_at() {
+                Some(exp) if exp > now => exp + Duration::days(days),
+                _ => now + Duration::days(days),
+            };
+            let _ = sub.set_expires_at(new_expires);
+        }
 
         match sub_db.add_days(sub_id, days).await {
-            Ok(sub) => Ok(OperationStatus::Updated(sub.id)),
+            Ok(sub) => {
+                if was_inactive {
+                    log::info!(
+                        "Restoring connections after subscription activation {}",
+                        sub_id
+                    );
+
+                    match self.restore_connections_by_subscription(sub_id).await {
+                        Ok(restored) => {
+                            log::debug!(
+                                "Post-update restore: {} connections restored for {}",
+                                restored.len(),
+                                sub_id
+                            );
+                        }
+                        Err(e) => {
+                            log::error!("Post-update restore FAILED for {}: {:?}", sub_id, e);
+                        }
+                    }
+                }
+                Ok(OperationStatus::Updated(sub.id))
+            }
             Err(e) => Err(SyncError::Database(e)),
         }
     }

@@ -40,6 +40,7 @@ use pony::Subscriber as ZmqSubscriber;
 use pony::Subscription;
 use pony::Tag;
 
+use super::snapshot::SnapshotRestore;
 use super::tasks::Tasks;
 use super::Agent;
 use crate::core::http::ApiRequests;
@@ -160,6 +161,13 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
         match snapshot_manager.load_snapshot().await {
             Ok(Some(timestamp)) => {
                 let count = snapshot_manager.count().await;
+                if let Err(e) = snapshot_manager
+                    .restore_connections(xray_handler_client.clone(), wg_client)
+                    .await
+                {
+                    log::error!("Couldn't restore connections from memory, {}", e);
+                    panic!("Couldn't restore connections from memory, {}", e);
+                }
                 log::info!("Loaded connections snapshot from {} {}", timestamp, count);
                 Some(timestamp)
             }

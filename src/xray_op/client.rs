@@ -77,37 +77,39 @@ pub trait HandlerActions {
 #[async_trait::async_trait]
 impl HandlerActions for Arc<Mutex<HandlerClient>> {
     async fn create(&self, conn_id: &uuid::Uuid, tag: Tag, password: Option<String>) -> Result<()> {
+        log::debug!("Creating user {} for xray proto: {}", conn_id, tag);
         match tag {
             Tag::VlessTcpReality => {
                 let user_info = VlessConnInfo::new(conn_id, ConnFlow::Vision, Tag::VlessTcpReality);
-                let _ = user_info.create(self.clone()).await;
+                user_info.create(self.clone()).await?;
                 Ok(())
             }
             Tag::VlessGrpcReality => {
                 let user_info =
                     VlessConnInfo::new(conn_id, ConnFlow::Direct, Tag::VlessGrpcReality);
-                let _ = user_info.create(self.clone()).await;
+                user_info.create(self.clone()).await?;
                 Ok(())
             }
             Tag::VlessXhttpReality => {
                 let user_info = VlessConnInfo::new(conn_id, ConnFlow::None, Tag::VlessXhttpReality);
-                let _ = user_info.create(self.clone()).await;
+                user_info.create(self.clone()).await?;
                 Ok(())
             }
             Tag::Vmess => {
                 let user_info = VmessConnInfo::new(conn_id);
-                let _ = user_info.create(self.clone()).await;
+                user_info.create(self.clone()).await?;
                 Ok(())
             }
             Tag::Shadowsocks => {
                 if let Some(pass) = password.clone() {
                     let user_info = SsConnInfo::new(conn_id, Some(pass));
-                    let _ = user_info.create(self.clone()).await;
-                    return Ok(());
+                    user_info.create(self.clone()).await?;
+                    Ok(())
+                } else {
+                    Err(crate::PonyError::Custom(
+                        "Create SS user error, password not provided".to_string(),
+                    ))
                 }
-                Err(crate::PonyError::Custom(
-                    "Create SS user error, password not provided".to_string(),
-                ))
             }
             _ => Err(PonyError::Custom("Not supported Proto".into())),
         }

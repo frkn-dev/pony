@@ -1,5 +1,4 @@
 use chrono::DateTime;
-use chrono::NaiveDateTime;
 use chrono::Utc;
 use defguard_wireguard_rs::net::IpAddrMask;
 use pony::ConnectionBaseOp;
@@ -24,8 +23,8 @@ pub struct ConnRow {
     pub conn_id: uuid::Uuid,
     pub password: Option<String>,
     pub env: String,
-    pub created_at: NaiveDateTime,
-    pub modified_at: NaiveDateTime,
+    pub created_at: DateTime<Utc>,
+    pub modified_at: DateTime<Utc>,
     pub expired_at: Option<DateTime<Utc>>,
     pub subscription_id: Option<uuid::Uuid>,
     pub stat: ConnectionStat,
@@ -156,8 +155,8 @@ impl PgConn {
                 let conn_id: uuid::Uuid = row.get("id");
                 let password: Option<String> = row.get("password");
                 let env: String = row.get("env");
-                let created_at: NaiveDateTime = row.get("created_at");
-                let modified_at: NaiveDateTime = row.get("modified_at");
+                let created_at: DateTime<Utc> = row.get("created_at");
+                let modified_at: DateTime<Utc> = row.get("modified_at");
                 let expired_at: Option<DateTime<Utc>> = row.get("expired_at");
                 let subscription_id: Option<uuid::Uuid> = row.get("subscription_id");
                 let token: Option<uuid::Uuid> = row.get("token");

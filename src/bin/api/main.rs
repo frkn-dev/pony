@@ -69,14 +69,9 @@ async fn main() -> Result<()> {
     let publisher = ZmqPublisher::new(&settings.zmq.endpoint).await;
 
     let mem: Arc<RwLock<ApiState>> = Arc::new(RwLock::new(MemoryCache::new()));
-    let mem_sync = MemSync::new(mem.clone(), db.clone());
+    let mem_sync = MemSync::new(mem.clone(), db.clone(), publisher.clone());
 
-    let api = Arc::new(Api::new(
-        ch.clone(),
-        publisher.clone(),
-        mem_sync.clone(),
-        settings.clone(),
-    ));
+    let api = Arc::new(Api::new(ch.clone(), mem_sync.clone(), settings.clone()));
 
     measure_time(api.get_state_from_db(), "Init PG DB".to_string()).await?;
 
@@ -163,37 +158,34 @@ async fn main() -> Result<()> {
 
     tokio::spawn({
         let api = api.clone();
-        let publisher = publisher.clone();
+
         let job_interval = Duration::from_secs(60);
         log::info!("cleanup_expired_connections task started");
 
         async move {
-            api.cleanup_expired_connections(job_interval.as_secs(), publisher)
+            api.cleanup_expired_connections(job_interval.as_secs())
                 .await;
         }
     });
 
     tokio::spawn({
         let api = api.clone();
-        let publisher = publisher.clone();
         let job_interval = Duration::from_secs(settings.api.subscription_expire_interval);
         log::info!("cleanup_expired_subscriptions task started");
 
         async move {
-            api.cleanup_expired_subscriptions(job_interval.as_secs(), publisher)
+            api.cleanup_expired_subscriptions(job_interval.as_secs())
                 .await;
         }
     });
 
     tokio::spawn({
         let api = api.clone();
-        let publisher = publisher.clone();
         let job_interval = Duration::from_secs(settings.api.subscription_restore_interval);
         log::info!("restore_subscriptions task started");
 
         async move {
-            api.restore_subscriptions(job_interval.as_secs(), publisher)
-                .await;
+            api.restore_subscriptions(job_interval.as_secs()).await;
         }
     });
 

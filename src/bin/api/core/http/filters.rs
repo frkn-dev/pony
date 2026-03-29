@@ -1,6 +1,5 @@
 use warp::Filter;
 
-use pony::zmq::publisher::Publisher as ZmqPublisher;
 use pony::Connection;
 use pony::ConnectionApiOp;
 use pony::ConnectionBaseOp;
@@ -27,13 +26,6 @@ pub fn with_ch(
     ch: ChContext,
 ) -> impl Filter<Extract = (ChContext,), Error = std::convert::Infallible> + Clone {
     warp::any().map(move || ch.clone())
-}
-
-/// Provides zmq publisher filter
-pub fn publisher(
-    publisher: ZmqPublisher,
-) -> impl Filter<Extract = (ZmqPublisher,), Error = std::convert::Infallible> + Clone {
-    warp::any().map(move || publisher.clone())
 }
 
 pub fn with_param_string(

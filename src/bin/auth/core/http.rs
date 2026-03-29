@@ -16,7 +16,8 @@ use reqwest::Url;
 pub struct ConnTypeParam {
     pub proto: Tag,
     pub last_update: Option<u64>,
-    pub env: String,
+    pub env: Option<String>,
+    pub topic: uuid::Uuid,
 }
 
 #[async_trait]
@@ -52,12 +53,13 @@ where
                 .clone()
         };
 
-        let env = node.env;
+        let id = node.uuid;
 
         let conn_type_param = ConnTypeParam {
             proto,
             last_update,
-            env,
+            env: None,
+            topic: id,
         };
 
         let mut endpoint_url = Url::parse(&endpoint)?;

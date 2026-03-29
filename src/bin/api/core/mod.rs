@@ -7,7 +7,6 @@ use pony::ConnectionApiOp;
 use pony::ConnectionBaseOp;
 use pony::MemoryCache;
 use pony::NodeStorageOp;
-use pony::Publisher as ZmqPublisher;
 use pony::Subscription;
 use pony::SubscriptionOp;
 
@@ -31,7 +30,6 @@ where
 {
     pub sync: MemSync<N, C, S>,
     pub ch: ChContext,
-    pub publisher: ZmqPublisher,
     pub settings: ApiSettings,
 }
 
@@ -41,17 +39,7 @@ where
     C: ConnectionBaseOp + ConnectionApiOp + Send + Sync + Clone + 'static + std::cmp::PartialEq,
     S: SubscriptionOp + Send + Sync + Clone + 'static,
 {
-    pub fn new(
-        ch: ChContext,
-        publisher: ZmqPublisher,
-        sync: MemSync<N, C, S>,
-        settings: ApiSettings,
-    ) -> Self {
-        Self {
-            ch,
-            publisher,
-            sync,
-            settings,
-        }
+    pub fn new(ch: ChContext, sync: MemSync<N, C, S>, settings: ApiSettings) -> Self {
+        Self { ch, sync, settings }
     }
 }

@@ -11,7 +11,6 @@ use pony::http::MyRejection;
 use pony::http::ResponseMessage;
 use pony::memory::tag::ProtoTag;
 use pony::utils;
-use pony::zmq::publisher::Publisher as ZmqPublisher;
 use pony::Connection;
 use pony::ConnectionApiOp;
 use pony::ConnectionBaseOp;
@@ -34,8 +33,7 @@ use super::super::request::ConnCreateRequest;
 /// Handler get connection
 // GET /connections
 pub async fn get_connections_handler<N, C, S>(
-    conn_req: ConnTypeParam,
-    publisher: ZmqPublisher,
+    req: ConnTypeParam,
     memory: MemSync<N, C, S>,
 ) -> Result<impl warp::Reply, warp::Rejection>
 where
@@ -58,54 +56,57 @@ where
         + std::convert::From<pony::Subscription>,
 {
     let mem = memory.memory.read().await;
-    let proto = conn_req.proto;
-    let env = conn_req.env;
-
-    let last_update = conn_req.last_update;
+    let proto = req.proto;
+    let topic = req.topic;
+    let last_update = req.last_update;
+    let env = req.env;
 
     let connections_to_send: Vec<_> = mem
         .connections
         .iter()
         .filter(|(_, conn)| {
-            if conn.get_deleted() {
-                return false;
-            }
-
-            if conn.get_proto().proto() != proto {
-                return false;
-            }
-
-            if let Some(ts) = last_update {
-                conn.get_modified_at().and_utc().timestamp() as u64 >= ts
-            } else {
-                true
-            }
+            !conn.get_deleted()
+                && conn.get_proto().proto() == proto
+                && env.as_ref().is_none_or(|e| conn.get_env() == *e)
+                && last_update.is_none_or(|ts| conn.get_modified_at().timestamp() as u64 >= ts)
         })
         .collect();
 
-    log::debug!(
-        "Sending {} {:?} connections to auth",
-        connections_to_send.len(),
-        proto
-    );
+    if !connections_to_send.is_empty() {
+        log::debug!(
+            "Sending {} {:?} connections for env {:?} to topic {} ",
+            connections_to_send.len(),
+            proto,
+            env,
+            topic
+        );
 
-    let messages: Vec<_> = connections_to_send
-        .iter()
-        .map(|(conn_id, conn)| conn.as_create_message(conn_id))
-        .collect();
+        let messages: Vec<_> = connections_to_send
+            .iter()
+            .map(|(conn_id, conn)| conn.as_create_message(conn_id))
+            .collect();
 
-    let bytes = to_bytes::<_, 1024>(&messages).map_err(|e| {
-        log::error!("Serialization error: {}", e);
-        warp::reject::custom(MyRejection(Box::new(e)))
-    })?;
-
-    publisher
-        .send_binary(&env, bytes.as_ref())
-        .await
-        .map_err(|e| {
-            log::error!("Publish error: {}", e);
+        let bytes = to_bytes::<_, 1024>(&messages).map_err(|e| {
+            log::error!("Serialization error: {}", e);
             warp::reject::custom(MyRejection(Box::new(e)))
         })?;
+
+        memory
+            .publisher
+            .send_binary(&topic, bytes.as_ref())
+            .await
+            .map_err(|e| {
+                log::error!("Publish error: {}", e);
+                warp::reject::custom(MyRejection(Box::new(e)))
+            })?;
+    } else {
+        log::debug!(
+            "No message {} to send for env {:?} to topic {}",
+            proto,
+            env,
+            topic
+        );
+    }
 
     let resp = ResponseMessage::<Option<IdResponse>> {
         status: StatusCode::OK.as_u16(),
@@ -122,7 +123,6 @@ where
 // POST /connection
 pub async fn create_connection_handler<N, C, S>(
     conn_req: ConnCreateRequest,
-    publisher: ZmqPublisher,
     memory: MemSync<N, C, S>,
 ) -> Result<impl warp::Reply, warp::Rejection>
 where
@@ -342,7 +342,7 @@ where
                 conn.get_env()
             };
 
-            let _ = publisher.send_binary(&topic, bytes.as_ref()).await;
+            let _ = memory.publisher.send_binary(&topic, bytes.as_ref()).await;
 
             Ok(http::success_response(
                 format!("Connection {} has been created", id),
@@ -376,7 +376,7 @@ where
 // DELETE /connection?id=
 pub async fn delete_connection_handler<N, C, S>(
     conn_param: ConnQueryParam,
-    publisher: ZmqPublisher,
+
     memory: MemSync<N, C, S>,
 ) -> Result<impl warp::Reply, warp::Rejection>
 where
@@ -413,36 +413,17 @@ where
 
     if conn.get_deleted() {
         return Ok(http::not_found(&format!(
-            "Connection {} is deleted",
+            "Connection {} already is deleted",
             conn_id
         )));
     }
 
-    match SyncOp::delete_connection(&memory, &conn_id).await {
-        Ok(StorageOperationStatus::Ok(id)) => {
-            let msg = conn.as_delete_message(&conn_id);
-
-            let bytes = match rkyv::to_bytes::<_, 1024>(&msg) {
-                Ok(b) => b,
-                Err(e) => {
-                    return Ok(http::internal_error(&format!("Serialization error: {}", e)));
-                }
-            };
-
-            if let Some(node_id) = conn.get_wireguard_node_id() {
-                let _ = publisher
-                    .send_binary(&node_id.to_string(), bytes.as_ref())
-                    .await;
-            } else {
-                let _ = publisher.send_binary(&conn.get_env(), bytes.as_ref()).await;
-            }
-
-            Ok(http::success_response(
-                format!("Connection {} has been deleted", id),
-                Some(id),
-                http::Instance::Connection(conn.clone().into()),
-            ))
-        }
+    match SyncOp::delete_connection(&memory, &conn_id, &conn).await {
+        Ok(StorageOperationStatus::Ok(id)) => Ok(http::success_response(
+            format!("Connection {} has been deleted", id),
+            Some(id),
+            http::Instance::Connection(conn.clone().into()),
+        )),
 
         Ok(StorageOperationStatus::NotFound(id)) => {
             Ok(http::not_found(&format!("Connection {} not found", id)))

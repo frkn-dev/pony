@@ -17,6 +17,7 @@ use pony::SubscriptionOp;
 mod http;
 pub(crate) mod metrics;
 pub mod service;
+mod snapshot;
 mod stats;
 mod tasks;
 

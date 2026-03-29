@@ -10,8 +10,8 @@ use tokio::fs as async_fs;
 use tokio::sync::RwLock;
 
 use crate::error::Result;
-use crate::MemoryCache;
 
+use super::cache::Cache;
 use super::cache::Connections;
 use super::connection::conn::Conn;
 
@@ -33,7 +33,7 @@ where
     S: Send + Sync + Clone + 'static,
 {
     pub snapshot_path: String,
-    pub memory: Arc<RwLock<MemoryCache<N, C, S>>>,
+    pub memory: Arc<RwLock<Cache<N, C, S>>>,
 }
 
 impl<N, C, S> Clone for SnapshotManager<N, C, S>
@@ -86,7 +86,7 @@ where
     N: Send + Sync + Clone + 'static,
     S: Send + Sync + Clone + 'static,
 {
-    pub fn new(snapshot_path: String, memory: Arc<RwLock<MemoryCache<N, C, S>>>) -> Self {
+    pub fn new(snapshot_path: String, memory: Arc<RwLock<Cache<N, C, S>>>) -> Self {
         Self {
             snapshot_path,
             memory,

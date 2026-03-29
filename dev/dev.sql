@@ -224,3 +224,10 @@ ALTER COLUMN days TYPE SMALLINT USING days::SMALLINT;
 
 ALTER TABLE subscriptions
   ALTER COLUMN referred_by TYPE VARCHAR(13);
+
+  ===
+
+  ALTER TABLE connections
+  ALTER COLUMN created_at TYPE timestamptz USING created_at AT TIME ZONE 'UTC',
+  ALTER COLUMN modified_at TYPE timestamptz USING modified_at AT TIME ZONE 'UTC',
+  ALTER COLUMN expired_at TYPE timestamptz USING expired_at AT TIME ZONE 'UTC';

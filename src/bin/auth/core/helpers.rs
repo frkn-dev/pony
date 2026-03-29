@@ -27,11 +27,10 @@ pub async fn validate_key(
     let status = res.status();
     let text = res.text().await?;
 
-    log::debug!("STATUS = {}", status);
-    log::debug!("BODY = {}", text);
-
     if status.is_success() {
         let parsed: response::Api<InstanceWithId<Instance>> = serde_json::from_str(&text)?;
+
+        log::debug!("Response validate_key {} {}", parsed.status, parsed.message);
 
         match parsed.response.instance {
             Instance::Key(key) => Ok(key),
@@ -69,11 +68,10 @@ pub async fn activate_key(
     let status = res.status();
     let text = res.text().await?;
 
-    log::debug!("STATUS = {}", status);
-    log::debug!("BODY = {}", text);
-
     if status.is_success() {
         let parsed: response::Api<InstanceWithId<Instance>> = serde_json::from_str(&text)?;
+
+        log::debug!("Response activate_key {} {}", parsed.status, parsed.message);
 
         match parsed.response.instance {
             Instance::Key(key) => Ok(key),
@@ -111,9 +109,6 @@ pub async fn create_subscription(
 
     let status = res.status();
     let text = res.text().await?;
-
-    log::debug!("STATUS = {}", status);
-    log::debug!("BODY = {}", text);
 
     if status.is_success() {
         let parsed: response::Api<InstanceWithId<Instance>> = serde_json::from_str(&text)?;
@@ -178,6 +173,12 @@ pub async fn create_connection(
     }
 
     let parsed: response::Api<InstanceWithId<Instance>> = serde_json::from_str(&text)?;
+
+    log::debug!(
+        "Response create_connection {} {}",
+        parsed.status,
+        parsed.message
+    );
 
     Ok(parsed.response.id)
 }

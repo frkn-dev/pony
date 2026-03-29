@@ -7,9 +7,9 @@ pub struct Auth {
     pub id: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 pub struct Api<T> {
-    status: u16,
-    message: String,
+    pub status: u16,
+    pub message: String,
     pub response: T,
 }

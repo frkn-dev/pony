@@ -160,7 +160,7 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
     let snapshot_timestamp = if Path::new(&snapshot_manager.snapshot_path).exists() {
         match snapshot_manager.load_snapshot().await {
             Ok(Some(timestamp)) => {
-                let count = snapshot_manager.count().await;
+                let count = snapshot_manager.len().await;
                 if let Err(e) = snapshot_manager
                     .restore_connections(xray_handler_client.clone(), wg_client)
                     .await
@@ -168,7 +168,11 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
                     log::error!("Couldn't restore connections from memory, {}", e);
                     panic!("Couldn't restore connections from memory, {}", e);
                 }
-                log::info!("Loaded connections snapshot from {} {}", timestamp, count);
+                log::info!(
+                    "Loaded {} connections from snapshot with ts  {}",
+                    count,
+                    timestamp,
+                );
                 Some(timestamp)
             }
             Ok(None) => {
@@ -201,7 +205,7 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
             {
                 log::error!("Failed to create snapshot: {}", e);
             } else {
-                let count = snapshot_manager.count().await;
+                let count = snapshot_manager.len().await;
                 log::info!("Connections snapshot saved successfully {}", count);
             }
         }
@@ -228,33 +232,36 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
             {
                 let settings = settings.clone();
 
-                match agent
-                    .register_node(settings.api.endpoint.clone(), settings.api.token.clone())
-                    .await
-                {
-                    Ok(_) => {
-                        let tags: Vec<_> = node
-                            .inbounds
-                            .keys()
-                            .filter(|k| !matches!(k, Tag::Hysteria2)) // Hysteria2 uses external auth provider
-                            .filter(|k| !matches!(k, Tag::Mtproto)) // Mtproto doesn't support auth provider
-                            .collect();
+                loop {
+                    match agent
+                        .register_node(settings.api.endpoint.clone(), settings.api.token.clone())
+                        .await
+                    {
+                        Ok(_) => {
+                            let tags: Vec<_> = node
+                                .inbounds
+                                .keys()
+                                .filter(|k| !matches!(k, Tag::Hysteria2)) // Hysteria2 uses external auth provider
+                                .filter(|k| !matches!(k, Tag::Mtproto)) // Mtproto doesn't support auth provider
+                                .collect();
 
-                        for tag in tags {
-                            agent
-                                .get_connections(
-                                    settings.api.endpoint.clone(),
-                                    settings.api.token.clone(),
-                                    *tag,
-                                    snapshot_timestamp,
-                                )
-                                .await?
+                            for tag in tags {
+                                agent
+                                    .get_connections(
+                                        settings.api.endpoint.clone(),
+                                        settings.api.token.clone(),
+                                        *tag,
+                                        snapshot_timestamp,
+                                    )
+                                    .await?
+                            }
+                            break;
+                        }
+                        Err(e) => {
+                            log::warn!("API unavailable, {} retrying... ", e);
+                            sleep(Duration::from_secs(10)).await;
                         }
                     }
-                    Err(e) => log::error!(
-                        "Cannot register node, use setting local mode for running no deps\n {:?}",
-                        e
-                    ),
                 }
             };
         }

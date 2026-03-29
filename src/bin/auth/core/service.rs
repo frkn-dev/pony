@@ -5,6 +5,7 @@ use tokio::signal;
 use tokio::sync::broadcast;
 use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
+use tokio::time::sleep;
 use tokio::time::Duration;
 
 use pony::config::settings::AuthServiceSettings;
@@ -68,12 +69,17 @@ pub async fn run(settings: AuthServiceSettings) -> Result<()> {
     let snapshot_timestamp = if Path::new(&snapshot_manager.snapshot_path).exists() {
         match snapshot_manager.load_snapshot().await {
             Ok(Some(timestamp)) => {
-                log::info!("Loaded connections snapshot from {}", timestamp);
+                let count = snapshot_manager.len().await;
+                log::info!(
+                    "Loaded {} auth connections from snapshot with ts {}",
+                    count,
+                    timestamp,
+                );
                 Some(timestamp)
             }
             Ok(None) => {
-                log::warn!("Snapshot file exists but couldn't be loaded");
-                None
+                log::error!("Snapshot file exists but couldn't be loaded");
+                panic!("napshot file exists but couldn't be loaded")
             }
             Err(e) => {
                 log::error!("Failed to load snapshot: {}", e);
@@ -87,7 +93,7 @@ pub async fn run(settings: AuthServiceSettings) -> Result<()> {
     };
 
     let snapshot_manager = snapshot_manager.clone();
-    tokio::spawn(async move {
+    let snapshot_handle = tokio::spawn(async move {
         let mut interval = tokio::time::interval(std::time::Duration::from_secs(
             settings.auth.snapshot_interval,
         ));
@@ -96,10 +102,12 @@ pub async fn run(settings: AuthServiceSettings) -> Result<()> {
             if let Err(e) = snapshot_manager.create_snapshot().await {
                 log::error!("Failed to create snapshot: {}", e);
             } else {
-                log::info!("Auth snapshot saved successfully");
+                log::debug!("Auth snapshot saved successfully");
             }
         }
     });
+
+    tasks.push(snapshot_handle);
 
     {
         log::info!("ZMQ listener starting...");
@@ -116,23 +124,31 @@ pub async fn run(settings: AuthServiceSettings) -> Result<()> {
         });
         tasks.push(zmq_task);
 
-        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        sleep(std::time::Duration::from_millis(500)).await;
     };
 
     {
         let settings = settings.clone();
-        let api_token = settings.api.token.clone();
 
-        if let Err(e) = auth
-            .get_connections(
-                settings.api.endpoint.clone(),
-                api_token,
-                pony::Tag::Hysteria2,
-                snapshot_timestamp,
-            )
-            .await
-        {
-            log::error!("-->>Cannot register auth service, \n {:?}", e);
+        loop {
+            let api_token = settings.api.token.clone();
+            match auth
+                .get_connections(
+                    settings.api.endpoint.clone(),
+                    api_token,
+                    pony::Tag::Hysteria2,
+                    snapshot_timestamp,
+                )
+                .await
+            {
+                Ok(_) => {
+                    break;
+                }
+                Err(e) => {
+                    log::warn!("Api not available {} retrying...", e);
+                    sleep(Duration::from_secs(10)).await;
+                }
+            }
         }
     };
 

@@ -324,8 +324,7 @@ where
     let conn_id = uuid::Uuid::new_v4();
     let msg = conn.as_create_message(&conn_id);
 
-    let mut messages = vec![];
-    messages.push(msg);
+    let messages = [msg];
 
     match SyncOp::add_conn(&memory, &conn_id, conn.clone()).await {
         Ok(StorageOperationStatus::Ok(id)) => {
@@ -337,7 +336,12 @@ where
             };
 
             let topic = if let Some(node_id) = conn.get_wireguard_node_id() {
+                // WG connection uses IP-address related to node
+                // and should be attached to specific Node for proper configuring
                 node_id.to_string()
+            } else if let Some(_token) = conn.get_token() {
+                // Hysteria2 uses external auth provided which handles all envs
+                "all".to_string()
             } else {
                 conn.get_env()
             };

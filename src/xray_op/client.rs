@@ -77,7 +77,6 @@ pub trait HandlerActions {
 #[async_trait::async_trait]
 impl HandlerActions for Arc<Mutex<HandlerClient>> {
     async fn create(&self, conn_id: &uuid::Uuid, tag: Tag, password: Option<String>) -> Result<()> {
-        log::debug!("Creating user {} for xray proto: {}", conn_id, tag);
         match tag {
             Tag::VlessTcpReality => {
                 let user_info = VlessConnInfo::new(conn_id, ConnFlow::Vision, Tag::VlessTcpReality);

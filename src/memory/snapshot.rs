@@ -96,7 +96,6 @@ where
     pub async fn create_snapshot(&self) -> Result<()> {
         let memory_guard = self.memory.read().await;
         let connections = memory_guard.connections.clone();
-        let connections_count = connections.len();
         drop(memory_guard);
 
         let snapshot = SnapshotData {
@@ -111,12 +110,6 @@ where
         async_fs::write(&temp_path, &bytes).await?;
         async_fs::rename(&temp_path, &self.snapshot_path).await?;
 
-        log::debug!(
-            "Snapshot created at: {} ({} bytes, {} connections)",
-            snapshot.timestamp,
-            bytes.len(),
-            connections_count
-        );
         Ok(())
     }
 
@@ -136,11 +129,6 @@ where
         let mut memory_guard = self.memory.write().await;
         memory_guard.connections = snapshot.memory.clone();
 
-        log::debug!(
-            "Snapshot loaded from: {} bytes {}",
-            snapshot.timestamp,
-            bytes.len()
-        );
         Ok(Some(snapshot.timestamp))
     }
 
@@ -155,9 +143,14 @@ where
         Ok(Some(archived.timestamp))
     }
 
-    pub async fn count(&self) -> usize {
+    pub async fn len(&self) -> usize {
         let mem = self.memory.read().await;
         mem.connections.0.len()
+    }
+
+    pub async fn is_empty(&self) -> bool {
+        let mem = self.memory.read().await;
+        mem.connections.0.len() == 0
     }
 }
 

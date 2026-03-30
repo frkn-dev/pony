@@ -1,0 +1,14 @@
+[Unit]
+Description=Pony Agent Service
+After=xray.service
+Requires=xray.service
+
+[Service]
+Type=simple
+ExecStart=/opt/vpn/agent /opt/vpn/config-agent.toml
+Restart=on-failure
+RestartSec=5
+WorkingDirectory=/opt/vpn
+
+[Install]
+WantedBy=multi-user.target

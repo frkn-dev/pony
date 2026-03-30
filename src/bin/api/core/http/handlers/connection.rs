@@ -324,8 +324,8 @@ where
     let conn_id = uuid::Uuid::new_v4();
     let msg = conn.as_create_message(&conn_id);
 
-    let messages = [msg];
-
+    let messages = vec![msg];
+    
     match SyncOp::add_conn(&memory, &conn_id, conn.clone()).await {
         Ok(StorageOperationStatus::Ok(id)) => {
             let bytes = match rkyv::to_bytes::<_, 1024>(&messages) {

@@ -70,6 +70,13 @@ pub async fn activate_key_handler(
         }
     };
 
+    /* Update subscriptions days  */
+
+    let mut updated_sub = sub.clone();
+    if let Some(expires) = updated_sub.expires_at {
+        updated_sub.expires_at = Some(expires + chrono::Duration::days(key.days as i64));
+    }
+
     /* ================= CREATE CONNECTIONS ================= */
 
     let envs = [Env::Dev, Env::Ru, Env::Wl];
@@ -133,7 +140,7 @@ pub async fn activate_key_handler(
     Ok(http::success_response(
         "Key code activated.".to_string(),
         Some(key.id),
-        http::Instance::Subscription(sub),
+        http::Instance::Subscription(updated_sub),
     ))
 }
 

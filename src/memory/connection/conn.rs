@@ -19,7 +19,7 @@ pub struct Conn {
     pub subscription_id: Option<uuid::Uuid>,
     pub created_at: DateTime<Utc>,
     pub modified_at: DateTime<Utc>,
-    pub expired_at: Option<DateTime<Utc>>,
+    pub expires_at: Option<DateTime<Utc>>,
     pub is_deleted: bool,
 }
 
@@ -36,7 +36,7 @@ impl fmt::Display for Conn {
         writeln!(f, "  conn stat: {},", self.stat)?;
         writeln!(f, "  created_at: {},", self.created_at)?;
         writeln!(f, "  modified_at: {},", self.modified_at)?;
-        writeln!(f, "  expired_at: {:?},", self.expired_at)?;
+        writeln!(f, "  expires_at: {:?},", self.expires_at)?;
         writeln!(f, "  proto: {:?},", self.proto)?;
         writeln!(f, "  deleted: {}", self.is_deleted)?;
         writeln!(f, "}}")
@@ -59,7 +59,7 @@ impl Conn {
         subscription_id: Option<uuid::Uuid>,
         stat: Stat,
         proto: Proto,
-        expired_at: Option<DateTime<Utc>>,
+        expires_at: Option<DateTime<Utc>>,
     ) -> Self {
         let now = Utc::now();
 
@@ -68,7 +68,7 @@ impl Conn {
             stat,
             created_at: now,
             modified_at: now,
-            expired_at,
+            expires_at,
             proto,
             subscription_id,
             is_deleted: false,
@@ -91,6 +91,6 @@ pub struct ConnPatch {
     pub subscription_id: Option<uuid::Uuid>,
     pub created_at: Option<NaiveDateTime>,
     pub modified_at: Option<NaiveDateTime>,
-    pub expired_at: Option<DateTime<Utc>>,
+    pub expires_at: Option<DateTime<Utc>>,
     pub is_deleted: Option<bool>,
 }

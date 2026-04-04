@@ -25,7 +25,7 @@ pub struct ConnRow {
     pub env: String,
     pub created_at: DateTime<Utc>,
     pub modified_at: DateTime<Utc>,
-    pub expired_at: Option<DateTime<Utc>>,
+    pub expires_at: Option<DateTime<Utc>>,
     pub subscription_id: Option<uuid::Uuid>,
     pub stat: ConnectionStat,
     pub wg: Option<WgParam>,
@@ -49,7 +49,7 @@ impl From<(uuid::Uuid, Conn)> for ConnRow {
             env: conn.env.clone(),
             created_at: conn.created_at,
             modified_at: conn.modified_at,
-            expired_at: conn.expired_at,
+            expires_at: conn.expires_at,
             subscription_id: conn.subscription_id,
             stat: conn_stat,
             wg: conn.get_wireguard().cloned(),
@@ -103,7 +103,7 @@ impl TryFrom<ConnRow> for Conn {
             subscription_id: row.subscription_id,
             created_at: row.created_at,
             modified_at: row.modified_at,
-            expired_at: row.expired_at,
+            expires_at: row.expires_at,
             is_deleted: row.is_deleted,
         })
     }
@@ -130,7 +130,7 @@ impl PgConn {
             env,
             created_at,
             modified_at,
-            expired_at,
+            expires_at,
             subscription_id,
             online,
             uplink,
@@ -157,7 +157,7 @@ impl PgConn {
                 let env: String = row.get("env");
                 let created_at: DateTime<Utc> = row.get("created_at");
                 let modified_at: DateTime<Utc> = row.get("modified_at");
-                let expired_at: Option<DateTime<Utc>> = row.get("expired_at");
+                let expires_at: Option<DateTime<Utc>> = row.get("expires_at");
                 let subscription_id: Option<uuid::Uuid> = row.get("subscription_id");
                 let token: Option<uuid::Uuid> = row.get("token");
                 let online: i64 = row.get("online");
@@ -187,7 +187,7 @@ impl PgConn {
                     env,
                     created_at,
                     modified_at,
-                    expired_at,
+                    expires_at,
                     subscription_id,
                     stat: ConnectionStat {
                         online,
@@ -255,7 +255,7 @@ impl PgConn {
             env,
             created_at,
             modified_at,
-            expired_at,
+            expires_at,
             subscription_id,
             online,
             uplink,
@@ -283,7 +283,7 @@ impl PgConn {
                     &conn.env,
                     &conn.created_at,
                     &conn.modified_at,
-                    &conn.expired_at,
+                    &conn.expires_at,
                     &conn.subscription_id,
                     &conn.stat.online,
                     &conn.stat.uplink,

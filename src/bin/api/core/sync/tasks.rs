@@ -270,59 +270,72 @@ where
         conn_id: &uuid::Uuid,
         conn: &C,
     ) -> SyncResult<OperationStatus> {
-        log::info!("Deleting connection: {}", conn_id);
+        log::info!("Starting deletion process for connection: {}", conn_id);
 
         {
-            let msg = conn.as_delete_message(conn_id);
-            if let Ok(bytes) = rkyv::to_bytes::<_, 1024>(&msg) {
-                let key = if let Some(node_id) = conn.get_wireguard_node_id() {
-                    node_id.to_string()
-                } else {
-                    conn.get_env()
-                };
-                let _ = self.publisher.send_binary(&key, bytes.as_ref()).await;
-            }
-        }
-
-        // Check if connection exists and get its current state
-        let current_conn = {
             let memory = self.memory.read().await;
-            memory.connections.get(conn_id)
-        };
-
-        let conn = match current_conn {
-            Some(c) => c,
-            None => {
-                log::warn!("Connection {} not found for deletion", conn_id);
+            if let Some(existing) = memory.connections.get(conn_id) {
+                if existing.get_deleted() {
+                    log::info!("Connection {} already marked as deleted, skipping", conn_id);
+                    return Ok(OperationStatus::NotModified(*conn_id));
+                }
+            } else {
+                log::warn!("Connection {} not found in memory", conn_id);
                 return Ok(OperationStatus::NotFound(*conn_id));
             }
-        };
-
-        // Check if already deleted
-        if conn.get_deleted() {
-            return Ok(OperationStatus::NotModified(*conn_id));
         }
 
-        // Delete from database first
         if let Err(e) = self.db.conn().delete(conn_id).await {
             log::error!(
-                "Failed to delete connection {} from database: {}",
+                "CRITICAL: Failed to delete connection {} from DB: {}",
                 conn_id,
                 e
             );
             return Err(SyncError::Database(e));
         }
+        log::debug!("Connection {} successfully removed from database", conn_id);
 
-        // Mark as deleted in memory
+        let msg = vec![conn.as_delete_message(conn_id)];
+        let key = if let Some(node_id) = conn.get_wireguard_node_id() {
+            node_id.to_string()
+        } else if conn.get_token().is_some() {
+            "auth".to_string()
+        } else {
+            conn.get_env()
+        };
+
+        match rkyv::to_bytes::<_, 1024>(&msg) {
+            Ok(bytes) => {
+                log::info!("Publishing delete command to agent/node: {}", key);
+                if let Err(e) = self.publisher.send_binary(&key, bytes.as_ref()).await {
+                    log::error!(
+                        "NETWORK ERROR: Failed to send delete signal for {} to bus: {:?}",
+                        conn_id,
+                        e
+                    );
+
+                    return Err(SyncError::Zmq(e));
+                }
+            }
+            Err(e) => {
+                log::error!("SERIALIZATION ERROR for connection {}: {:?}", conn_id, e);
+                return Err(SyncError::RkyvSerialize(e));
+            }
+        }
+
         {
             let mut memory = self.memory.write().await;
             if let Some(conn_mut) = memory.connections.get_mut(conn_id) {
                 conn_mut.set_deleted(true);
                 conn_mut.set_modified_at();
+                log::info!(
+                    "Memory state updated: connection {} marked as deleted",
+                    conn_id
+                );
             }
         }
 
-        log::info!("Successfully deleted connection: {}", conn_id);
+        log::info!("Successfully completed deletion flow for: {}", conn_id);
         Ok(OperationStatus::Ok(*conn_id))
     }
 
@@ -364,7 +377,7 @@ where
         let tasks = conns_to_restore.into_iter().map(|(conn_id, conn)| {
             let this = this.clone();
             async move {
-                let msg = conn.as_update_message(&conn_id);
+                let msg = vec![conn.as_update_message(&conn_id)];
 
                 let bytes = match rkyv::to_bytes::<_, 1024>(&msg) {
                     Ok(b) => b,
@@ -376,6 +389,8 @@ where
 
                 let key = if let Some(node_id) = conn.get_wireguard_node_id() {
                     node_id.to_string()
+                } else if conn.get_token().is_some() {
+                    "auth".to_string()
                 } else {
                     conn.get_env()
                 };

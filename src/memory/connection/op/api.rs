@@ -37,7 +37,7 @@ impl Operations for Conn {
         };
 
         let tag = self.proto.proto();
-        let expires_at = self.expired_at;
+        let expires_at = self.expires_at;
 
         let token = match &self.proto {
             Proto::Hysteria2 { token } => Some(*token),
@@ -70,7 +70,7 @@ impl Operations for Conn {
         };
 
         let tag = self.proto.proto();
-        let expires_at = self.expired_at;
+        let expires_at = self.expires_at;
 
         let wg = match &self.proto {
             Proto::Wireguard { param, .. } => Some(param.clone()),
@@ -103,7 +103,7 @@ impl Operations for Conn {
         };
 
         let tag = self.proto.proto();
-        let expires_at = self.expired_at;
+        let expires_at = self.expires_at;
 
         let wg = match &self.proto {
             Proto::Wireguard { param, .. } => Some(param.clone()),

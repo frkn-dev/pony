@@ -197,10 +197,10 @@ where
             }
         }
 
-        // expired_at
-        if let Some(exp) = patch.expired_at {
-            if conn.get_expired_at() != Some(exp) {
-                conn.set_expired_at(Some(exp));
+        // expires_at
+        if let Some(exp) = patch.expires_at {
+            if conn.get_expires_at() != Some(exp) {
+                conn.set_expires_at(Some(exp));
                 changed = true;
             }
         }

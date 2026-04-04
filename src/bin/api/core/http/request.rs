@@ -90,17 +90,11 @@ impl ConnCreateRequest {
         if !self.proto.is_wireguard() && self.node_id.is_some() {
             return Err("node_id only allowed for Wireguard".into());
         }
-        if self.proto.is_shadowsocks() && self.password.is_none() {
-            return Err("Password required for Shadowsocks".into());
-        }
         if !self.proto.is_shadowsocks() && self.password.is_some() {
             return Err("Password only allowed for Shadowsocks".into());
         }
         if !self.proto.is_hysteria2() && self.token.is_some() {
             return Err("Token only allowed for Hysteria2".into());
-        }
-        if self.proto.is_hysteria2() && self.token.is_none() {
-            return Err("Token required for Hysteria2".into());
         }
 
         Ok(())

@@ -86,6 +86,10 @@ where
             .map(|(conn_id, conn)| conn.as_create_message(conn_id))
             .collect();
 
+        if messages.is_empty() {
+            return Ok(http::not_modified(""));
+        }
+
         let bytes = to_bytes::<_, 1024>(&messages).map_err(|e| {
             log::error!("Serialization error: {}", e);
             warp::reject::custom(MyRejection(Box::new(e)))
@@ -154,8 +158,24 @@ where
 
     let mem = memory.memory.read().await;
     if let Some(sub_id) = conn_req.subscription_id {
-        if mem.subscriptions.find_by_id(&sub_id).is_none() {
+        let sub = mem.subscriptions.find_by_id(&sub_id);
+
+        if sub.is_none() {
             return Ok(http::bad_request(&format!(
+                "Subscription {} not found",
+                sub_id
+            )));
+        }
+
+        if let Some(sub) = mem.subscriptions.find_by_id(&sub_id) {
+            if !sub.is_active() {
+                return Ok(http::bad_request(&format!(
+                    "Subscription is not active {} ",
+                    sub_id
+                )));
+            }
+        } else {
+            return Ok(http::not_found(&format!(
                 "Subscription {} not found",
                 sub_id
             )));
@@ -297,17 +317,27 @@ where
                 node_id,
             }
         }
-        ProtoTag::Shadowsocks => Proto::Shadowsocks {
-            password: conn_req.password.unwrap(),
-        },
+        ProtoTag::Shadowsocks => {
+            let password = if let Some(password) = conn_req.password {
+                password
+            } else {
+                utils::generate_random_password(15)
+            };
+            Proto::Shadowsocks { password }
+        }
         ProtoTag::VlessTcpReality
         | ProtoTag::VlessGrpcReality
         | ProtoTag::VlessXhttpReality
         | ProtoTag::Vmess => Proto::Xray(conn_req.proto),
-        ProtoTag::Hysteria2 => Proto::Hysteria2 {
-            token: conn_req.token.unwrap(),
-        },
-        ProtoTag::Mtproto => unreachable!("Mtproto handled earlier"),
+        ProtoTag::Hysteria2 => {
+            let token = if let Some(token) = conn_req.token {
+                token
+            } else {
+                uuid::Uuid::new_v4()
+            };
+            Proto::Hysteria2 { token }
+        }
+        ProtoTag::Mtproto => unreachable!("Mtproto doesn't support connections and auth provider"),
     };
 
     drop(mem);
@@ -325,7 +355,7 @@ where
     let msg = conn.as_create_message(&conn_id);
 
     let messages = vec![msg];
-    
+
     match SyncOp::add_conn(&memory, &conn_id, conn.clone()).await {
         Ok(StorageOperationStatus::Ok(id)) => {
             let bytes = match rkyv::to_bytes::<_, 1024>(&messages) {
@@ -341,7 +371,7 @@ where
                 node_id.to_string()
             } else if let Some(_token) = conn.get_token() {
                 // Hysteria2 uses external auth provided which handles all envs
-                "all".to_string()
+                "auth".to_string()
             } else {
                 conn.get_env()
             };

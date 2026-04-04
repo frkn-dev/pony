@@ -6,3 +6,4 @@ dev/config-api.toml
 dev/config-auth.toml
 target
 snapshots/*.bin
+dev/data/*

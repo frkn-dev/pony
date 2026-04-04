@@ -17,7 +17,7 @@ pub struct Base {
     pub stat: ConnectionStat,
     pub created_at: DateTime<Utc>,
     pub modified_at: DateTime<Utc>,
-    pub expired_at: Option<DateTime<Utc>>,
+    pub expires_at: Option<DateTime<Utc>>,
     pub proto: Proto,
     pub subscription_id: Option<uuid::Uuid>,
     pub is_deleted: bool,
@@ -26,7 +26,7 @@ pub struct Base {
 impl Base {
     pub fn new(
         proto: Proto,
-        expired_at: Option<DateTime<Utc>>,
+        expires_at: Option<DateTime<Utc>>,
         sub_id: Option<uuid::Uuid>,
     ) -> Self {
         let now = Utc::now();
@@ -35,7 +35,7 @@ impl Base {
             stat: ConnectionStat::default(),
             created_at: now,
             modified_at: now,
-            expired_at,
+            expires_at,
             subscription_id: sub_id,
             proto,
             is_deleted: false,
@@ -54,7 +54,7 @@ impl From<Conn> for Base {
             stat: conn_stat,
             created_at: conn.created_at,
             modified_at: conn.modified_at,
-            expired_at: conn.expired_at,
+            expires_at: conn.expires_at,
             proto: conn.proto,
             subscription_id: conn.subscription_id,
             is_deleted: conn.is_deleted,
@@ -73,7 +73,7 @@ impl From<&Conn> for Base {
             stat: conn_stat,
             created_at: conn.created_at,
             modified_at: conn.modified_at,
-            expired_at: conn.expired_at,
+            expires_at: conn.expires_at,
             proto: conn.proto.clone(),
             subscription_id: conn.subscription_id,
             is_deleted: conn.is_deleted,
@@ -88,7 +88,7 @@ impl fmt::Display for Base {
         writeln!(f, " conn stat: {}", self.stat)?;
         writeln!(f, "  created_at: {},", self.created_at)?;
         writeln!(f, "  modified_at: {},", self.modified_at)?;
-        writeln!(f, "  expired_at: {:?},", self.expired_at)?;
+        writeln!(f, "  expires_at: {:?},", self.expires_at)?;
         writeln!(f, "  proto: {:?},", self.proto)?;
         writeln!(
             f,

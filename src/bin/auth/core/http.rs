@@ -54,6 +54,7 @@ where
         };
 
         let id = node.uuid;
+        let env = node.env;
 
         let conn_type_param = ConnTypeParam {
             proto,

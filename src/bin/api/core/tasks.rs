@@ -11,7 +11,6 @@ use pony::memory::node::Node;
 use pony::memory::node::Status as NodeStatus;
 use pony::utils::measure_time;
 use pony::Connection;
-use pony::ConnectionApiOp;
 use pony::ConnectionBaseOp;
 use pony::ConnectionStat;
 use pony::ConnectionStorageApiOp;
@@ -56,8 +55,8 @@ impl Tasks for Api<HashMap<String, Vec<Node>>, Connection, Subscription> {
                     .connections
                     .iter()
                     .filter_map(|(id, conn)| {
-                        if let Some(expired_at) = conn.get_expired_at() {
-                            if expired_at <= now && !conn.get_deleted() {
+                        if let Some(expires_at) = conn.get_expires_at() {
+                            if expires_at <= now && !conn.get_deleted() {
                                 Some((*id, conn.clone()))
                             } else {
                                 None
@@ -73,30 +72,6 @@ impl Tasks for Api<HashMap<String, Vec<Node>>, Connection, Subscription> {
                 match SyncOp::delete_connection(&self.sync, &conn_id, &conn).await {
                     Ok(StorageOperationStatus::Ok(_)) => {
                         log::info!("Expired connection {} deleted", conn_id);
-
-                        if let Some(conn) = self.sync.memory.read().await.connections.get(&conn_id)
-                        {
-                            let msg = conn.as_delete_message(&conn_id);
-                            let bytes = match rkyv::to_bytes::<_, 1024>(&msg) {
-                                Ok(b) => b,
-                                Err(e) => {
-                                    log::error!(
-                                        "Serialization error for DELETE {}: {}",
-                                        conn_id,
-                                        e
-                                    );
-                                    continue;
-                                }
-                            };
-
-                            let key = if let Some(node_id) = conn.get_wireguard_node_id() {
-                                node_id.to_string()
-                            } else {
-                                conn.get_env()
-                            };
-
-                            let _ = self.sync.publisher.send_binary(&key, bytes.as_ref()).await;
-                        }
                     }
                     Ok(status) => {
                         log::warn!("Connection {} could not be deleted: {:?}", conn_id, status);
@@ -167,7 +142,7 @@ impl Tasks for Api<HashMap<String, Vec<Node>>, Connection, Subscription> {
             interval.tick().await;
             log::debug!("Run restore subscriptions task");
 
-            let actibe_subs: Vec<uuid::Uuid> = {
+            let active_subs: Vec<uuid::Uuid> = {
                 let mem = self.sync.memory.read().await;
                 mem.subscriptions
                     .iter()
@@ -175,7 +150,7 @@ impl Tasks for Api<HashMap<String, Vec<Node>>, Connection, Subscription> {
                     .collect()
             };
 
-            for sub_id in actibe_subs {
+            for sub_id in active_subs {
                 match SyncOp::restore_connections_by_subscription(&self.sync, &sub_id).await {
                     Ok(restored) => {
                         if !restored.is_empty() {

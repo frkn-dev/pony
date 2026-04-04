@@ -1,22 +1,55 @@
 
+
 CREATE TYPE node_status AS ENUM ('online', 'offline');
-CREATE TYPE conn_status AS ENUM ('active', 'expired');
-CREATE TYPE proto AS ENUM ('vless_grpc', 'vless_xtls', 'vmess', 'shadowsocks');
+CREATE TYPE proto AS ENUM (
+'vless_tcp_reality',
+'vless_grpc_reality',
+'vless_xhttp_reality',
+'vmess',
+'shadowsocks',
+'wireguard',
+'hysteria2',
+'mtproto'
+);
+
+CREATE TABLE subscriptions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    referred_by VARCHAR(13),
+    refer_code CHAR(13),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+    expires_at TIMESTAMP WITH TIME ZONE ,
+    is_deleted BOOL NOT NULL DEFAULT false
+);
+
+INSERT INTO subscriptions (refer_code, expires_at)
+VALUES
+('TEST', now() + interval '7 days');
+
+CREATE INDEX idx_subscriptions_expires_at ON subscriptions(expires_at);
+CREATE INDEX idx_subscriptions_referred_by ON subscriptions(referred_by);
+CREATE INDEX idx_subscriptions_refcode ON subscriptions(refer_code);
+
+
 
 CREATE TABLE connections (
     id UUID PRIMARY KEY,
-    user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+    proto proto NOT NULL,
+    subscription_id UUID REFERENCES subscriptions(id) ON DELETE CASCADE,
     env TEXT NOT NULL,
-    created_at TIMESTAMP DEFAULT NOW(),
-    modified_at TIMESTAMP DEFAULT NOW(),
-    daily_limit_mb INTEGER DEFAULT 1000,
-    password TEXT NOT NULL,
-    is_trial bool NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    modified_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    expires_at TIMESTAMP WITH TIME ZONE,
     online BIGINT NOT NULL DEFAULT 0,
     uplink BIGINT NOT NULL DEFAULT 0,
     downlink BIGINT NOT NULL DEFAULT 0,
-    status conn_status NOT NULL,
-    proto proto NOT NULL
+    wg_privkey TEXT,
+    wg_pubkey TEXT,
+    wg_address TEXT,
+    password TEXT,
+    token UUID DEFAULT NULL,
+    node_id UUID,
+    is_deleted BOOL NOT NULL DEFAULT false
 );
 
 
@@ -27,34 +60,14 @@ CREATE TABLE nodes (
     address INET NOT NULL,
     status node_status NOT NULL,
     uuid UUID NOT NULL,
-    inbounds JSONB NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     modified_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     label TEXT NOT NULL,
     interface TEXT NOT NULL,
+    cores INTEGER NOT NULL DEFAULT 1,
+    max_bandwidth_bps BIGINT NOT NULL DEFAULT 100000000,
     UNIQUE(uuid, env)
 );
-
-
-
-
-ALTER TABLE users
-    ADD COLUMN telegram_id BIGINT;
-
-ALTER TABLE users
-    ADD COLUMN env TEXT NOT NULL DEFAULT 'dev';
-
-ALTER TABLE users
-    ADD COLUMN daily_limit_mb INTEGER NOT NULL DEFAULT 1024;
-
-ALTER TABLE users
-    ADD COLUMN password TEXT;
-
-ALTER TABLE users
-    ADD COLUMN is_deleted BOOL NOT NULL DEFAULT false;
-
-ALTER TABLE connections
-    ADD COLUMN is_deleted BOOL NOT NULL DEFAULT false;
 
 
 CREATE TABLE inbounds (
@@ -62,172 +75,52 @@ CREATE TABLE inbounds (
     node_id UUID NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
     tag PROTO NOT NULL,
     port INTEGER NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    modified_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     stream_settings JSONB,
     uplink BIGINT,
     downlink BIGINT,
     conn_count BIGINT,
+    dns INET[],
     wg_pubkey TEXT,
     wg_privkey TEXT,
     wg_interface TEXT,
     wg_network TEXT,
-    wg_address TEXT
+    wg_address TEXT,
+    h2 JSONB,
+    mtproto_secret TEXT DEFAULT NULL
 );
-
-
-ALTER TYPE proto ADD VALUE 'wireguard';
-
-ALTER TABLE connections
-ADD COLUMN wg_privkey TEXT,
-ADD COLUMN wg_pubkey TEXT,
-ADD COLUMN wg_address TEXT,
-ADD COLUMN node_id UUID;
-
-ALTER TABLE nodes DROP COLUMN inbounds;
-
-ALTER TABLE connections
-ALTER COLUMN password DROP NOT NULL;
-
-ALTER TABLE inbounds ADD COLUMN dns INET[];
-
-ALTER TABLE connections DROP CONSTRAINT connections_user_id_fkey;
-
-ALTER TABLE inbounds ADD COLUMN created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW();
-ALTER TABLE inbounds ADD COLUMN modified_at TIMESTAMP WITH TIME ZONE DEFAULT NOW();
 
 CREATE UNIQUE INDEX inbounds_node_id_tag_key
 ON inbounds (node_id, tag);
 
-ALTER TABLE nodes ADD COLUMN cores INTEGER NOT NULL DEFAULT 1;
-ALTER TABLE nodes ADD COLUMN max_bandwidth_bps BIGINT NOT NULL DEFAULT 100000000;
 
-ALTER TABLE connections
-DROP COLUMN is_trial,
-DROP COLUMN daily_limit_mb,
-DROP COLUMN status;
-
-
-
-CREATE TYPE proto_new AS ENUM (
-    'vless_tcp_reality',
-    'vless_grpc_reality',
-    'vless_xhttp_reality',
-    'vmess',
-    'shadowsocks',
-    'wireguard'
-);
-
-
-ALTER TABLE connections
-ALTER COLUMN proto TYPE proto_new
-USING CASE proto::text
-    WHEN 'vless_grpc' THEN 'vless_grpc_reality'::proto_new
-    WHEN 'vless_xtls' THEN 'vless_tcp_reality'::proto_new
-    WHEN 'vmess' THEN 'vmess'::proto_new
-    WHEN 'shadowsocks' THEN 'shadowsocks'::proto_new
-    ELSE 'vmess'::proto_new
-END;
-
-ALTER TABLE inbounds
-ALTER COLUMN tag TYPE proto_new
-USING CASE tag::text
-    WHEN 'vless_grpc' THEN 'vless_grpc_reality'::proto_new
-    WHEN 'vless_xtls' THEN 'vless_tcp_reality'::proto_new
-    WHEN 'vmess' THEN 'vmess'::proto_new
-    WHEN 'shadowsocks' THEN 'shadowsocks'::proto_new
-    ELSE 'vmess'::proto_new
-END;
-
-DROP TYPE proto CASCADE;
-ALTER TYPE proto_new RENAME TO proto;
-SELECT DISTINCT proto FROM connections;
-
-CREATE UNIQUE INDEX IF NOT EXISTS inbounds_node_tag_unique
-ON inbounds (node_id, tag);
-
-
-ALTER TABLE connections
-ADD COLUMN expired_at TIMESTAMP WITH TIME ZONE;
-
-ALTER TABLE connections
-ADD COLUMN expired_at TIMESTAMP WITH TIME ZONE;
-
-===
-
-
-ALTER TABLE connections RENAME COLUMN user_id TO subscription_id;
-
-CREATE TABLE subscriptions (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    expires_at TIMESTAMP WITH TIME ZONE ,
-    referred_by CHAR(13),
-
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
-    is_deleted BOOL NOT NULL DEFAULT false
-);
-
-CREATE INDEX idx_subscriptions_expires_at ON subscriptions(expires_at);
-CREATE INDEX idx_subscriptions_referred_by ON subscriptions(referred_by);
-
-
-ALTER TABLE subscriptions
-ADD COLUMN refer_code CHAR(13);
-
-CREATE INDEX idx_subscriptions_refcode ON subscriptions(refer_code);
-
-UPDATE subscriptions
-SET refer_code = split_part(id::text, '-', 5)
-WHERE refer_code IS NULL;
-
-ALTER TABLE subscriptions
-ADD COLUMN bonus_days INTEGER DEFAULT NULL;
-
-ALTER TABLE subscriptions
-ALTER COLUMN refer_code SET NOT NULL;
-
-ALTER TABLE subscriptions
-ADD CONSTRAINT subscriptions_refer_code_unique UNIQUE (refer_code);
-
-
-ALTER TYPE proto ADD VALUE 'hysteria2';
-
-ALTER TABLE connections ADD COLUMN token UUID DEFAULT NULL;
-
-ALTER TABLE inbounds ADD COLUMN h2 JSONB DEFAULT NULL;
-
-ALTER TABLE inbounds ADD COLUMN mtproto_secret TEXT DEFAULT NULL;
-
-ALTER TYPE proto ADD VALUE 'mtproto';
-
-
-
-
-====
 
 CREATE TABLE keys (
     id UUID PRIMARY KEY,
     code TEXT NOT NULL UNIQUE,
     activated BOOLEAN DEFAULT false,
-    days INT DEFAULT 0,
+    days SMALLINT,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     modified_at TIMESTAMPTZ DEFAULT NOW(),
     subscription_id UUID DEFAULT NULL,
     distributor VARCHAR(4) NOT NULL DEFAULT 'FRKN'
 );
 
-
 CREATE INDEX idx_keys_code ON keys(code);
 
-ALTER TABLE keys
-ALTER COLUMN days TYPE SMALLINT USING days::SMALLINT;
 
 
-ALTER TABLE subscriptions
-  ALTER COLUMN referred_by TYPE VARCHAR(13);
 
-  ===
+====
 
-  ALTER TABLE connections
-  ALTER COLUMN created_at TYPE timestamptz USING created_at AT TIME ZONE 'UTC',
-  ALTER COLUMN modified_at TYPE timestamptz USING modified_at AT TIME ZONE 'UTC',
-  ALTER COLUMN expired_at TYPE timestamptz USING expired_at AT TIME ZONE 'UTC';
+
+DROP TABLE connections;
+DROP TABLE nodes;
+DROP TABLE inbounds;
+DROP TABLE subscriptions;
+DROP TABLE keys;
+
+
+DROP TYPE node_status;
+DROP TYPE proto;

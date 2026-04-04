@@ -79,6 +79,19 @@ pub enum SyncError {
     #[error("Validation failed: {0}")]
     Validation(String),
 
+    #[error(transparent)]
+    Zmq(#[from] zmq::Error),
+
+    #[error(transparent)]
+    RkyvSerialize(
+        #[from]
+        rkyv::ser::serializers::CompositeSerializerError<
+            std::convert::Infallible,
+            rkyv::ser::serializers::AllocScratchError,
+            rkyv::ser::serializers::SharedSerializeMapError,
+        >,
+    ),
+
     #[error("Inconsistent state between database and memory for {resource} {id}")]
     InconsistentState { resource: String, id: uuid::Uuid },
 

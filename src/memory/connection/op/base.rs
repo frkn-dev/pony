@@ -23,8 +23,8 @@ pub trait Operations {
     fn get_modified_at(&self) -> DateTime<Utc>;
     fn set_modified_at(&mut self);
 
-    fn get_expired_at(&self) -> Option<DateTime<Utc>>;
-    fn set_expired_at(&mut self, dt: Option<DateTime<Utc>>);
+    fn get_expires_at(&self) -> Option<DateTime<Utc>>;
+    fn set_expires_at(&mut self, dt: Option<DateTime<Utc>>);
 
     fn set_proto(&mut self, proto: Proto);
     fn get_proto(&self) -> Proto;
@@ -76,12 +76,12 @@ impl Operations for Base {
         self.modified_at = Utc::now();
     }
 
-    fn get_expired_at(&self) -> Option<DateTime<Utc>> {
-        self.expired_at
+    fn get_expires_at(&self) -> Option<DateTime<Utc>> {
+        self.expires_at
     }
 
-    fn set_expired_at(&mut self, dt: Option<DateTime<Utc>>) {
-        self.expired_at = dt;
+    fn set_expires_at(&mut self, dt: Option<DateTime<Utc>>) {
+        self.expires_at = dt;
     }
 
     fn set_proto(&mut self, proto: Proto) {
@@ -182,12 +182,12 @@ impl Operations for Conn {
         self.modified_at = Utc::now();
     }
 
-    fn get_expired_at(&self) -> Option<DateTime<Utc>> {
-        self.expired_at
+    fn get_expires_at(&self) -> Option<DateTime<Utc>> {
+        self.expires_at
     }
 
-    fn set_expired_at(&mut self, dt: Option<DateTime<Utc>>) {
-        self.expired_at = dt;
+    fn set_expires_at(&mut self, dt: Option<DateTime<Utc>>) {
+        self.expires_at = dt;
     }
 
     fn set_proto(&mut self, proto: Proto) {

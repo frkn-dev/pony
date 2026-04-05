@@ -1,11 +1,11 @@
 use std::collections::hash_map::Entry;
 
-use super::super::cache::Connections;
 use super::super::connection::conn::Conn as Connection;
 use super::super::connection::conn::ConnPatch as ConnectionPatch;
 use super::super::connection::op::api::Operations as ConnectionApiOp;
 use super::super::connection::op::base::Operations as ConnectionBaseOp;
 use super::super::connection::stat::Stat as ConnectionStat;
+use super::super::connection::Connections;
 use super::super::stat::Kind as StatKind;
 use super::super::storage::Status as OperationStatus;
 use super::super::tag::ProtoTag as Tag;

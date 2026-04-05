@@ -9,8 +9,6 @@ use pony::Action;
 use pony::BaseConnection as Connection;
 use pony::ConnectionBaseOp;
 use pony::Message;
-use pony::NodeStorageOp;
-use pony::SubscriptionOp;
 use pony::Topic;
 use pony::{PonyError, Result};
 
@@ -25,11 +23,9 @@ pub trait Tasks {
 }
 
 #[async_trait]
-impl<T, C, S> Tasks for AuthService<T, C, S>
+impl<C> Tasks for AuthService<C>
 where
-    T: NodeStorageOp + Send + Sync + Clone,
     C: ConnectionBaseOp + Send + Sync + Clone + 'static + From<Connection>,
-    S: SubscriptionOp + Send + Sync + Clone + 'static + std::cmp::PartialEq,
 {
     async fn run_subscriber(&self) -> Result<()> {
         let sub = self.subscriber.clone();
@@ -116,15 +112,9 @@ where
                             msg.expires_at.map(Into::into),
                             msg.subscription_id,
                         );
-                        mem.connections
-                            .add(&conn_id, conn.into())
-                            .map(|_| ())
-                            .map_err(|err| {
-                                PonyError::Custom(format!(
-                                    "Failed to add conn {}: {}",
-                                    conn_id, err
-                                ))
-                            })
+                        mem.add(&conn_id, conn.into()).map(|_| ()).map_err(|err| {
+                            PonyError::Custom(format!("Failed to add conn {}: {}", conn_id, err))
+                        })
                     } else {
                         log::debug!("Skipped message {:?}", msg);
                         Ok(())
@@ -132,7 +122,7 @@ where
                 }
 
                 Action::Delete => {
-                    let _ = mem.connections.remove(&conn_id);
+                    let _ = mem.remove(&conn_id);
                     Ok(())
                 }
 

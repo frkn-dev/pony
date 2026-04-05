@@ -14,8 +14,6 @@ use pony::BaseConnection as Connection;
 use pony::ConnectionBaseOp;
 use pony::ConnectionStorageBaseOp;
 use pony::Message;
-use pony::NodeStorageOp;
-use pony::SubscriptionOp;
 use pony::Tag;
 use pony::Topic;
 use pony::{PonyError, Result};
@@ -32,11 +30,9 @@ pub trait Tasks {
 }
 
 #[async_trait]
-impl<T, C, S> Tasks for Agent<T, C, S>
+impl<C> Tasks for Agent<C>
 where
-    T: NodeStorageOp + Send + Sync + Clone,
     C: ConnectionBaseOp + Send + Sync + Clone + 'static + From<Connection>,
-    S: SubscriptionOp + Send + Sync + Clone + 'static + std::cmp::PartialEq,
 {
     async fn run_subscriber(&self) -> Result<()> {
         let sub = self.subscriber.clone();
@@ -118,13 +114,7 @@ where
                             .clone()
                             .ok_or_else(|| PonyError::Custom("Missing WireGuard keys".into()))?;
 
-                        let node_id = {
-                            let mem = self.memory.read().await;
-                            let node = mem.nodes.get_self();
-                            node.map(|n| n.uuid).ok_or_else(|| {
-                                PonyError::Custom("Current node UUID not found".to_string())
-                            })?
-                        };
+                        let node_id = self.node.uuid;
                         let proto = Proto::new_wg(&wg, &node_id);
 
                         let conn = Connection::new(
@@ -135,8 +125,7 @@ where
 
                         {
                             let mut mem = self.memory.write().await;
-                            mem.connections
-                                .add(&conn_id.clone(), conn.clone().into())
+                            mem.add(&conn_id.clone(), conn.clone().into())
                                 .map_err(|err| {
                                     PonyError::Custom(format!(
                                         "Failed to add WireGuard conn {}: {}",
@@ -195,14 +184,9 @@ where
                             })?;
 
                         let mut mem = self.memory.write().await;
-                        mem.connections
-                            .add(&conn_id.clone(), conn.into())
-                            .map_err(|err| {
-                                PonyError::Custom(format!(
-                                    "Failed to add conn {}: {}",
-                                    conn_id, err
-                                ))
-                            })?;
+                        mem.add(&conn_id.clone(), conn.into()).map_err(|err| {
+                            PonyError::Custom(format!("Failed to add conn {}: {}", conn_id, err))
+                        })?;
 
                         return Ok(());
                     }
@@ -232,14 +216,12 @@ where
                                 })?;
 
                             let mut mem = self.memory.write().await;
-                            mem.connections
-                                .add(&conn_id.clone(), conn.into())
-                                .map_err(|err| {
-                                    PonyError::Custom(format!(
-                                        "Failed to add conn {}: {}",
-                                        conn_id, err
-                                    ))
-                                })?;
+                            mem.add(&conn_id.clone(), conn.into()).map_err(|err| {
+                                PonyError::Custom(format!(
+                                    "Failed to add conn {}: {}",
+                                    conn_id, err
+                                ))
+                            })?;
 
                             return Ok(());
                         } else {
@@ -275,7 +257,7 @@ where
                         })?;
 
                         let mut mem = self.memory.write().await;
-                        let _ = mem.connections.remove(&conn_id);
+                        let _ = mem.remove(&conn_id);
 
                         return Ok(());
                     }
@@ -301,7 +283,7 @@ where
                             })?;
 
                         let mut mem = self.memory.write().await;
-                        let _ = mem.connections.remove(&conn_id);
+                        let _ = mem.remove(&conn_id);
 
                         return Ok(());
                     }

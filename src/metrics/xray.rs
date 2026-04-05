@@ -1,6 +1,6 @@
 use super::{AsMetric, Metric, MetricType};
-use crate::memory::cache::Connections;
 use crate::memory::connection::op::base::Operations as ConnectionBaseOp;
+use crate::memory::connection::Connections;
 use crate::memory::node::Node;
 use crate::memory::{connection::stat::Stat as ConnectionStat, node::Stat as InboundStat};
 use crate::utils::current_timestamp;

@@ -11,9 +11,8 @@ use tokio::sync::RwLock;
 
 use crate::error::Result;
 
-use super::cache::Cache;
-use super::cache::Connections;
 use super::connection::conn::Conn;
+use super::connection::Connections;
 
 #[derive(Archive, Deserialize, Serialize, SerdeDeserialize, SerdeSerialize, Debug, Clone)]
 #[archive(check_bytes)]
@@ -26,24 +25,21 @@ where
     pub version: u32,
 }
 
-pub struct SnapshotManager<N, C, S>
+pub struct SnapshotManager<C>
 where
     C: Archive + Send + Sync + Clone + 'static,
-    N: Send + Sync + Clone + 'static,
-    S: Send + Sync + Clone + 'static,
 {
     pub snapshot_path: String,
-    pub memory: Arc<RwLock<Cache<N, C, S>>>,
+    pub memory: Arc<RwLock<C>>,
 }
 
-impl<N, C, S> Clone for SnapshotManager<N, C, S>
+impl<C> Clone for SnapshotManager<C>
 where
     C: Archive
         + Send
         + Sync
         + Clone
         + 'static
-        + std::convert::From<Conn>
         + rkyv::Serialize<
             rkyv::ser::serializers::CompositeSerializer<
                 rkyv::ser::serializers::AlignedSerializer<rkyv::AlignedVec>,
@@ -54,8 +50,6 @@ where
                 rkyv::ser::serializers::SharedSerializeMap,
             >,
         >,
-    N: Send + Sync + Clone,
-    S: Send + Sync + Clone + 'static,
 {
     fn clone(&self) -> Self {
         SnapshotManager {
@@ -65,7 +59,7 @@ where
     }
 }
 
-impl<N, C, S> SnapshotManager<N, C, S>
+impl<C> SnapshotManager<Connections<C>>
 where
     C: Archive
         + Send
@@ -83,10 +77,8 @@ where
                 rkyv::ser::serializers::SharedSerializeMap,
             >,
         >,
-    N: Send + Sync + Clone + 'static,
-    S: Send + Sync + Clone + 'static,
 {
-    pub fn new(snapshot_path: String, memory: Arc<RwLock<Cache<N, C, S>>>) -> Self {
+    pub fn new(snapshot_path: String, memory: Arc<RwLock<Connections<C>>>) -> Self {
         Self {
             snapshot_path,
             memory,
@@ -95,12 +87,13 @@ where
 
     pub async fn create_snapshot(&self) -> Result<()> {
         let memory_guard = self.memory.read().await;
-        let connections = memory_guard.connections.clone();
+        let memory = memory_guard.clone();
+        let timestamp = Utc::now().timestamp() as u64;
         drop(memory_guard);
 
         let snapshot = SnapshotData {
-            timestamp: Utc::now().timestamp() as u64,
-            memory: connections,
+            timestamp,
+            memory,
             version: 1,
         };
 
@@ -127,7 +120,7 @@ where
         let snapshot: SnapshotData<C> = with.into_inner();
 
         let mut memory_guard = self.memory.write().await;
-        memory_guard.connections = snapshot.memory.clone();
+        memory_guard.0 = snapshot.memory.0.clone();
 
         Ok(Some(snapshot.timestamp))
     }
@@ -145,12 +138,12 @@ where
 
     pub async fn len(&self) -> usize {
         let mem = self.memory.read().await;
-        mem.connections.0.len()
+        mem.0.len()
     }
 
     pub async fn is_empty(&self) -> bool {
         let mem = self.memory.read().await;
-        mem.connections.0.len() == 0
+        mem.0.len() == 0
     }
 }
 

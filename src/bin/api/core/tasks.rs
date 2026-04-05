@@ -14,7 +14,6 @@ use pony::Connection;
 use pony::ConnectionBaseOp;
 use pony::ConnectionStat;
 use pony::ConnectionStorageApiOp;
-use pony::MemoryCache;
 use pony::NodeStorageOp;
 use pony::OperationStatus as StorageOperationStatus;
 use pony::PonyError;
@@ -26,6 +25,7 @@ use crate::core::clickhouse::query::Queries;
 use crate::core::postgres::Tasks as MemoryCacheTasks;
 use crate::core::sync::tasks::SyncOp;
 use crate::Api;
+use crate::Cache;
 
 #[async_trait]
 pub trait Tasks {
@@ -177,12 +177,7 @@ impl Tasks for Api<HashMap<String, Vec<Node>>, Connection, Subscription> {
             let interval_sec_with_jitter = base + Duration::from_secs(jitter);
             tokio::time::sleep(interval_sec_with_jitter).await;
 
-            if let Err(e) = measure_time(
-                self.get_state_from_db(),
-                format!("Periodic DB Sync: interval + jitter {interval_sec}, {jitter}"),
-            )
-            .await
-            {
+            if let Err(e) = measure_time(self.get_state_from_db(), "Periodic DB Sync").await {
                 log::error!("Periodic DB sync failed: {:?}", e);
             } else {
                 log::info!("Periodic DB sync completed successfully");
@@ -194,8 +189,7 @@ impl Tasks for Api<HashMap<String, Vec<Node>>, Connection, Subscription> {
         let db = self.sync.db.clone();
         let mut mem = self.sync.memory.write().await;
 
-        let mut tmp_mem: MemoryCache<HashMap<String, Vec<Node>>, Connection, Subscription> =
-            MemoryCache::new();
+        let mut tmp_mem: Cache<HashMap<String, Vec<Node>>, Connection, Subscription> = Cache::new();
 
         let node_repo = db.node();
         let conn_repo = db.conn();

@@ -3,8 +3,8 @@ use rand::thread_rng;
 use serde_json::json;
 use std::collections::HashMap;
 
-use super::super::cache::Connections;
 use super::super::connection::op::base::Operations as ConnectionBaseOp;
+use super::super::connection::Connections;
 use super::super::node::Node;
 use super::super::storage::Status as OperationStatus;
 use super::super::tag::ProtoTag as Tag;
@@ -19,7 +19,6 @@ pub trait Operations {
     fn get_by_env(&self, env: &str) -> Option<Vec<Node>>;
     fn get_by_id(&self, id: &uuid::Uuid) -> Option<Node>;
     fn get(&self, env: &str, uuid: &uuid::Uuid) -> Option<&Node>;
-    fn get_self(&self) -> Option<Node>;
     fn get_mut(&mut self, env: &str, uuid: &uuid::Uuid) -> Option<&mut Node>;
     fn update_node_uplink(
         &mut self,
@@ -50,96 +49,6 @@ pub trait Operations {
     ) -> Option<uuid::Uuid>
     where
         C: ConnectionBaseOp;
-}
-
-impl Operations for Node {
-    fn iter_nodes(&self) -> Box<dyn Iterator<Item = (&uuid::Uuid, &Node)> + '_> {
-        Box::new(std::iter::empty())
-    }
-    fn add(&mut self, _new_node: Node) -> Result<OperationStatus> {
-        Err(PonyError::Custom(
-            "Cannot add node to single Node instance".into(),
-        ))
-    }
-    fn get_by_env(&self, _env: &str) -> Option<Vec<Node>> {
-        Some(vec![self.clone()])
-    }
-    fn all(&self) -> Option<Vec<Node>> {
-        Some(vec![self.clone()])
-    }
-    fn all_json(&self) -> serde_json::Value {
-        serde_json::to_value(vec![self]).unwrap_or_else(|_| serde_json::json!([]))
-    }
-    fn get_self(&self) -> Option<Node> {
-        Some(self.clone())
-    }
-    fn get(&self, _env: &str, _uuid: &uuid::Uuid) -> Option<&Node> {
-        None
-    }
-
-    fn get_mut(&mut self, _env: &str, _uuid: &uuid::Uuid) -> Option<&mut Node> {
-        None
-    }
-
-    fn update_node_uplink(
-        &mut self,
-        tag: &Tag,
-        new_uplink: i64,
-        _env: &str,
-        node_id: &uuid::Uuid,
-    ) -> Result<()> {
-        if &self.uuid == node_id {
-            self.update_uplink(tag, new_uplink)?;
-            Ok(())
-        } else {
-            Err(PonyError::Custom("Node ID does not match".into()))
-        }
-    }
-
-    fn update_node_downlink(
-        &mut self,
-        tag: &Tag,
-        new_downlink: i64,
-        _env: &str,
-        node_id: &uuid::Uuid,
-    ) -> Result<()> {
-        if self.uuid == *node_id {
-            self.update_downlink(tag, new_downlink)?;
-            Ok(())
-        } else {
-            Err(PonyError::Custom("Node ID does not match".into()))
-        }
-    }
-
-    fn update_node_conn_count(
-        &mut self,
-        tag: &Tag,
-        conn_count: i64,
-        _env: &str,
-        node_id: &uuid::Uuid,
-    ) -> Result<()> {
-        if self.uuid == *node_id {
-            self.update_conn_count(tag, conn_count)?;
-            Ok(())
-        } else {
-            Err(PonyError::Custom("Node ID does not match".into()))
-        }
-    }
-    fn get_by_id(&self, _: &uuid::Uuid) -> std::option::Option<Node> {
-        None
-    }
-
-    fn select_least_loaded_node<C>(
-        &self,
-        _env: &str,
-        _proto: &Tag,
-        _connections: &Connections<C>,
-    ) -> Option<uuid::Uuid> {
-        Some(self.uuid)
-    }
-    fn clear(&mut self) -> Result<()> {
-        Err(PonyError::Custom("Cannot clear Node".to_string()))
-    }
 }
 
 impl Operations for HashMap<String, Vec<Node>> {
@@ -180,9 +89,6 @@ impl Operations for HashMap<String, Vec<Node>> {
         }
 
         Ok(OperationStatus::Ok(uuid))
-    }
-    fn get_self(&self) -> Option<Node> {
-        None
     }
     fn get(&self, env: &str, uuid: &uuid::Uuid) -> Option<&Node> {
         self.get(env)?.iter().find(|n| &n.uuid == uuid)

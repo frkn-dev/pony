@@ -16,19 +16,15 @@ use pony::xray_op::stats::Prefix;
 use pony::xray_op::stats::StatOp;
 use pony::ConnectionBaseOp;
 use pony::ConnectionStorageBaseOp;
-use pony::NodeStorageOp;
 use pony::Result as PonyResult;
-use pony::SubscriptionOp;
 use pony::Tag;
 
 use super::Agent;
 
 #[async_trait]
-impl<T, C, S> StatOp for Agent<T, C, S>
+impl<C> StatOp for Agent<C>
 where
-    T: NodeStorageOp + Send + Sync + Clone,
     C: ConnectionBaseOp + Send + Sync + Clone + 'static,
-    S: SubscriptionOp + Send + Sync + Clone + 'static + std::cmp::PartialEq,
 {
     async fn stat(
         &self,
@@ -255,40 +251,26 @@ where
     }
 }
 
-impl<T, C, S> Agent<T, C, S>
+impl<C> Agent<C>
 where
-    T: NodeStorageOp + Send + Sync + Clone,
     C: ConnectionBaseOp + Send + Sync + Clone + 'static,
-    S: Send + Sync + Clone + 'static + std::cmp::PartialEq + SubscriptionOp,
 {
     async fn collect_conn_stats(self: Arc<Self>, conn_id: uuid::Uuid) -> PonyResult<()> {
         let conn_stat = self.conn_stats(Prefix::ConnPrefix(conn_id)).await?;
         let mut mem = self.memory.write().await;
-        let _ = mem
-            .connections
-            .update_downlink(&conn_id, conn_stat.downlink);
-        let _ = mem.connections.update_uplink(&conn_id, conn_stat.uplink);
-        let _ = mem.connections.update_online(&conn_id, conn_stat.online);
+        let _ = mem.update_downlink(&conn_id, conn_stat.downlink);
+        let _ = mem.update_uplink(&conn_id, conn_stat.uplink);
+        let _ = mem.update_online(&conn_id, conn_stat.online);
         Ok(())
     }
 
-    async fn collect_inbound_stats(
-        self: Arc<Self>,
-        tag: Tag,
-        env: String,
-        node_uuid: uuid::Uuid,
-    ) -> PonyResult<()> {
+    async fn collect_inbound_stats(self: Arc<Self>, tag: Tag) -> PonyResult<()> {
         let inbound_stat = self.inbound_stats(Prefix::InboundPrefix(tag)).await?;
-        let mut mem = self.memory.write().await;
-        let _ = mem
-            .nodes
-            .update_node_downlink(&tag, inbound_stat.downlink, &env, &node_uuid);
-        let _ = mem
-            .nodes
-            .update_node_uplink(&tag, inbound_stat.uplink, &env, &node_uuid);
-        let _ = mem
-            .nodes
-            .update_node_conn_count(&tag, inbound_stat.conn_count, &env, &node_uuid);
+
+        let mut node = self.node.clone();
+        let _ = node.update_downlink(&tag, inbound_stat.downlink);
+        let _ = node.update_uplink(&tag, inbound_stat.uplink);
+        let _ = node.update_conn_count(&tag, inbound_stat.conn_count);
         Ok(())
     }
 
@@ -298,7 +280,7 @@ where
 
         let conn_ids = {
             let mem = self.memory.write().await;
-            mem.connections.keys().cloned().collect::<Vec<_>>()
+            mem.keys().cloned().collect::<Vec<_>>()
         };
 
         for conn_id in conn_ids {
@@ -310,21 +292,15 @@ where
             }));
         }
 
-        if let Some(node) = {
-            let mem = self.memory.read().await;
-            mem.nodes.get_self()
-        } {
-            let node_tags = node.inbounds.keys().cloned().collect::<Vec<_>>();
-            for tag in node_tags {
-                let agent = self.clone();
-                let env = node.env.clone();
-                let node_uuid = node.uuid;
-                tasks.push(tokio::spawn(async move {
-                    if let Err(e) = agent.collect_inbound_stats(tag, env, node_uuid).await {
-                        log::error!("Failed to collect stats for inbound {}: {}", tag.clone(), e);
-                    }
-                }));
-            }
+        let node = self.node.clone();
+        let node_tags = node.inbounds.keys().cloned().collect::<Vec<_>>();
+        for tag in node_tags {
+            let agent = self.clone();
+            tasks.push(tokio::spawn(async move {
+                if let Err(e) = agent.collect_inbound_stats(tag).await {
+                    log::error!("Failed to collect stats for inbound {}: {}", tag.clone(), e);
+                }
+            }));
         }
 
         let results = join_all(tasks).await;
@@ -350,8 +326,7 @@ where
 
         let conns = {
             let mem = self.memory.read().await;
-            mem.connections
-                .iter()
+            mem.iter()
                 .filter_map(|(id, conn)| {
                     if let Tag::Wireguard = conn.get_proto().proto() {
                         Some((*id, conn.clone()))
@@ -370,7 +345,7 @@ where
                     match wg_client.peer_stats(&wg.keys.pubkey.clone()) {
                         Ok((uplink, downlink)) => {
                             let mut mem = agent.memory.write().await;
-                            if let Some(existing) = mem.connections.get_mut(&conn_id) {
+                            if let Some(existing) = mem.get_mut(&conn_id) {
                                 existing.set_uplink(uplink);
                                 existing.set_downlink(downlink);
                             }

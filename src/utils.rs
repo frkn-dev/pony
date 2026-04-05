@@ -104,14 +104,14 @@ pub fn to_ipv4(ip: IpAddr) -> Option<Ipv4Addr> {
     }
 }
 
-pub async fn measure_time<T, F>(task: F, name: String) -> T
+pub async fn measure_time<T, F>(task: F, name: &str) -> T
 where
     F: std::future::Future<Output = T>,
 {
     let start_time = Instant::now();
     let result = task.await;
     let duration = start_time.elapsed();
-    log::info!("Task {} completed in {:?}", name, duration);
+    log::debug!("Task {} completed in {:?}", name, duration);
     result
 }
 

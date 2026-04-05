@@ -3,13 +3,12 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 
 use pony::memory::connection::wireguard::IpAddrMaskSerializable;
+use pony::memory::connection::Connections;
 use pony::memory::snapshot::SnapshotManager;
 use pony::wireguard_op::WgApi;
 use pony::xray_op::client::HandlerActions;
 use pony::xray_op::client::HandlerClient;
-use pony::Connection;
 use pony::ConnectionBaseOp as ConnOp;
-use pony::NodeStorageOp as NodeOp;
 use pony::Result;
 use pony::Tag;
 
@@ -23,11 +22,9 @@ pub trait SnapshotRestore {
 }
 
 #[async_trait::async_trait]
-impl<N, C, S> SnapshotRestore for SnapshotManager<N, C, S>
+impl<C> SnapshotRestore for SnapshotManager<Connections<C>>
 where
-    C: Archive + Send + Sync + Clone + 'static + ConnOp + From<Connection>,
-    N: Send + Sync + Clone + 'static + NodeOp,
-    S: Send + Sync + Clone + 'static,
+    C: Archive + Send + Sync + Clone + 'static + ConnOp,
 {
     async fn restore_connections(
         &self,
@@ -36,10 +33,16 @@ where
     ) -> Result<()> {
         let mem = self.memory.read().await;
 
-        for (conn_id, conn) in mem.connections.iter() {
-            let conn_id = *conn_id;
-            let conn = conn.clone();
-            let memory = self.memory.clone();
+        if mem.is_empty() {
+            return Err(pony::PonyError::Custom("Empty snapshot".into()));
+        }
+
+        let conns: Vec<(uuid::Uuid, C)> =
+            mem.iter().map(|(id, conn)| (*id, conn.clone())).collect();
+
+        drop(mem);
+
+        for (conn_id, conn) in conns {
             let wg_client = wg_client.clone();
             let xray_client = xray_client.clone();
 
@@ -47,24 +50,16 @@ where
                 match conn.get_proto().proto() {
                     Tag::Wireguard => {
                         if let Some(wg) = conn.get_wireguard() {
-                            let node_id = {
-                                let mem = memory.read().await;
-                                mem.nodes.get_self().map(|n| n.uuid)
-                            };
-
-                            if let Some(_node_id) = node_id {
-                                if let Some(api) = wg_client.as_ref() {
-                                    if let Err(e) = api.create(
-                                        &wg.keys.pubkey,
-                                        <IpAddrMaskSerializable as Clone>::clone(&wg.address)
-                                            .into(),
-                                    ) {
-                                        log::error!(
-                                            "Failed to restore WireGuard connection {}: {}",
-                                            conn_id,
-                                            e
-                                        );
-                                    }
+                            if let Some(api) = wg_client.as_ref() {
+                                if let Err(e) = api.create(
+                                    &wg.keys.pubkey,
+                                    <IpAddrMaskSerializable as Clone>::clone(&wg.address).into(),
+                                ) {
+                                    log::error!(
+                                        "Failed to restore WireGuard connection {}: {}",
+                                        conn_id,
+                                        e
+                                    );
                                 }
                             }
                         }

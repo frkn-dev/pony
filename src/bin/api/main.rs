@@ -1,5 +1,4 @@
 use fern::Dispatch;
-use std::net::Ipv4Addr;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio::time::sleep;
@@ -7,11 +6,9 @@ use tokio::time::Duration;
 
 use pony::config::settings::ApiSettings;
 use pony::config::settings::Settings;
-use pony::http::debug;
 use pony::metrics::Metrics;
 use pony::utils::*;
 use pony::zmq::publisher::Publisher as ZmqPublisher;
-use pony::MemoryCache;
 use pony::Result;
 
 use crate::core::clickhouse::ChContext;
@@ -21,6 +18,7 @@ use crate::core::sync::MemSync;
 use crate::core::tasks::Tasks;
 use crate::core::Api;
 use crate::core::ApiState;
+use crate::core::Cache;
 
 mod core;
 
@@ -55,8 +53,6 @@ async fn main() -> Result<()> {
         .apply()
         .unwrap();
 
-    let debug = settings.debug.enabled;
-
     let db = match PgContext::init(&settings.pg).await {
         Ok(db) => db,
         Err(err) => {
@@ -68,12 +64,12 @@ async fn main() -> Result<()> {
     let ch = ChContext::new(&settings.clickhouse.address);
     let publisher = ZmqPublisher::new(&settings.zmq.endpoint).await;
 
-    let mem: Arc<RwLock<ApiState>> = Arc::new(RwLock::new(MemoryCache::new()));
+    let mem: Arc<RwLock<ApiState>> = Arc::new(RwLock::new(Cache::new()));
     let mem_sync = MemSync::new(mem.clone(), db.clone(), publisher.clone());
 
     let api = Arc::new(Api::new(ch.clone(), mem_sync.clone(), settings.clone()));
 
-    measure_time(api.get_state_from_db(), "Init PG DB".to_string()).await?;
+    measure_time(api.get_state_from_db(), "Init PG DB").await?;
 
     let api_clone = api.clone();
     tokio::spawn(async move {
@@ -110,20 +106,6 @@ async fn main() -> Result<()> {
                 }
             }
         });
-    }
-
-    let token = settings.api.token.clone();
-    if debug {
-        let token = Arc::new(token);
-        tokio::spawn(debug::start_ws_server(
-            mem.clone(),
-            settings
-                .debug
-                .web_server
-                .unwrap_or(Ipv4Addr::new(127, 0, 0, 1)),
-            settings.debug.web_port,
-            token,
-        ));
     }
 
     tokio::spawn({

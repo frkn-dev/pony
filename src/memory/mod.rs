@@ -1,4 +1,3 @@
-pub mod cache;
 pub mod connection;
 pub mod key;
 pub mod node;

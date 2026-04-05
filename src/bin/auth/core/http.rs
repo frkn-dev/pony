@@ -1,9 +1,8 @@
 use async_trait::async_trait;
+use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 
 use pony::ConnectionBaseOp;
-use pony::NodeStorageOp;
-use pony::SubscriptionOp;
 use pony::Tag;
 use pony::{PonyError, Result as PonyResult};
 
@@ -11,6 +10,8 @@ use super::AuthService;
 use super::HttpClient;
 
 use reqwest::Url;
+
+use pony::http::response::{Instance, InstanceWithId, ResponseMessage};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct ConnTypeParam {
@@ -32,11 +33,9 @@ pub trait ApiRequests {
 }
 
 #[async_trait]
-impl<T, C, S> ApiRequests for AuthService<T, C, S>
+impl<C> ApiRequests for AuthService<C>
 where
-    T: NodeStorageOp + Send + Sync + Clone,
     C: ConnectionBaseOp + Send + Sync + Clone + 'static,
-    S: SubscriptionOp + Send + Sync + Clone + 'static,
 {
     async fn get_connections(
         &self,
@@ -45,16 +44,7 @@ where
         proto: Tag,
         last_update: Option<u64>,
     ) -> PonyResult<()> {
-        let node = {
-            let mem = self.memory.read().await;
-            mem.nodes
-                .get_self()
-                .expect("No node available to register")
-                .clone()
-        };
-
-        let id = node.uuid;
-        let env = node.env;
+        let id = self.node.uuid;
 
         let conn_type_param = ConnTypeParam {
             proto,
@@ -81,7 +71,22 @@ where
         let status = res.status();
         let body = res.text().await?;
         if status.is_success() {
-            log::debug!("Connections Request Accepted: {:?}", status);
+            let result: ResponseMessage<InstanceWithId<Instance>> = serde_json::from_str(&body)?;
+            let count = match result.response.instance {
+                Instance::Count(count) => count,
+                _ => {
+                    return Err(PonyError::Custom("Unexpected instance type".into()));
+                }
+            };
+            log::debug!(
+                "Connections Request Accepted for {}: {} Count: {} ",
+                proto,
+                status,
+                count,
+            );
+            Ok(())
+        } else if status == StatusCode::NOT_MODIFIED {
+            log::debug!("Connections Request Accepted for {}: {} ", proto, status,);
             Ok(())
         } else {
             log::error!("Connections Request failed: {} - {}", status, body);

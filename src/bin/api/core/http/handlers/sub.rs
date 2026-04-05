@@ -1,18 +1,14 @@
 use base64::Engine;
 use chrono::DateTime;
 use chrono::Utc;
-use pony::mtproto_op::mtproto_conn;
 use url::Url;
-
-use super::super::request::TagReq;
 use warp::http::Response;
 use warp::http::StatusCode;
 
-use super::super::param::SubIdQueryParam;
-use super::super::param::SubQueryParam;
-use super::super::request::Subscription as SubReq;
 use pony::http::helpers as http;
+use pony::http::response::Instance;
 use pony::http::ResponseMessage;
+use pony::mtproto_op::mtproto_conn;
 use pony::utils;
 use pony::utils::get_uuid_last_octet_simple;
 use pony::xray_op::clash::generate_clash_config;
@@ -29,7 +25,12 @@ use pony::SubscriptionOp;
 use pony::SubscriptionStorageOp;
 use pony::Tag;
 
+use super::super::param::SubIdQueryParam;
+use super::super::param::SubQueryParam;
+use super::super::request::Subscription as SubReq;
+use super::super::request::TagReq;
 use super::html::{FOOTER, HEAD, LOGO};
+
 use crate::core::sync::tasks::SyncOp;
 use crate::core::sync::MemSync;
 
@@ -102,7 +103,7 @@ where
         Ok(StorageOperationStatus::Ok(id)) => Ok(http::success_response(
             format!("Subscription {} has been created", id),
             Some(sub_id),
-            http::Instance::Subscription(sub),
+            Instance::Subscription(sub),
         )),
         Ok(StorageOperationStatus::AlreadyExist(id)) => Ok(http::not_modified(&format!(
             "Subscription {} already exists",
@@ -152,7 +153,7 @@ where
         Ok(StorageOperationStatus::Updated(id)) => Ok(http::success_response(
             format!("Subscription {} has been updated", id),
             Some(sub_id),
-            http::Instance::None,
+            Instance::None,
         )),
         Ok(StorageOperationStatus::NotFound(id)) => Ok(http::not_found(&format!(
             "Subscription {} is not found",
@@ -218,7 +219,7 @@ where
         Ok(http::success_response(
             "List of subscription connection statistics".to_string(),
             None,
-            http::Instance::Stat(result),
+            Instance::Stat(result),
         ))
     } else {
         Ok(http::not_found("Connections is not found"))
@@ -828,7 +829,7 @@ where
             Ok(http::success_response(
                 format!("Connections are found for {}", sub_id),
                 None,
-                http::Instance::Connections(cons.clone()),
+                Instance::Connections(cons.clone()),
             ))
         }
     }

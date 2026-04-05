@@ -2,9 +2,9 @@ use serde::{Deserialize, Serialize};
 use warp::reject;
 use warp::reject::Reject;
 
-pub mod debug;
 pub mod filters;
 pub mod helpers;
+pub mod response;
 
 #[derive(Debug)]
 pub struct AuthError(pub String);
@@ -25,11 +25,6 @@ pub struct ResponseMessage<T> {
 pub struct IdResponse {
     pub id: uuid::Uuid,
 }
-
-#[derive(Debug)]
-struct Unauthorized;
-
-impl Reject for Unauthorized {}
 
 #[derive(Debug)]
 pub struct IpParseError(pub std::net::AddrParseError);

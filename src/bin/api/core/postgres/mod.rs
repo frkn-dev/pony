@@ -8,7 +8,6 @@ use pony::config::settings::PostgresConfig;
 use pony::memory::node::Node;
 use pony::Connection;
 use pony::ConnectionStorageApiOp;
-use pony::MemoryCache;
 use pony::NodeStorageOp;
 use pony::OperationStatus;
 use pony::Result;
@@ -20,6 +19,7 @@ use crate::core::postgres::connection::PgConn;
 use crate::core::postgres::keys::PgKey;
 use crate::core::postgres::node::PgNode;
 use crate::core::postgres::subscription::PgSubscription;
+use crate::Cache;
 
 pub mod connection;
 pub mod keys;
@@ -115,7 +115,7 @@ pub trait Tasks {
 }
 
 #[async_trait::async_trait]
-impl Tasks for MemoryCache<HashMap<String, Vec<Node>>, Connection, Subscription> {
+impl Tasks for Cache<HashMap<String, Vec<Node>>, Connection, Subscription> {
     async fn add_conn(&mut self, db_conn: ConnRow) -> Result<OperationStatus> {
         let conn_id = db_conn.conn_id;
         let conn: Connection = db_conn.try_into()?;

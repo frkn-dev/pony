@@ -1,6 +1,7 @@
 pub mod connection;
 pub mod html;
 pub mod key;
+pub mod metrics;
 pub mod node;
 pub mod sub;
 

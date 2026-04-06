@@ -1,64 +1,80 @@
-use chrono::Utc;
+use pony::metrics::storage::HasMetrics;
+use pony::metrics::storage::MetricSink;
+use pony::metrics::storage::MetricStorage;
+use pony::metrics::MetricEnvelope;
+use pony::zmq::subscriber::Subscriber;
 
-use pony::metrics::cpuusage::cpu_metrics;
-use pony::metrics::heartbeat::heartbeat_metrics;
-use pony::metrics::loadavg::loadavg_metrics;
-use pony::metrics::memory::mem_metrics;
-use pony::metrics::Metric;
-use pony::metrics::MetricType;
-use pony::metrics::Metrics;
-use pony::Connection;
 use pony::ConnectionApiOp;
 use pony::ConnectionBaseOp;
 use pony::NodeStorageOp;
 use pony::SubscriptionOp;
 
-use crate::Api;
+use rkyv::Deserialize;
+use std::sync::Arc;
 
-#[async_trait::async_trait]
-impl<N, C, S> Metrics<N> for Api<N, C, S>
+use super::Api;
+
+impl<N, C, S> HasMetrics for Api<N, C, S>
 where
     N: NodeStorageOp + Send + Sync + Clone + 'static,
-    C: ConnectionApiOp
-        + ConnectionBaseOp
-        + Send
-        + Sync
-        + Clone
-        + 'static
-        + From<Connection>
-        + std::cmp::PartialEq,
+    C: ConnectionBaseOp + ConnectionApiOp + Send + Sync + Clone + 'static + std::cmp::PartialEq,
     S: SubscriptionOp + Send + Sync + Clone + 'static,
 {
-    async fn collect_metrics<M>(&self) -> Vec<MetricType>
-    where
-        N: NodeStorageOp + Sync + Send + Clone + 'static,
-    {
-        let mut metrics = Vec::new();
-
-        let env = &self.settings.node.env;
-        let _uuid = self.settings.node.uuid;
-
-        if let Some(hostname) = &self.settings.node.hostname {
-            metrics.extend(cpu_metrics(env, hostname));
-            metrics.extend(loadavg_metrics(env, hostname));
-            metrics.extend(mem_metrics(env, hostname));
-        } else {
-            log::warn!("Hostname is not set, skipping metrics collection");
-        }
-
-        log::debug!("Total metrics collected: {}", metrics.len());
-        metrics
+    fn metrics(&self) -> &MetricStorage {
+        &self.metrics
     }
 
-    async fn collect_hb_metrics<M>(&self) -> MetricType {
-        if let Some(hostname) = &self.settings.node.hostname {
-            heartbeat_metrics(&self.settings.node.env, &self.settings.node.uuid, hostname)
-        } else {
-            MetricType::F64(Metric::new(
-                "hb.unknown".into(),
-                0.0,
-                Utc::now().timestamp(),
-            ))
-        }
+    fn node_id(&self) -> &uuid::Uuid {
+        &self.settings.node.uuid
+    }
+}
+
+pub struct MetricWorker;
+
+impl MetricWorker {
+    pub async fn start<N, C, S>(
+        metric_storage: Arc<MetricStorage>,
+        subscriber: Subscriber,
+        // Канал для ClickHouse/Carbon
+        carbon_tx: tokio::sync::mpsc::UnboundedSender<MetricEnvelope>,
+    ) where
+        N: Send + Sync + Clone + 'static,
+        C: Send + Sync + Clone + 'static,
+        S: Send + Sync + Clone + 'static,
+    {
+        tokio::spawn(async move {
+            log::info!("MetricWorker: Started listening for metrics...");
+
+            loop {
+                // Используем твой существующий recv()
+                if let Some((_topic_bytes, payload_bytes)) = subscriber.recv().await {
+                    // Десериализуем rkyv (быстро и безопасно)
+                    let archived = match rkyv::check_archived_root::<MetricEnvelope>(&payload_bytes)
+                    {
+                        Ok(a) => a,
+                        Err(e) => {
+                            log::error!("MetricWorker: Invalid rkyv root: {:?}", e);
+                            continue;
+                        }
+                    };
+
+                    let msg: MetricEnvelope = match archived.deserialize(&mut rkyv::Infallible) {
+                        Ok(m) => m,
+                        Err(e) => {
+                            log::error!("MetricWorker: Deserialize failed: {:?}", e);
+                            continue;
+                        }
+                    };
+
+                    // 1. Сохраняем в локальный сторадж API (Cache)
+                    // Ключ: "node_id.metric_name"
+                    let storage_key = format!("{}.{}", msg.node_id, msg.name);
+                    log::debug!("{} | {} | {}", storage_key, msg.value, msg.timestamp);
+                    metric_storage.write(&msg.node_id, &storage_key, msg.value, msg.timestamp);
+
+                    //let _ = carbon_tx.send(msg);
+                }
+            }
+        });
     }
 }

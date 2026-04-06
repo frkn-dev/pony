@@ -1,21 +1,21 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use pony::config::settings::ApiSettings;
 use pony::memory::connection::Connections;
 use pony::memory::node::Node;
 use pony::memory::subscription::Subscription;
 use pony::memory::subscription::Subscriptions;
+use pony::metrics::storage::MetricStorage;
 use pony::Connection;
 use pony::ConnectionApiOp;
 use pony::ConnectionBaseOp;
 use pony::NodeStorageOp;
 use pony::SubscriptionOp;
 
-use crate::core::clickhouse::ChContext;
 use crate::core::sync::MemSync;
 
-pub(crate) mod clickhouse;
 pub(crate) mod http;
 pub(crate) mod metrics;
 pub(crate) mod postgres;
@@ -31,8 +31,8 @@ where
     S: SubscriptionOp + Send + Sync + Clone + 'static,
 {
     pub sync: MemSync<N, C, S>,
-    pub ch: ChContext,
     pub settings: ApiSettings,
+    pub metrics: Arc<MetricStorage>,
 }
 
 impl<N, C, S> Api<N, C, S>
@@ -41,8 +41,12 @@ where
     C: ConnectionBaseOp + ConnectionApiOp + Send + Sync + Clone + 'static + std::cmp::PartialEq,
     S: SubscriptionOp + Send + Sync + Clone + 'static,
 {
-    pub fn new(ch: ChContext, sync: MemSync<N, C, S>, settings: ApiSettings) -> Self {
-        Self { ch, sync, settings }
+    pub fn new(sync: MemSync<N, C, S>, settings: ApiSettings, metrics: Arc<MetricStorage>) -> Self {
+        Self {
+            sync,
+            settings,
+            metrics,
+        }
     }
 }
 

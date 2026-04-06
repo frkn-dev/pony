@@ -1,12 +1,13 @@
+use std::sync::Arc;
 use warp::Filter;
 
+use pony::metrics::storage::MetricStorage;
 use pony::Connection;
 use pony::ConnectionApiOp;
 use pony::ConnectionBaseOp;
 use pony::NodeStorageOp;
 use pony::SubscriptionOp;
 
-use crate::core::clickhouse::ChContext;
 use crate::MemSync;
 
 /// Provides application state filter
@@ -19,13 +20,6 @@ where
     S: SubscriptionOp + Send + Sync + Clone + 'static,
 {
     warp::any().map(move || mem_sync.clone())
-}
-
-/// Provides ckickhouse filter
-pub fn with_ch(
-    ch: ChContext,
-) -> impl Filter<Extract = (ChContext,), Error = std::convert::Infallible> + Clone {
-    warp::any().map(move || ch.clone())
 }
 
 pub fn with_param_string(
@@ -44,4 +38,10 @@ pub fn with_param_vec_string(
     param: Vec<String>,
 ) -> impl Filter<Extract = (Vec<String>,), Error = std::convert::Infallible> + Clone {
     warp::any().map(move || param.clone())
+}
+
+pub fn with_metrics(
+    metrics: Arc<MetricStorage>,
+) -> impl Filter<Extract = (Arc<MetricStorage>,), Error = std::convert::Infallible> + Clone {
+    warp::any().map(move || metrics.clone())
 }

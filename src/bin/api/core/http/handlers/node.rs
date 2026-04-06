@@ -16,8 +16,6 @@ use super::super::param::NodeIdParam;
 use super::super::param::NodesQueryParams;
 use super::super::request::NodeRequest;
 
-use crate::core::clickhouse::score::NodeScore;
-use crate::core::clickhouse::ChContext;
 use crate::core::sync::tasks::SyncOp;
 use crate::core::sync::MemSync;
 
@@ -187,71 +185,6 @@ where
         ))
     } else {
         let response = ResponseMessage::<Option<NodeResponse>> {
-            status: StatusCode::NOT_FOUND.as_u16(),
-            message: "Node not found".to_string(),
-            response: None,
-        };
-        Ok(warp::reply::with_status(
-            warp::reply::json(&response),
-            StatusCode::NOT_FOUND,
-        ))
-    }
-}
-
-/// Get score of load a node handler
-// GET /node/score?id=
-pub async fn get_node_score_handler<N, C, S>(
-    node_param: NodeIdParam,
-    memory: MemSync<N, C, S>,
-    ch: ChContext,
-) -> Result<impl warp::Reply, warp::Rejection>
-where
-    N: NodeStorageOp + Sync + Send + Clone + 'static,
-    C: ConnectionApiOp
-        + ConnectionBaseOp
-        + Sync
-        + Send
-        + Clone
-        + 'static
-        + From<Connection>
-        + PartialEq,
-    S: SubscriptionOp + Send + Sync + Clone + 'static,
-{
-    let mem = memory.memory.read().await;
-
-    if let Some(node) = mem.nodes.get_by_id(&node_param.id) {
-        let interface = node.interface.clone();
-        let env = node.env.clone();
-        let hostname = node.hostname.clone();
-        let cores = node.cores;
-        let max_bandwidth_bps = node.max_bandwidth_bps;
-
-        if let Some(score) = ch
-            .fetch_node_score(&env, &hostname, &interface, cores, max_bandwidth_bps)
-            .await
-        {
-            let response = ResponseMessage::<Option<NodeScore>> {
-                status: StatusCode::OK.as_u16(),
-                message: format!("Node score for {}", node_param.id),
-                response: Some(score),
-            };
-            Ok(warp::reply::with_status(
-                warp::reply::json(&response),
-                StatusCode::OK,
-            ))
-        } else {
-            let response = ResponseMessage::<Option<NodeScore>> {
-                status: StatusCode::INTERNAL_SERVER_ERROR.as_u16(),
-                message: "Failed to calculate node score".to_string(),
-                response: None,
-            };
-            Ok(warp::reply::with_status(
-                warp::reply::json(&response),
-                StatusCode::INTERNAL_SERVER_ERROR,
-            ))
-        }
-    } else {
-        let response = ResponseMessage::<Option<NodeScore>> {
             status: StatusCode::NOT_FOUND.as_u16(),
             message: "Node not found".to_string(),
             response: None,

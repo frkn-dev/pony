@@ -21,9 +21,7 @@ fn default_env() -> String {
 fn default_carbon_server() -> String {
     "localhost:2003".to_string()
 }
-fn default_clickhouse_server() -> String {
-    "http://localhost:8123".to_string()
-}
+
 fn default_loglevel() -> String {
     "debug".to_string()
 }
@@ -32,6 +30,9 @@ fn default_zmq_sub_endpoint() -> String {
 }
 fn default_zmq_pub_endpoint() -> String {
     "tcp://*:3000".to_string()
+}
+fn default_metrics_zmq_pub_endpoint() -> String {
+    "tcp://127.0.0.1:5555".to_string()
 }
 fn default_xray_config_path() -> String {
     "dev/xray-config.json".to_string()
@@ -278,12 +279,6 @@ pub struct AgentConfig {
     #[serde(default = "default_disabled")]
     pub local: bool,
     #[serde(default = "default_enabled")]
-    pub metrics_enabled: bool,
-    #[serde(default = "default_metrics_interval")]
-    pub metrics_interval: u64,
-    #[serde(default = "default_metrics_hb_interval")]
-    pub metrics_hb_interval: u64,
-    #[serde(default = "default_enabled")]
     pub stat_enabled: bool,
     #[serde(default = "default_stat_job_interval")]
     pub stat_job_interval: u64,
@@ -293,15 +288,21 @@ pub struct AgentConfig {
     pub snapshot_path: String,
 }
 
-#[derive(Clone, Debug, Deserialize, Default)]
-pub struct CarbonConfig {
-    #[serde(default = "default_carbon_server")]
-    pub address: String,
+#[derive(Clone, Default, Debug, Deserialize)]
+pub struct MetricsConfig {
+    #[serde(default = "default_metrics_zmq_pub_endpoint")]
+    pub publisher: String,
+    #[serde(default = "default_enabled")]
+    pub enabled: bool,
+    #[serde(default = "default_metrics_interval")]
+    pub interval: u64,
+    #[serde(default = "default_metrics_hb_interval")]
+    pub hb_interval: u64,
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]
-pub struct ClickhouseConfig {
-    #[serde(default = "default_clickhouse_server")]
+pub struct CarbonConfig {
+    #[serde(default = "default_carbon_server")]
     pub address: String,
 }
 
@@ -406,7 +407,6 @@ impl NodeConfig {
                 )));
             }
         } else {
-            // Ни адрес, ни интерфейс не указаны - используем дефолтный интерфейс
             match get_default_interface() {
                 Ok(interface) => {
                     if interface.ipv4.is_empty() {
@@ -559,8 +559,6 @@ pub struct ApiSettings {
     #[serde(default)]
     pub zmq: ZmqPublisherConfig,
     #[serde(default)]
-    pub clickhouse: ClickhouseConfig,
-    #[serde(default)]
     pub pg: PostgresConfig,
     #[serde(default)]
     pub carbon: CarbonConfig,
@@ -587,10 +585,6 @@ pub struct AuthServiceSettings {
 #[derive(Clone, Debug, Deserialize)]
 pub struct AgentSettings {
     #[serde(default)]
-    pub debug: DebugConfig,
-    #[serde(default)]
-    pub carbon: CarbonConfig,
-    #[serde(default)]
     pub logging: LoggingConfig,
     #[serde(default)]
     pub agent: AgentConfig,
@@ -608,6 +602,8 @@ pub struct AgentSettings {
     pub node: NodeConfigRaw,
     #[serde(default)]
     pub api: ApiAccessConfig,
+    #[serde(default)]
+    pub metrics: MetricsConfig,
 }
 
 impl Settings for AgentSettings {

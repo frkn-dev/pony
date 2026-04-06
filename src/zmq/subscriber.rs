@@ -77,6 +77,34 @@ impl Subscriber {
             }
         }
     }
+
+    pub fn new_bound(endpoint: &str, topics: Vec<String>) -> Self {
+        let context = zmq::Context::new();
+        let socket = context
+            .socket(zmq::SUB)
+            .expect("Failed to create SUB socket");
+
+        socket.bind(endpoint).expect("Failed to bind SUB socket");
+
+        if topics.is_empty() {
+            socket
+                .set_subscribe(b"")
+                .expect("Failed to subscribe to all");
+            log::info!("Subscribed to all topics (wildcard)");
+        } else {
+            for topic in &topics {
+                socket
+                    .set_subscribe(topic.as_bytes())
+                    .expect("Failed to subscribe to topic");
+            }
+            log::info!("Subscribed to topics: {:?}", topics);
+        }
+
+        Self {
+            socket: Arc::new(Mutex::new(socket)),
+            topics,
+        }
+    }
 }
 
 impl Clone for Subscriber {

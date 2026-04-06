@@ -15,6 +15,7 @@ use super::super::Api;
 use super::filters::*;
 use super::handlers::connection::*;
 use super::handlers::key::*;
+use super::handlers::metrics::*;
 use super::handlers::node::*;
 use super::handlers::sub::*;
 use super::param::*;
@@ -55,6 +56,10 @@ where
     async fn run(&self, params: ApiServiceConfig) -> Result<()> {
         let auth = auth(Arc::new(self.settings.api.token.clone()));
 
+        let cors = warp::cors()
+            .allow_any_origin()
+            .allow_methods(vec!["GET", "POST", "DELETE"]);
+
         let get_healthcheck_route = warp::get()
             .and(warp::path("healthcheck"))
             .and(warp::path::end())
@@ -69,16 +74,6 @@ where
             .and(warp::query::<NodesQueryParams>())
             .and(with_state(self.sync.clone()))
             .and_then(get_nodes_handler);
-
-        let get_node_score_route = warp::get()
-            .and(warp::path("node"))
-            .and(warp::path("score"))
-            .and(warp::path::end())
-            .and(auth.clone())
-            .and(warp::query::<NodeIdParam>())
-            .and(with_state(self.sync.clone()))
-            .and(with_ch(self.ch.clone()))
-            .and_then(get_node_score_handler);
 
         let post_node_register_route = warp::post()
             .and(warp::path("node"))
@@ -214,6 +209,11 @@ where
             .and(with_state(self.sync.clone()))
             .and_then(post_activate_key_handler);
 
+        let get_metrics_route = warp::path!("api" / "metrics" / String / "heartbeat")
+            .and(warp::get())
+            .and(with_metrics(self.metrics.clone())) // прокидываем сторадж
+            .and_then(get_heartbeat_handler);
+
         let routes = get_healthcheck_route
             // Subscription
             .or(get_subscription_connections_route)
@@ -225,7 +225,6 @@ where
             // Node
             .or(get_nodes_route)
             .or(get_node_route)
-            .or(get_node_score_route)
             .or(post_node_register_route)
             // Connection
             .or(get_connection_route)
@@ -236,7 +235,10 @@ where
             .or(get_key_validation_route)
             .or(post_key_route)
             .or(post_activate_key_route)
-            .recover(rejection);
+            // Metrics
+            .or(get_metrics_route)
+            .recover(rejection)
+            .with(cors);
 
         if let Some(ipv4) = self.settings.api.address {
             warp::serve(routes)

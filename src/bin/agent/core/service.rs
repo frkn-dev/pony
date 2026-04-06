@@ -1,3 +1,4 @@
+use pony::Publisher;
 use std::path::Path;
 use std::sync::Arc;
 use tokio::signal;
@@ -13,9 +14,9 @@ use pony::config::settings::AgentSettings;
 use pony::config::settings::NodeConfig;
 use pony::config::wireguard::WireguardSettings;
 use pony::config::xray::Config as XrayConfig;
+use pony::metrics::storage::MetricStorage;
 
 use pony::memory::node::Node;
-use pony::metrics::Metrics;
 use pony::utils::*;
 use pony::wireguard_op::WgApi;
 use pony::xray_op::client::HandlerClient;
@@ -127,8 +128,18 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
     let zmq_endpoint = settings.zmq.endpoint.clone();
     let subscriber = ZmqSubscriber::new(&zmq_endpoint, &node.uuid, &node.env);
 
+    let metric_publisher = if settings.metrics.enabled {
+        let publ = Publisher::connect(&settings.metrics.publisher).await;
+        Some(publ)
+    } else {
+        None
+    };
+
+    let metrics = Arc::new(MetricStorage::new(100, 5000, metric_publisher));
+
     let agent = Arc::new(Agent::<Connection>::new(
         node.clone(),
+        metrics,
         subscriber,
         xray_stats_client.clone(),
         xray_handler_client.clone(),
@@ -251,47 +262,22 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
         }
     };
 
-    if settings.agent.metrics_enabled {
-        log::info!("Running metrics send task");
-        let carbon_addr = settings.carbon.address.clone();
+    if settings.metrics.enabled {
+        log::info!("Running metrics task");
         let metrics_handle: JoinHandle<()> = tokio::spawn({
             let agent = agent.clone();
             let mut shutdown = shutdown_tx.subscribe();
             async move {
                 loop {
                     tokio::select! {
-                        _ = sleep(Duration::from_secs(settings.agent.metrics_interval)) => {
-                            match agent.send_metrics(&carbon_addr).await {
-                                Ok(_) => {},
-                                Err(e) => log::error!("❌ Failed to send metrics: {}", e),
-                            }
+                        _ = sleep(Duration::from_secs(settings.metrics.interval)) => {
+                             agent.collect_metrics().await;
+                             let last = agent.metrics.last(50);
+                             log::debug!("Last metrics: {:?}", last);
+
                         },
                         _ = shutdown.recv() => {
                             log::info!("🛑 Metrics task received shutdown");
-                            break;
-                        },
-                    }
-                }
-            }
-        });
-        tasks.push(metrics_handle);
-
-        log::info!("Running HB metrics send task");
-        let carbon_addr = settings.carbon.address.clone();
-        let metrics_handle = tokio::spawn({
-            let agent = agent.clone();
-            let mut shutdown = shutdown_tx.subscribe();
-            async move {
-                loop {
-                    tokio::select! {
-                        _ = sleep(Duration::from_secs(settings.agent.metrics_hb_interval)) => {
-                            match agent.send_hb_metric(&carbon_addr).await {
-                                Ok(_) => {},
-                                Err(e) => log::error!("❌ Failed to send heartbeat: {}", e),
-                            }
-                        },
-                        _ = shutdown.recv() => {
-                            log::info!("🛑 Heartbeat task received shutdown");
                             break;
                         },
                     }

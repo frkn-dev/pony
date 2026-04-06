@@ -1,52 +1,89 @@
-use pony::metrics::bandwidth::bandwidth_metrics;
-use pony::metrics::cpuusage::cpu_metrics;
-use pony::metrics::heartbeat::heartbeat_metrics;
-use pony::metrics::loadavg::loadavg_metrics;
-use pony::metrics::memory::mem_metrics;
-use pony::metrics::xray::xray_conn_metrics;
-use pony::metrics::xray::xray_stat_metrics;
-use pony::metrics::MetricType;
-use pony::metrics::Metrics;
-use pony::Connection;
-use pony::ConnectionBaseOp;
+use chrono::Utc;
 
 use crate::core::Agent;
+use pony::metrics::storage::HasMetrics;
+use pony::metrics::storage::MetricSink;
+use pony::metrics::storage::MetricStorage;
 
-#[async_trait::async_trait]
-impl<C> Metrics<C> for Agent<C>
+use pony::ConnectionBaseOp;
+
+impl<C> HasMetrics for Agent<C>
 where
-    C: ConnectionBaseOp + Send + Sync + Clone + 'static + From<Connection>,
+    C: ConnectionBaseOp + Send + Sync + Clone + 'static,
 {
-    async fn collect_metrics<M>(&self) -> Vec<MetricType> {
-        let mut metrics: Vec<MetricType> = Vec::new();
-        let mem = self.memory.read().await;
-        let connections = mem.clone();
-        let node = self.node.clone();
-
-        let bandwidth: Vec<MetricType> =
-            bandwidth_metrics(&node.env, &node.hostname, &node.interface);
-        let cpuusage: Vec<MetricType> = cpu_metrics(&node.env, &node.hostname);
-        let loadavg: Vec<MetricType> = loadavg_metrics(&node.env, &node.hostname);
-        let memory: Vec<MetricType> = mem_metrics(&node.env, &node.hostname);
-
-        let xray_stat: Vec<MetricType> = xray_stat_metrics(node.clone());
-        let connections_stat: Vec<MetricType> =
-            xray_conn_metrics(connections, &node.env, &node.hostname);
-
-        metrics.extend(bandwidth);
-        metrics.extend(cpuusage);
-        metrics.extend(loadavg);
-        metrics.extend(memory);
-        metrics.extend(xray_stat);
-        metrics.extend(connections_stat);
-
-        log::debug!("Total metrics collected: {}", metrics.len());
-
-        metrics
+    fn metrics(&self) -> &MetricStorage {
+        &self.metrics
     }
 
-    async fn collect_hb_metrics<M>(&self) -> MetricType {
-        let node = self.node.clone();
-        heartbeat_metrics(&node.env, &node.uuid, &node.hostname)
+    fn node_id(&self) -> &uuid::Uuid {
+        &self.node.uuid
+    }
+}
+
+pub trait BusinessMetrics {
+    async fn inbounds(&self);
+    async fn connections(&self);
+}
+
+impl<C> BusinessMetrics for Agent<C>
+where
+    C: ConnectionBaseOp + Send + Sync + Clone + 'static,
+{
+    async fn connections(&self) {
+        let now = Utc::now().timestamp();
+        let connections = self.memory.read().await.clone();
+        let node_id = self.node_id();
+        for (conn_id, conn) in connections.iter() {
+            let proto = conn.get_proto().proto();
+            let base = format!("connection.{}.{}", proto, conn_id);
+            self.metrics.write(
+                node_id,
+                &format!("{base}.uplink"),
+                conn.get_uplink() as f64,
+                now,
+            );
+            self.metrics.write(
+                node_id,
+                &format!("{base}.downlink"),
+                conn.get_downlink() as f64,
+                now,
+            );
+            self.metrics.write(
+                node_id,
+                &format!("{base}.online"),
+                conn.get_online() as f64,
+                now,
+            );
+            log::debug!("Stored connection metrics for {}", conn_id);
+        }
+    }
+    async fn inbounds(&self) {
+        let node = &self.node;
+        let now = Utc::now().timestamp();
+
+        let node_id = self.node_id();
+
+        for (tag, inbound) in node.inbounds.clone() {
+            let base = format!("inbound.{}", tag);
+            self.metrics.write(
+                node_id,
+                &format!("{base}.uplink"),
+                inbound.uplink.unwrap_or(0) as f64,
+                now,
+            );
+            self.metrics.write(
+                node_id,
+                &format!("{base}.downlink"),
+                inbound.downlink.unwrap_or(0) as f64,
+                now,
+            );
+            self.metrics.write(
+                node_id,
+                &format!("{base}.conn_count"),
+                inbound.conn_count.unwrap_or(0) as f64,
+                now,
+            );
+            log::debug!("Stored inbound metrics for {}", tag);
+        }
     }
 }

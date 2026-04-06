@@ -1,12 +1,14 @@
 use async_trait::async_trait;
-use defguard_wireguard_rs::net::IpAddrMask;
 use futures::future::try_join_all;
-use pony::Proto;
 use rkyv::AlignedVec;
+use rkyv::Deserialize;
 use rkyv::Infallible;
 use tokio::time::Duration;
+
+use defguard_wireguard_rs::net::IpAddrMask;
 use tonic::Status;
 
+use pony::metrics::Metrics;
 use pony::xray_op::client::HandlerActions;
 use pony::xray_op::stats::StatOp;
 use pony::Action;
@@ -14,19 +16,21 @@ use pony::BaseConnection as Connection;
 use pony::ConnectionBaseOp;
 use pony::ConnectionStorageBaseOp;
 use pony::Message;
+use pony::Proto;
 use pony::Tag;
 use pony::Topic;
 use pony::{PonyError, Result};
 
-use rkyv::Deserialize;
-
+use super::metrics::BusinessMetrics;
 use super::Agent;
 
 #[async_trait]
 pub trait Tasks {
     async fn run_subscriber(&self) -> Result<()>;
-    async fn handle_message(&self, msg: Message) -> Result<()>;
     async fn handle_messages_batch(&self, msg: Vec<Message>) -> Result<()>;
+    async fn handle_message(&self, msg: Message) -> Result<()>;
+
+    async fn collect_metrics(&self);
 }
 
 #[async_trait]
@@ -100,6 +104,19 @@ where
 
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
+    }
+
+    async fn handle_messages_batch(&self, messages: Vec<Message>) -> Result<()> {
+        log::debug!("Got {} messages", messages.len());
+
+        let handles: Vec<_> = messages
+            .into_iter()
+            .map(|msg| self.handle_message(msg))
+            .collect();
+
+        let _results = try_join_all(handles).await?;
+
+        Ok(())
     }
 
     async fn handle_message(&self, msg: Message) -> Result<()> {
@@ -306,16 +323,13 @@ where
         }
     }
 
-    async fn handle_messages_batch(&self, messages: Vec<Message>) -> Result<()> {
-        log::debug!("Got {} messages", messages.len());
-
-        let handles: Vec<_> = messages
-            .into_iter()
-            .map(|msg| self.handle_message(msg))
-            .collect();
-
-        let _results = try_join_all(handles).await?;
-
-        Ok(())
+    async fn collect_metrics(&self) {
+        self.heartbeat().await;
+        self.bandwidth().await;
+        self.cpu_usage().await;
+        self.loadavg().await;
+        self.memory().await;
+        self.inbounds().await;
+        self.connections().await;
     }
 }

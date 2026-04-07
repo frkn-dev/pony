@@ -1,4 +1,3 @@
-use pony::Publisher;
 use std::path::Path;
 use std::sync::Arc;
 use tokio::signal;
@@ -14,7 +13,8 @@ use pony::config::settings::AgentSettings;
 use pony::config::settings::NodeConfig;
 use pony::config::wireguard::WireguardSettings;
 use pony::config::xray::Config as XrayConfig;
-use pony::metrics::storage::MetricStorage;
+use pony::metrics::storage::MetricBuffer;
+use pony::Publisher;
 
 use pony::memory::node::Node;
 use pony::utils::*;
@@ -129,18 +129,20 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
     let subscriber = ZmqSubscriber::new(&zmq_endpoint, &node.uuid, &node.env);
 
     let metric_publisher = if settings.metrics.enabled {
-        let publ = Publisher::connect(&settings.metrics.publisher).await;
-        Some(publ)
+        Publisher::connect(&settings.metrics.publisher).await
     } else {
-        None
+        panic!("Metrics ZMQ publisher couldn't run");
     };
 
-    let metrics = Arc::new(MetricStorage::new(100, 5000, metric_publisher));
+    let metrics = MetricBuffer {
+        batch: parking_lot::Mutex::new(Vec::new()),
+        publisher: metric_publisher,
+    };
 
     let agent = Arc::new(Agent::<Connection>::new(
         node.clone(),
-        metrics,
         subscriber,
+        Arc::new(metrics),
         xray_stats_client.clone(),
         xray_handler_client.clone(),
         wg_client.clone(),
@@ -264,6 +266,7 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
 
     if settings.metrics.enabled {
         log::info!("Running metrics task");
+
         let metrics_handle: JoinHandle<()> = tokio::spawn({
             let agent = agent.clone();
             let mut shutdown = shutdown_tx.subscribe();
@@ -272,8 +275,6 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
                     tokio::select! {
                         _ = sleep(Duration::from_secs(settings.metrics.interval)) => {
                              agent.collect_metrics().await;
-                             let last = agent.metrics.last(50);
-                             log::debug!("Last metrics: {:?}", last);
 
                         },
                         _ = shutdown.recv() => {
@@ -284,49 +285,28 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
                 }
             }
         });
+
+        log::info!("Running flush metrics task");
+        let metrics_flush_handle: JoinHandle<()> = tokio::spawn({
+            let agent = agent.clone();
+            let mut shutdown = shutdown_tx.subscribe();
+            async move {
+                loop {
+                    tokio::select! {
+                        _ = sleep(Duration::from_secs(settings.metrics.interval+2)) => {
+                             agent.metrics.flush_to_zmq().await;
+
+                        },
+                        _ = shutdown.recv() => {
+                            log::info!("🛑 Metrics flush task received shutdown");
+                            break;
+                        },
+                    }
+                }
+            }
+        });
         tasks.push(metrics_handle);
-    }
-
-    if settings.agent.stat_enabled {
-        log::info!("Running Stat Task");
-        let xray_stats_task = tokio::spawn({
-            let agent = Arc::new(agent.clone());
-            let mut shutdown = shutdown_tx.subscribe();
-            async move {
-                loop {
-                    tokio::select! {
-                        _ = sleep(Duration::from_secs(settings.agent.stat_job_interval)) => {
-                            let _ = <Arc<Agent<Connection>> as Clone>::clone(&agent)
-                                .collect_stats()
-                                .await;
-                        },
-                        _ = shutdown.recv() => break,
-                    }
-                }
-            }
-        });
-        tasks.push(xray_stats_task);
-    }
-
-    if settings.agent.stat_enabled && settings.wg.enabled {
-        log::info!("Running WG Stat Task");
-        let wg_stats_task = tokio::spawn({
-            let agent = Arc::new(agent.clone());
-            let mut shutdown = shutdown_tx.subscribe();
-            async move {
-                loop {
-                    tokio::select! {
-                        _ = sleep(Duration::from_secs(settings.agent.stat_job_interval)) => {
-                            let _ = <Arc<Agent<Connection>> as Clone>::clone(&agent)
-                                .collect_wireguard_stats()
-                                .await;
-                        },
-                        _ = shutdown.recv() => break,
-                    }
-                }
-            }
-        });
-        tasks.push(wg_stats_task);
+        tasks.push(metrics_flush_handle);
     }
 
     wait_all_tasks_or_ctrlc(tasks, shutdown_tx).await;

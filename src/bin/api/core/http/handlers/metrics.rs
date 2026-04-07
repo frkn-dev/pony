@@ -2,22 +2,36 @@ use std::sync::Arc;
 
 use pony::metrics::storage::MetricStorage;
 
-pub async fn get_heartbeat_handler(
-    node_id: String,
+pub async fn handle_ws_client(
+    socket: warp::ws::WebSocket,
+    node_id: uuid::Uuid,
+    metric: String,
     storage: Arc<MetricStorage>,
-) -> Result<impl warp::Reply, std::convert::Infallible> {
-    let full_key = format!("{}.heartbeat", node_id);
+) {
+    use futures::{SinkExt, StreamExt};
+    let (mut ws_tx, _) = socket.split();
+    let mut ticker = tokio::time::interval(std::time::Duration::from_millis(1000));
 
-    let now = chrono::Utc::now().timestamp();
-    let from = now - 300; // за последние 5 минут
+    loop {
+        ticker.tick().await;
 
-    let points = storage.get_range(&full_key, from, now).unwrap_or_default();
+        let now_ms = chrono::Utc::now().timestamp_millis();
+        let ten_min_ago_ms = now_ms - (10 * 60 * 1000);
 
-    // Форматируем для Chart.js (x: ms, y: value)
-    let chart_data: Vec<serde_json::Value> = points
-        .into_iter()
-        .map(|p| serde_json::json!({ "x": p.timestamp * 1000, "y": p.value }))
-        .collect();
+        let points = storage.get_range(&node_id, &metric, ten_min_ago_ms, now_ms);
 
-    Ok(warp::reply::json(&chart_data))
+        if !points.is_empty() {
+            let chart_points: Vec<serde_json::Value> = points
+                .into_iter()
+                .map(|p| serde_json::json!({ "x": p.timestamp, "y": p.value }))
+                .collect();
+
+            if let Ok(msg) = serde_json::to_string(&chart_points) {
+                if let Err(e) = ws_tx.send(warp::ws::Message::text(msg)).await {
+                    log::error!("WS send error: {}", e);
+                    break;
+                }
+            }
+        }
+    }
 }

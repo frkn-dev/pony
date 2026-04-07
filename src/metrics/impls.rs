@@ -1,6 +1,6 @@
-use chrono::Utc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::OnceLock;
+use sysinfo::Disks;
 use sysinfo::Networks;
 use sysinfo::{CpuRefreshKind, MemoryRefreshKind, RefreshKind, System};
 
@@ -15,8 +15,6 @@ where
     T: HasMetrics + Sync + Send,
 {
     async fn heartbeat(&self) {
-        let timestamp = Utc::now().timestamp();
-
         let pattern: &[f64] = &[
             1.0, 1.0, 2.5, 0.4, 0.6, 1.3, 1.0, 1.0, 1.1, 1.0, 1.0, 0.8, 1.0, 1.9, 0.3, 0.5, 1.0,
         ];
@@ -28,14 +26,15 @@ where
             pattern[index]
         };
 
-        let node_id = self.node_id();
-        self.metrics().write(node_id, "heartbeat", value, timestamp);
-        log::debug!("Stored heartbeat metric: {}", value);
+        let node = self.node_settings();
+        let tags = node.get_base_tags();
+        let node_uuid = node.uuid;
+
+        self.metrics()
+            .write(&node_uuid, "sys.heartbeat", value, tags);
     }
 
     async fn memory(&self) {
-        let timestamp = chrono::Utc::now().timestamp();
-
         let mut system = System::new_with_specifics(
             RefreshKind::nothing().with_memory(MemoryRefreshKind::everything()),
         );
@@ -46,96 +45,74 @@ where
         let used = system.used_memory() as f64;
         let available = system.available_memory() as f64;
 
-        let node_id = self.node_id();
+        let node = self.node_settings();
+        let tags = node.get_base_tags();
+        let node_uuid = node.uuid;
 
-        self.metrics().write(node_id, "mem_free", free, timestamp);
-        self.metrics().write(node_id, "mem_total", total, timestamp);
-        self.metrics().write(node_id, "mem_used", used, timestamp);
         self.metrics()
-            .write(node_id, "mem_available", available, timestamp);
-
-        log::debug!(
-            "Stored memory metrics: free={}, total={}, used={}, available={}",
-            free,
-            total,
-            used,
-            available
-        );
+            .write(&node_uuid, "sys.mem_free", free, tags.clone());
+        self.metrics()
+            .write(&node_uuid, "sys.mem_total", total, tags.clone());
+        self.metrics()
+            .write(&node_uuid, "sys.mem_used", used, tags.clone());
+        self.metrics()
+            .write(&node_uuid, "sys.mem_available", available, tags);
     }
-    async fn loadavg(&self) {
-        let timestamp = Utc::now().timestamp();
 
+    async fn loadavg(&self) {
         let load = System::load_average();
 
-        let node_id = self.node_id();
+        let node = self.node_settings();
+        let tags = node.get_base_tags();
+        let node_uuid = node.uuid;
 
         self.metrics()
-            .write(node_id, "loadavg_1", load.one, timestamp);
+            .write(&node_uuid, "sys.loadavg_1", load.one, tags.clone());
         self.metrics()
-            .write(node_id, "loadavg_5", load.five, timestamp);
+            .write(&node_uuid, "sys.loadavg_5", load.five, tags.clone());
         self.metrics()
-            .write(node_id, "loadavg_15", load.fifteen, timestamp);
-
-        log::debug!(
-            "Stored loadavg metrics: 1min={}, 5min={}, 15min={}",
-            load.one,
-            load.five,
-            load.fifteen
-        );
+            .write(&node_uuid, "sys.loadavg_15", load.fifteen, tags);
     }
+
     async fn bandwidth(&self) {
-        let now = Utc::now().timestamp();
         let mut networks = Networks::new_with_refreshed_list();
         std::thread::sleep(std::time::Duration::from_secs(1));
         networks.refresh(true);
 
+        let node = self.node_settings();
+        let tags = node.get_base_tags();
+        let node_uuid = node.uuid;
+
         for (interface, data) in networks.iter() {
-            log::debug!("Storing bandwidth metrics for interface {}", interface);
-            let node_id = self.node_id();
-
             self.metrics().write(
-                node_id,
-                &format!("network.{interface}.total_rx_bps"),
+                &node_uuid,
+                &format!("net.{interface}.total_rx_bps"),
                 data.total_received() as f64,
-                now,
+                tags.clone(),
             );
 
             self.metrics().write(
-                node_id,
-                &format!("network.{interface}.total_tx_bps"),
+                &node_uuid,
+                &format!("net.{interface}.total_tx_bps"),
                 data.total_transmitted() as f64,
-                now,
+                tags.clone(),
             );
 
             self.metrics().write(
-                node_id,
-                &format!("network.{interface}.rx_bps"),
+                &node_uuid,
+                &format!("net.{interface}.rx_bps"),
                 data.received() as f64,
-                now,
+                tags.clone(),
             );
             self.metrics().write(
-                node_id,
-                &format!("network.{interface}.tx_bps"),
+                &node_uuid,
+                &format!("net.{interface}.tx_bps"),
                 data.transmitted() as f64,
-                now,
-            );
-            self.metrics().write(
-                node_id,
-                &format!("network.{interface}.rx_err"),
-                data.errors_on_received() as f64,
-                now,
-            );
-            self.metrics().write(
-                node_id,
-                &format!("network.{interface}.tx_err"),
-                data.errors_on_transmitted() as f64,
-                now,
+                tags.clone(),
             );
         }
     }
     async fn cpu_usage(&self) {
-        let now = Utc::now().timestamp();
-
         let mut sys = System::new_with_specifics(
             RefreshKind::nothing().with_cpu(CpuRefreshKind::everything()),
         );
@@ -144,15 +121,64 @@ where
         std::thread::sleep(std::time::Duration::from_millis(1000));
         sys.refresh_cpu_all();
 
+        let node = self.node_settings();
+        let tags = node.get_base_tags();
+        let node_uuid = node.uuid;
+
         for cpu in sys.cpus() {
             let usage = (cpu.cpu_usage() * 100.0).round() / 100.0;
-            let metric_name = format!("cpu.{}", cpu.name());
-            let node_id = self.node_id();
-
-            log::debug!("Storing CPU metric {} = {}", metric_name, usage);
+            let metric_name = format!("sys.cpu.{}", cpu.name());
 
             self.metrics()
-                .write(node_id, &metric_name, usage as f64, now);
+                .write(&node_uuid, &metric_name, usage as f64, tags.clone());
+        }
+    }
+
+    async fn disk_usage(&self) {
+        let disks = Disks::new_with_refreshed_list();
+
+        let node = self.node_settings();
+        let tags = node.get_base_tags();
+        let node_uuid = node.uuid;
+
+        for disk in &disks {
+            let mount_point = disk.mount_point().to_str().unwrap_or("unknown");
+            let safe_mount = if mount_point == "/" {
+                "root"
+            } else {
+                mount_point.trim_start_matches('/')
+            };
+
+            let total = disk.total_space();
+            let available = disk.available_space();
+            let used = total - available;
+
+            let usage_percent = if total > 0 {
+                (used as f64 / total as f64 * 100.0).round() / 100.0
+            } else {
+                0.0
+            };
+
+            self.metrics().write(
+                &node_uuid,
+                &format!("sys.disk.{}.used_bytes", safe_mount),
+                used as f64,
+                tags.clone(),
+            );
+
+            self.metrics().write(
+                &node_uuid,
+                &format!("sys.disk.{}.total_bytes", safe_mount),
+                total as f64,
+                tags.clone(),
+            );
+
+            self.metrics().write(
+                &node_uuid,
+                &format!("sys.disk.{}.usage_percent", safe_mount),
+                usage_percent,
+                tags.clone(),
+            );
         }
     }
 }

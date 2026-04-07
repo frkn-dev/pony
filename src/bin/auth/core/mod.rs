@@ -9,6 +9,7 @@ use pony::config::settings::ApiAccessConfig;
 use pony::http::filters as pony_filters;
 use pony::memory::connection::Connections;
 use pony::memory::node::Node;
+use pony::metrics::storage::MetricBuffer;
 use pony::zmq::subscriber::Subscriber as ZmqSubscriber;
 use pony::ConnectionBaseOp;
 
@@ -21,6 +22,7 @@ pub mod filters;
 pub mod handlers;
 pub mod helpers;
 pub mod http;
+pub mod metrics;
 pub mod request;
 pub mod response;
 pub mod service;
@@ -58,6 +60,7 @@ where
     C: ConnectionBaseOp + Send + Sync + Clone + 'static,
 {
     pub memory: Arc<RwLock<Connections<C>>>,
+    pub metrics: Arc<MetricBuffer>,
     pub node: Node,
     pub subscriber: ZmqSubscriber,
     pub email_store: EmailStore,
@@ -72,24 +75,25 @@ where
     C: ConnectionBaseOp + Send + Sync + Clone + 'static,
 {
     pub fn new(
+        metrics: Arc<MetricBuffer>,
         node: Node,
         subscriber: ZmqSubscriber,
         email_store: EmailStore,
         http_client: HttpClient,
         api: ApiAccessConfig,
-        listen: Ipv4Addr,
-        port: u16,
+        listen: (Ipv4Addr, u16),
     ) -> Self {
         let memory = Arc::new(RwLock::new(Connections::default()));
         Self {
             memory,
+            metrics,
             node,
             subscriber,
             email_store,
             http_client,
             api,
-            listen,
-            port,
+            listen: listen.0,
+            port: listen.1,
         }
     }
 

@@ -4,7 +4,7 @@ use tokio::sync::RwLock;
 
 use pony::memory::connection::Connections;
 use pony::memory::node::Node;
-use pony::metrics::storage::MetricStorage;
+use pony::metrics::storage::MetricBuffer;
 use pony::wireguard_op::WgApi;
 use pony::xray_op::client::HandlerClient;
 use pony::xray_op::client::StatsClient;
@@ -24,7 +24,7 @@ where
 {
     pub memory: Arc<RwLock<Connections<C>>>,
     pub node: Node,
-    pub metrics: Arc<MetricStorage>,
+    pub metrics: Arc<MetricBuffer>,
     pub subscriber: ZmqSubscriber,
     pub xray_stats_client: Option<Arc<Mutex<StatsClient>>>,
     pub xray_handler_client: Option<Arc<Mutex<HandlerClient>>>,
@@ -37,8 +37,8 @@ where
 {
     pub fn new(
         node: Node,
-        metrics: Arc<MetricStorage>,
         subscriber: ZmqSubscriber,
+        metrics: Arc<MetricBuffer>,
         xray_stats_client: Option<Arc<Mutex<StatsClient>>>,
         xray_handler_client: Option<Arc<Mutex<HandlerClient>>>,
         wg_client: Option<WgApi>,

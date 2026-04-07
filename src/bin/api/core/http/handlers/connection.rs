@@ -12,7 +12,6 @@ use pony::utils;
 use pony::Connection;
 use pony::ConnectionApiOp;
 use pony::ConnectionBaseOp;
-use pony::ConnectionStat;
 use pony::NodeStorageOp;
 use pony::OperationStatus as StorageOperationStatus;
 use pony::Proto;
@@ -331,13 +330,8 @@ where
 
     drop(mem);
 
-    let conn: Connection = Connection::new(
-        &conn_req.env,
-        conn_req.subscription_id,
-        ConnectionStat::default(),
-        proto,
-        expired_at,
-    );
+    let conn: Connection =
+        Connection::new(&conn_req.env, conn_req.subscription_id, proto, expired_at);
 
     log::debug!("New connection to create {}", conn);
     let conn_id = uuid::Uuid::new_v4();

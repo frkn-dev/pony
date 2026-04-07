@@ -11,7 +11,7 @@ use pony::SubscriptionOp;
 use crate::MemSync;
 
 /// Provides application state filter
-pub fn with_state<T, C, S>(
+pub fn with_sync<T, C, S>(
     mem_sync: MemSync<T, C, S>,
 ) -> impl Filter<Extract = (MemSync<T, C, S>,), Error = std::convert::Infallible> + Clone
 where

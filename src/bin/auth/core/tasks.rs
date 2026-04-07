@@ -5,6 +5,7 @@ use rkyv::AlignedVec;
 use rkyv::Infallible;
 use tokio::time::Duration;
 
+use pony::metrics::Metrics;
 use pony::Action;
 use pony::BaseConnection as Connection;
 use pony::ConnectionBaseOp;
@@ -20,6 +21,7 @@ use super::AuthService;
 pub trait Tasks {
     async fn run_subscriber(&self) -> Result<()>;
     async fn handle_messages_batch(&self, msg: Vec<Message>) -> Result<()>;
+    async fn collect_metrics(&self);
 }
 
 #[async_trait]
@@ -133,5 +135,14 @@ where
         }
 
         Ok(())
+    }
+
+    async fn collect_metrics(&self) {
+        self.heartbeat().await;
+        self.bandwidth().await;
+        self.cpu_usage().await;
+        self.loadavg().await;
+        self.memory().await;
+        self.disk_usage().await;
     }
 }

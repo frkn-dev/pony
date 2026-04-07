@@ -63,16 +63,16 @@ where
         let get_healthcheck_route = warp::get()
             .and(warp::path("healthcheck"))
             .and(warp::path::end())
-            .and(with_state(self.sync.clone()))
+            .and(with_sync(self.sync.clone()))
             .and_then(healthcheck_handler);
 
         // Node routes
         let get_nodes_route = warp::get()
             .and(warp::path("nodes"))
             .and(warp::path::end())
-            .and(auth.clone())
             .and(warp::query::<NodesQueryParams>())
-            .and(with_state(self.sync.clone()))
+            .and(with_sync(self.sync.clone()))
+            .and(with_metrics(self.metrics.clone()))
             .and_then(get_nodes_handler);
 
         let post_node_register_route = warp::post()
@@ -80,7 +80,7 @@ where
             .and(warp::path::end())
             .and(auth.clone())
             .and(warp::body::json::<NodeRequest>())
-            .and(with_state(self.sync.clone()))
+            .and(with_sync(self.sync.clone()))
             .and_then(post_node_handler);
 
         let get_node_route = warp::get()
@@ -88,19 +88,10 @@ where
             .and(warp::path::end())
             .and(auth.clone())
             .and(warp::query::<NodeIdParam>())
-            .and(with_state(self.sync.clone()))
+            .and(with_sync(self.sync.clone()))
             .and_then(get_node_handler);
 
         // Subscription Routes
-
-        let get_subscription_stat_route = warp::get()
-            .and(warp::path("sub"))
-            .and(warp::path("stat"))
-            .and(warp::path::end())
-            .and(auth.clone())
-            .and(warp::query::<SubIdQueryParam>())
-            .and(with_state(self.sync.clone()))
-            .and_then(subscription_conn_stat_handler);
 
         let get_subscription_connections_route = warp::get()
             .and(warp::path("sub"))
@@ -108,14 +99,14 @@ where
             .and(warp::path::end())
             .and(auth.clone())
             .and(warp::query::<SubIdQueryParam>())
-            .and(with_state(self.sync.clone()))
+            .and(with_sync(self.sync.clone()))
             .and_then(get_subscription_connections_handler);
 
         let get_subscription_route = warp::get()
             .and(warp::path("sub"))
             .and(warp::path::end())
             .and(warp::query::<SubQueryParam>())
-            .and(with_state(self.sync.clone()))
+            .and(with_sync(self.sync.clone()))
             .and_then(subscription_link_handler);
 
         let get_subscription_info_route = warp::get()
@@ -123,7 +114,7 @@ where
             .and(warp::path("info"))
             .and(warp::path::end())
             .and(warp::query::<SubQueryParam>())
-            .and(with_state(self.sync.clone()))
+            .and(with_sync(self.sync.clone()))
             .and(with_param_string(params.web_host))
             .and(with_param_string(params.api_web_host))
             .and_then(subscription_info_handler);
@@ -133,7 +124,7 @@ where
             .and(warp::path::end())
             .and(auth.clone())
             .and(warp::body::json())
-            .and(with_state(self.sync.clone()))
+            .and(with_sync(self.sync.clone()))
             .and(with_i64(params.bonus_days))
             .and(with_param_vec_string(params.promo_codes))
             .and_then(post_subscription_handler);
@@ -144,7 +135,7 @@ where
             .and(auth.clone())
             .and(warp::query::<SubIdQueryParam>())
             .and(warp::body::json())
-            .and(with_state(self.sync.clone()))
+            .and(with_sync(self.sync.clone()))
             .and_then(put_subscription_handler);
 
         // Connections Routes
@@ -154,7 +145,7 @@ where
             .and(warp::path::end())
             .and(auth.clone())
             .and(warp::query::<ConnQueryParam>())
-            .and(with_state(self.sync.clone()))
+            .and(with_sync(self.sync.clone()))
             .and_then(get_connection_handler);
 
         let get_connections_route = warp::get()
@@ -162,7 +153,7 @@ where
             .and(warp::path::end())
             .and(auth.clone())
             .and(warp::query::<ConnTypeParam>())
-            .and(with_state(self.sync.clone()))
+            .and(with_sync(self.sync.clone()))
             .and_then(get_connections_handler);
 
         let post_connection_route = warp::post()
@@ -170,7 +161,7 @@ where
             .and(warp::path::end())
             .and(auth.clone())
             .and(warp::body::json())
-            .and(with_state(self.sync.clone()))
+            .and(with_sync(self.sync.clone()))
             .and_then(create_connection_handler);
 
         let delete_connection_route = warp::delete()
@@ -178,7 +169,7 @@ where
             .and(warp::path::end())
             .and(auth.clone())
             .and(warp::query::<ConnQueryParam>())
-            .and(with_state(self.sync.clone()))
+            .and(with_sync(self.sync.clone()))
             .and_then(delete_connection_handler);
 
         // Keys Routes
@@ -188,7 +179,7 @@ where
             .and(warp::path::end())
             .and(auth.clone())
             .and(warp::query::<KeyQueryParams>())
-            .and(with_state(self.sync.clone()))
+            .and(with_sync(self.sync.clone()))
             .and(with_param_vec(params.key_sign_token.clone()))
             .and_then(get_key_validate_handler);
 
@@ -197,7 +188,7 @@ where
             .and(warp::path::end())
             .and(auth.clone())
             .and(warp::body::json())
-            .and(with_state(self.sync.clone()))
+            .and(with_sync(self.sync.clone()))
             .and(with_param_vec(params.key_sign_token))
             .and_then(post_key_handler);
 
@@ -206,18 +197,28 @@ where
             .and(warp::path("activate"))
             .and(warp::path::end())
             .and(warp::body::json())
-            .and(with_state(self.sync.clone()))
+            .and(with_sync(self.sync.clone()))
             .and_then(post_activate_key_handler);
 
-        let get_metrics_route = warp::path!("api" / "metrics" / String / "heartbeat")
-            .and(warp::get())
-            .and(with_metrics(self.metrics.clone())) // прокидываем сторадж
-            .and_then(get_heartbeat_handler);
+        use uuid::Uuid;
+        let ws_metrics_route = warp::path!("metrics" / Uuid / String / "ws")
+            .and(warp::ws())
+            .and(with_metrics(self.metrics.clone()))
+            .map(
+                |node_id, encoded_metric: String, ws: warp::ws::Ws, storage| {
+                    let metric_name = urlencoding::decode(&encoded_metric)
+                        .map(|s| s.into_owned())
+                        .unwrap_or(encoded_metric);
+
+                    ws.on_upgrade(move |socket| {
+                        handle_ws_client(socket, node_id, metric_name, storage)
+                    })
+                },
+            );
 
         let routes = get_healthcheck_route
             // Subscription
             .or(get_subscription_connections_route)
-            .or(get_subscription_stat_route)
             .or(get_subscription_route)
             .or(get_subscription_info_route)
             .or(post_subscription_route)
@@ -236,7 +237,7 @@ where
             .or(post_key_route)
             .or(post_activate_key_route)
             // Metrics
-            .or(get_metrics_route)
+            .or(ws_metrics_route)
             .recover(rejection)
             .with(cors);
 

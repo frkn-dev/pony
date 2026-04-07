@@ -10,7 +10,9 @@ use tokio::time::Duration;
 use pony::config::settings::AuthServiceSettings;
 use pony::config::settings::NodeConfig;
 use pony::memory::node::Node;
+use pony::metrics::storage::MetricBuffer;
 use pony::BaseConnection as Connection;
+use pony::Publisher;
 use pony::Result;
 use pony::SnapshotManager;
 use pony::Subscriber as ZmqSubscriber;
@@ -49,14 +51,25 @@ pub async fn run(settings: AuthServiceSettings) -> Result<()> {
         .web_server
         .unwrap_or(Ipv4Addr::from_octets([127, 0, 0, 1]));
 
+    let metric_publisher = if settings.metrics.enabled {
+        Publisher::connect(&settings.metrics.publisher).await
+    } else {
+        panic!("Metrics ZMQ publisher couldn't run");
+    };
+
+    let metrics = MetricBuffer {
+        batch: parking_lot::Mutex::new(Vec::new()),
+        publisher: metric_publisher,
+    };
+
     let auth = Arc::new(AuthService::<Connection>::new(
+        Arc::new(metrics),
         node,
         subscriber,
         email_store,
         http_client,
         settings.api.clone(),
-        listen_addr,
-        settings.auth.web_port,
+        (listen_addr, settings.auth.web_port),
     ));
 
     let snapshot_manager =
@@ -131,6 +144,7 @@ pub async fn run(settings: AuthServiceSettings) -> Result<()> {
 
     {
         let settings = settings.clone();
+        let auth = auth.clone();
 
         loop {
             let api_token = settings.api.token.clone();
@@ -156,6 +170,7 @@ pub async fn run(settings: AuthServiceSettings) -> Result<()> {
 
     {
         let mut shutdown = shutdown_tx.subscribe();
+        let auth = auth.clone();
 
         let auth_handle = tokio::spawn(async move {
             tokio::select! {
@@ -165,6 +180,46 @@ pub async fn run(settings: AuthServiceSettings) -> Result<()> {
         });
         tasks.push(auth_handle);
     };
+
+    if settings.metrics.enabled {
+        log::info!("Running metrics task");
+
+        // Клон для первого таска
+        let auth_for_collect = auth.clone();
+        let metrics_handle = tokio::spawn({
+            let mut shutdown = shutdown_tx.subscribe();
+            async move {
+                loop {
+                    tokio::select! {
+                        _ = sleep(Duration::from_secs(settings.metrics.interval)) => {
+                            auth_for_collect.collect_metrics().await;
+                        },
+                        _ = shutdown.recv() => break,
+                    }
+                }
+            }
+        });
+
+        // Клон для второго таска
+        let auth_for_flush = auth.clone();
+        log::info!("Running flush metrics task");
+        let metrics_flush_handle = tokio::spawn({
+            let mut shutdown = shutdown_tx.subscribe();
+            async move {
+                loop {
+                    tokio::select! {
+                        _ = sleep(Duration::from_secs(settings.metrics.interval + 2)) => {
+                            auth_for_flush.metrics.flush_to_zmq().await;
+                        },
+                        _ = shutdown.recv() => break,
+                    }
+                }
+            }
+        });
+
+        tasks.push(metrics_handle);
+        tasks.push(metrics_flush_handle);
+    }
 
     wait_all_tasks_or_ctrlc(tasks, shutdown_tx).await;
     Ok(())

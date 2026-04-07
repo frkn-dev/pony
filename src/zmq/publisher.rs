@@ -70,20 +70,4 @@ impl Publisher {
         log::debug!("PUB: Message sent: {} | {} bytes", topic, payload.len());
         Ok(())
     }
-
-    pub async fn send(&self, topic: &str, message: impl ToString) -> zmq::Result<()> {
-        let full_message = format!("{} {}", topic, message.to_string());
-        let socket = self.socket.lock().await;
-
-        match socket.send(full_message.as_bytes(), 0) {
-            Ok(_) => {
-                log::debug!("PUB: Message sent: {}", full_message);
-                Ok(())
-            }
-            Err(e) => {
-                log::error!("PUB: Failed to send message: {}", e);
-                Err(e)
-            }
-        }
-    }
 }

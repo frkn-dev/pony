@@ -4,9 +4,7 @@ use super::super::connection::conn::Conn as Connection;
 use super::super::connection::conn::ConnPatch as ConnectionPatch;
 use super::super::connection::op::api::Operations as ConnectionApiOp;
 use super::super::connection::op::base::Operations as ConnectionBaseOp;
-use super::super::connection::stat::Stat as ConnectionStat;
 use super::super::connection::Connections;
-use super::super::stat::Kind as StatKind;
 use super::super::storage::Status as OperationStatus;
 use super::super::tag::ProtoTag as Tag;
 use crate::error::{PonyError, Result};
@@ -17,7 +15,6 @@ where
     C: Clone + Send + Sync + 'static,
 {
     fn add(&mut self, conn_id: &uuid::Uuid, new_conn: C) -> Result<OperationStatus>;
-    fn reset_stat(&mut self, conn_id: &uuid::Uuid, stat: StatKind);
     fn get_by_subscription_id(&self, subscription_id: &uuid::Uuid) -> Option<Vec<(uuid::Uuid, C)>>;
     fn apply_update(conn: &mut Connection, patch: ConnectionPatch) -> Option<Connection>;
 }
@@ -31,12 +28,6 @@ where
     fn add(&mut self, conn_id: &uuid::Uuid, new_conn: C) -> Result<OperationStatus>;
     fn remove(&mut self, conn_id: &uuid::Uuid) -> Result<()>;
     fn get(&self, conn_id: &uuid::Uuid) -> Option<C>;
-    fn update_stat(&mut self, conn_id: &uuid::Uuid, stat: ConnectionStat) -> Result<()>;
-    fn reset_stat(&mut self, conn_id: &uuid::Uuid, stat: StatKind);
-    fn update_uplink(&mut self, conn_id: &uuid::Uuid, new_uplink: i64) -> Result<()>;
-    fn update_downlink(&mut self, conn_id: &uuid::Uuid, new_downlink: i64) -> Result<()>;
-    fn update_online(&mut self, conn_id: &uuid::Uuid, new_online: i64) -> Result<()>;
-    fn update_stats(&mut self, conn_id: &uuid::Uuid, stats: ConnectionStat) -> Result<()>;
     fn validate_token(&self, token: &uuid::Uuid) -> Option<uuid::Uuid>;
 }
 
@@ -82,69 +73,6 @@ where
 
     fn get(&self, conn_id: &uuid::Uuid) -> Option<C> {
         self.0.get(conn_id).cloned()
-    }
-
-    fn update_stats(&mut self, conn_id: &uuid::Uuid, stats: ConnectionStat) -> Result<()> {
-        let conn = self
-            .get_mut(conn_id)
-            .ok_or(PonyError::Custom("Conn not found".into()))?;
-
-        conn.set_online(stats.online);
-        conn.set_uplink(stats.uplink);
-        conn.set_downlink(stats.downlink);
-
-        Ok(())
-    }
-
-    fn update_stat(&mut self, conn_id: &uuid::Uuid, stat: ConnectionStat) -> Result<()> {
-        let conn = self
-            .get_mut(conn_id)
-            .ok_or(PonyError::Custom("Conn not found".into()))?;
-        conn.set_uplink(stat.uplink);
-        conn.set_downlink(stat.downlink);
-        conn.set_online(stat.online);
-        conn.set_modified_at();
-        Ok(())
-    }
-
-    fn reset_stat(&mut self, conn_id: &uuid::Uuid, stat: StatKind) {
-        if let Some(conn) = self.get_mut(conn_id) {
-            match stat {
-                StatKind::Uplink => conn.reset_uplink(),
-                StatKind::Downlink => conn.reset_downlink(),
-                StatKind::Online | StatKind::Unknown => {}
-            }
-        }
-    }
-
-    fn update_uplink(&mut self, conn_id: &uuid::Uuid, new_uplink: i64) -> Result<()> {
-        if let Some(conn) = self.get_mut(conn_id) {
-            conn.set_uplink(new_uplink);
-            conn.set_modified_at();
-            Ok(())
-        } else {
-            Err(PonyError::Custom(format!("Conn not found: {}", conn_id)))
-        }
-    }
-
-    fn update_downlink(&mut self, conn_id: &uuid::Uuid, new_downlink: i64) -> Result<()> {
-        if let Some(conn) = self.get_mut(conn_id) {
-            conn.set_downlink(new_downlink);
-            conn.set_modified_at();
-            Ok(())
-        } else {
-            Err(PonyError::Custom(format!("Conn not found: {}", conn_id)))
-        }
-    }
-
-    fn update_online(&mut self, conn_id: &uuid::Uuid, new_online: i64) -> Result<()> {
-        if let Some(conn) = self.get_mut(conn_id) {
-            conn.set_online(new_online);
-            conn.set_modified_at();
-            Ok(())
-        } else {
-            Err(PonyError::Custom(format!("Conn not found: {}", conn_id)))
-        }
     }
 }
 
@@ -232,16 +160,6 @@ where
             None
         } else {
             Some(conns)
-        }
-    }
-
-    fn reset_stat(&mut self, conn_id: &uuid::Uuid, stat: StatKind) {
-        if let Some(conn) = self.get_mut(conn_id) {
-            match stat {
-                StatKind::Uplink => conn.reset_uplink(),
-                StatKind::Downlink => conn.reset_downlink(),
-                StatKind::Online | StatKind::Unknown => {}
-            }
         }
     }
 }

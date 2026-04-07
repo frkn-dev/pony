@@ -60,6 +60,7 @@ qrcode = "0.14"
 x25519-dalek =  { version = "2", features = ["static_secrets"] }
 warp = "0.3"
 zmq = "0.10"
+parking_lot = "0.12.5"
 
 sha2 = "0.10"
 data-encoding = "2.5"

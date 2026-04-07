@@ -1,10 +1,11 @@
+use std::sync::Arc;
 use warp::http::StatusCode;
 
 use pony::http::IdResponse;
 use pony::http::ResponseMessage;
-
-use pony::memory::node::NodeResponse;
 use pony::memory::node::Status as NodeStatus;
+use pony::memory::node::{NodeMetricInfo, NodeResponse};
+use pony::metrics::storage::MetricStorage;
 use pony::Connection;
 use pony::ConnectionApiOp;
 use pony::ConnectionBaseOp;
@@ -101,6 +102,7 @@ where
 pub async fn get_nodes_handler<N, C, S>(
     node_param: NodesQueryParams,
     memory: MemSync<N, C, S>,
+    metrics: Arc<MetricStorage>,
 ) -> Result<impl warp::Reply, warp::Rejection>
 where
     N: NodeStorageOp + Sync + Send + Clone + 'static,
@@ -126,11 +128,56 @@ where
         Some(nodes) => {
             let node_response: Vec<NodeResponse> = nodes
                 .into_iter()
-                .map(|node| node.as_node_response())
+                .map(|node| {
+                    let mut res = node.as_node_response();
+                    let node_uuid = node.uuid;
+
+                    res.metrics = if let Some(node_metrics_map) = metrics.inner.get(&node_uuid) {
+                        node_metrics_map
+                            .iter()
+                            .filter_map(|entry| {
+                                let series_key = entry.key();
+                                let points = entry.value();
+
+                                if points.is_empty() {
+                                    return None;
+                                }
+
+                                if !(series_key.starts_with("sys.")
+                                    || series_key.starts_with("net."))
+                                {
+                                    return None;
+                                }
+
+                                let tags = metrics
+                                    .metadata
+                                    .get(series_key)
+                                    .map(|m| m.value().clone())
+                                    .unwrap_or_default();
+
+                                let name = series_key
+                                    .split(':')
+                                    .next()
+                                    .unwrap_or(series_key)
+                                    .to_string();
+
+                                Some(NodeMetricInfo {
+                                    key: series_key.clone(),
+                                    name,
+                                    tags,
+                                })
+                            })
+                            .collect()
+                    } else {
+                        vec![]
+                    };
+                    res
+                })
                 .collect();
-            let response = ResponseMessage::<Option<Vec<NodeResponse>>> {
+
+            let response = ResponseMessage {
                 status: StatusCode::OK.as_u16(),
-                message: "List of nodes".to_string(),
+                message: "List of nodes with metrics".to_string(),
                 response: Some(node_response),
             };
 

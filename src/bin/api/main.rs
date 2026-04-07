@@ -1,7 +1,4 @@
 use fern::Dispatch;
-use pony::memory::node::Node;
-use pony::memory::subscription::Subscription;
-use pony::Connection;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio::time::Duration;
@@ -68,7 +65,7 @@ async fn main() -> Result<()> {
 
     let mem: Arc<RwLock<ApiState>> = Arc::new(RwLock::new(Cache::new()));
     let mem_sync = MemSync::new(mem.clone(), db.clone(), publisher.clone());
-    let metric_storage = Arc::new(MetricStorage::new(1000, 24 * 60 * 7, None));
+    let metric_storage = Arc::new(MetricStorage::new(100_000_000, 24 * 60 * 7));
 
     let api = Arc::new(Api::new(mem_sync.clone(), settings.clone(), metric_storage));
 
@@ -83,23 +80,26 @@ async fn main() -> Result<()> {
 
     if settings.api.metrics_enabled {
         log::debug!("Running metrics task");
-        // 1. Создаем сабскрайбер (BIND)
         let subscriber = Subscriber::new_bound("tcp://0.0.0.0:5555", vec![]);
 
-        // 2. Создаем канал для Carbon (даже если пока пустой)
-        let (carbon_tx, _carbon_rx) = tokio::sync::mpsc::unbounded_channel();
-
-        // 3. Просто запускаем воркер!
-        // Он сам внутри себя сделает tokio::spawn и начнет слушать.
-        MetricWorker::start::<Node, Connection, Subscription>(
-            api.metrics.clone(),
-            subscriber,
-            carbon_tx,
-        )
-        .await;
+        MetricWorker::start(api.metrics.clone(), subscriber).await;
 
         log::info!("Metrics system initialized via MetricWorker");
     }
+
+    let metrics_storage = api.metrics.clone();
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
+        loop {
+            interval.tick().await;
+            let s = metrics_storage.clone();
+            tokio::task::spawn_blocking(move || {
+                log::info!("Starting MetricStorage GC...");
+                s.perform_gc();
+                log::info!("MetricStorage GC finished.");
+            });
+        }
+    });
 
     tokio::spawn({
         let api = api.clone();

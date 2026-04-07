@@ -1,6 +1,9 @@
 use std::fmt;
 use std::str::FromStr;
-use std::{collections::HashMap, net::Ipv4Addr};
+use std::{
+    collections::{BTreeMap, HashMap},
+    net::Ipv4Addr,
+};
 
 use chrono::DateTime;
 use chrono::Utc;
@@ -11,7 +14,6 @@ use super::tag::ProtoTag as Tag;
 use crate::config::h2::H2Settings;
 use crate::config::settings::{MtprotoConfig, NodeConfig};
 use crate::config::wireguard::WireguardSettings;
-use crate::config::xray::InboundResponse;
 use crate::config::xray::{Config as XrayConfig, Inbound};
 
 #[derive(Clone, Debug, Deserialize, Serialize, Copy, ToSql, FromSql)]
@@ -57,11 +59,19 @@ pub struct NodeResponse {
     pub env: String,
     pub hostname: String,
     pub address: Ipv4Addr,
-    pub inbounds: HashMap<Tag, InboundResponse>,
+    pub inbounds: Vec<Tag>,
     pub status: Status,
     pub label: String,
     pub cores: usize,
     pub max_bandwidth_bps: i64,
+    pub metrics: Vec<NodeMetricInfo>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct NodeMetricInfo {
+    pub key: String,
+    pub name: String,
+    pub tags: BTreeMap<String, String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
@@ -170,24 +180,36 @@ impl Node {
         }
     }
 
+    pub fn get_base_tags(&self) -> BTreeMap<String, String> {
+        let mut tags = BTreeMap::new();
+        tags.insert("env".to_string(), self.env.clone());
+        tags.insert("hostname".to_string(), self.hostname.clone());
+        tags.insert("label".to_string(), self.label.clone());
+        tags.insert("address".to_string(), self.address.to_string());
+        tags.insert("label".to_string(), self.label.clone());
+        tags.insert("interface".to_string(), self.interface.clone());
+        tags.insert("cores".to_string(), self.cores.to_string());
+        tags.insert(
+            "max_bandwidth_bps".to_string(),
+            self.max_bandwidth_bps.to_string(),
+        );
+        tags
+    }
+
     pub fn as_node_response(&self) -> NodeResponse {
-        let inbound_response = self
-            .inbounds
-            .clone()
-            .into_iter()
-            .map(|inbound| (inbound.0, inbound.1.as_inbound_response()))
-            .collect();
+        let tags: Vec<Tag> = self.inbounds.keys().cloned().collect();
 
         NodeResponse {
             env: self.env.clone(),
             hostname: self.hostname.clone(),
             address: self.address,
             uuid: self.uuid,
-            inbounds: inbound_response,
+            inbounds: tags,
             status: self.status,
             label: self.label.clone(),
             cores: self.cores,
             max_bandwidth_bps: self.max_bandwidth_bps,
+            metrics: [].to_vec(),
         }
     }
 

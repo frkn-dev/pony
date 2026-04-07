@@ -29,7 +29,6 @@ pub trait Tasks {
     async fn run_subscriber(&self) -> Result<()>;
     async fn handle_messages_batch(&self, msg: Vec<Message>) -> Result<()>;
     async fn handle_message(&self, msg: Message) -> Result<()>;
-
     async fn collect_metrics(&self);
 }
 
@@ -329,7 +328,15 @@ where
         self.cpu_usage().await;
         self.loadavg().await;
         self.memory().await;
-        self.inbounds().await;
-        self.connections().await;
+        self.disk_usage().await;
+
+        if self.xray_stats_client.is_some() {
+            self.collect_inbound_metrics().await;
+            self.collect_user_metrics().await;
+        }
+
+        if self.wg_client.is_some() {
+            self.collect_wg_metrics().await;
+        }
     }
 }

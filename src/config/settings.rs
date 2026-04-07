@@ -580,6 +580,8 @@ pub struct AuthServiceSettings {
     pub api: ApiAccessConfig,
     #[serde(default)]
     pub smtp: SmtpConfig,
+    #[serde(default)]
+    pub metrics: MetricsConfig,
 }
 
 #[derive(Clone, Debug, Deserialize)]

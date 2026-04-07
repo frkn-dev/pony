@@ -1,89 +1,147 @@
-use chrono::Utc;
-
 use crate::core::Agent;
+use pony::memory::node::Node;
 use pony::metrics::storage::HasMetrics;
-use pony::metrics::storage::MetricSink;
-use pony::metrics::storage::MetricStorage;
-
+use pony::metrics::storage::MetricBuffer;
+use pony::xray_op::stats::{Prefix, StatOp};
 use pony::ConnectionBaseOp;
+use pony::Tag;
 
 impl<C> HasMetrics for Agent<C>
 where
     C: ConnectionBaseOp + Send + Sync + Clone + 'static,
 {
-    fn metrics(&self) -> &MetricStorage {
+    fn metrics(&self) -> &MetricBuffer {
         &self.metrics
     }
 
-    fn node_id(&self) -> &uuid::Uuid {
-        &self.node.uuid
+    fn node_settings(&self) -> &Node {
+        &self.node
     }
 }
 
+#[async_trait::async_trait]
 pub trait BusinessMetrics {
-    async fn inbounds(&self);
-    async fn connections(&self);
+    async fn collect_inbound_metrics(&self);
+    async fn collect_user_metrics(&self);
+    async fn collect_wg_metrics(&self);
 }
 
+#[async_trait::async_trait]
 impl<C> BusinessMetrics for Agent<C>
 where
     C: ConnectionBaseOp + Send + Sync + Clone + 'static,
 {
-    async fn connections(&self) {
-        let now = Utc::now().timestamp();
-        let connections = self.memory.read().await.clone();
-        let node_id = self.node_id();
-        for (conn_id, conn) in connections.iter() {
-            let proto = conn.get_proto().proto();
-            let base = format!("connection.{}.{}", proto, conn_id);
-            self.metrics.write(
-                node_id,
-                &format!("{base}.uplink"),
-                conn.get_uplink() as f64,
-                now,
-            );
-            self.metrics.write(
-                node_id,
-                &format!("{base}.downlink"),
-                conn.get_downlink() as f64,
-                now,
-            );
-            self.metrics.write(
-                node_id,
-                &format!("{base}.online"),
-                conn.get_online() as f64,
-                now,
-            );
-            log::debug!("Stored connection metrics for {}", conn_id);
+    async fn collect_inbound_metrics(&self) {
+        let node_uuid = self.node.uuid;
+        let base_tags = self.node.get_base_tags();
+
+        for tag in self.node.inbounds.keys() {
+            if matches!(tag, Tag::Hysteria2 | Tag::Mtproto) {
+                continue;
+            }
+
+            let prefix = Prefix::InboundPrefix(*tag);
+
+            if let Ok(stats) = self.inbound_stats(prefix).await {
+                let mut metric_tags = base_tags.clone();
+                metric_tags.insert("inbound_tag".to_string(), tag.to_string());
+
+                let metric_prefix = format!("net.inbound.{}", tag);
+
+                self.metrics.push(
+                    node_uuid,
+                    &format!("{}.downlink", metric_prefix),
+                    stats.downlink as f64,
+                    metric_tags.clone(),
+                );
+                self.metrics.push(
+                    node_uuid,
+                    &format!("{}.uplink", metric_prefix),
+                    stats.uplink as f64,
+                    metric_tags.clone(),
+                );
+                self.metrics.push(
+                    node_uuid,
+                    &format!("{}.connections", metric_prefix),
+                    stats.conn_count as f64,
+                    metric_tags,
+                );
+            }
         }
     }
-    async fn inbounds(&self) {
-        let node = &self.node;
-        let now = Utc::now().timestamp();
 
-        let node_id = self.node_id();
+    async fn collect_user_metrics(&self) {
+        let node_uuid = self.node.uuid;
+        let base_tags = self.node.get_base_tags();
 
-        for (tag, inbound) in node.inbounds.clone() {
-            let base = format!("inbound.{}", tag);
-            self.metrics.write(
-                node_id,
-                &format!("{base}.uplink"),
-                inbound.uplink.unwrap_or(0) as f64,
-                now,
-            );
-            self.metrics.write(
-                node_id,
-                &format!("{base}.downlink"),
-                inbound.downlink.unwrap_or(0) as f64,
-                now,
-            );
-            self.metrics.write(
-                node_id,
-                &format!("{base}.conn_count"),
-                inbound.conn_count.unwrap_or(0) as f64,
-                now,
-            );
-            log::debug!("Stored inbound metrics for {}", tag);
+        let active_conns = {
+            let mem = self.memory.read().await;
+            mem.keys().cloned().collect::<Vec<_>>()
+        };
+
+        for conn_id in active_conns {
+            let res = self.conn_stats(Prefix::ConnPrefix(conn_id)).await;
+            match res {
+                Ok(stats) => {
+                    log::debug!("Successfully fetched stats for {}", conn_id);
+                    let mut metric_tags = base_tags.clone();
+                    metric_tags.insert("conn_id".to_string(), conn_id.to_string());
+
+                    self.metrics.push(
+                        node_uuid,
+                        "user.traffic.downlink",
+                        stats.downlink as f64,
+                        metric_tags.clone(),
+                    );
+                    self.metrics.push(
+                        node_uuid,
+                        "user.traffic.uplink",
+                        stats.uplink as f64,
+                        metric_tags.clone(),
+                    );
+                    self.metrics
+                        .push(node_uuid, "user.online", stats.online as f64, metric_tags);
+                }
+                Err(e) => {
+                    log::error!("Failed to get stats for user {}: {:?}", conn_id, e);
+                }
+            }
+        }
+    }
+
+    async fn collect_wg_metrics(&self) {
+        let wg_client = match &self.wg_client {
+            Some(c) => c,
+            None => return,
+        };
+
+        let node_uuid = self.node.uuid;
+        let base_tags = self.node.get_base_tags();
+
+        let wg_conns = {
+            let mem = self.memory.read().await;
+            mem.iter()
+                .filter_map(|(id, conn)| {
+                    conn.get_wireguard().map(|wg| (*id, wg.keys.pubkey.clone()))
+                })
+                .collect::<Vec<_>>()
+        };
+
+        for (conn_id, pubkey) in wg_conns {
+            if let Ok((uplink, downlink)) = wg_client.peer_stats(&pubkey) {
+                let mut metric_tags = base_tags.clone();
+                metric_tags.insert("user_id".to_string(), conn_id.to_string());
+                metric_tags.insert("proto".to_string(), "wireguard".to_string());
+
+                self.metrics.push(
+                    node_uuid,
+                    "user.traffic.downlink",
+                    downlink as f64,
+                    metric_tags.clone(),
+                );
+                self.metrics
+                    .push(node_uuid, "user.traffic.uplink", uplink as f64, metric_tags);
+            }
         }
     }
 }

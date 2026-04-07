@@ -7,3 +7,4 @@ dev/config-auth.toml
 target
 snapshots/*.bin
 dev/data/*
+dev/xray-config.json

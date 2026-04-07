@@ -37,10 +37,10 @@ impl PgNode {
 
         let node_query = "
         INSERT INTO nodes (
-            id, uuid, env, hostname, address, status, created_at, modified_at, label, interface, cores, max_bandwidth_bps
+            id, uuid, env, hostname, address, status, created_at, modified_at, label, interface, cores, max_bandwidth_bps, country
         )
         VALUES (
-            $1, $2, $3, $4, $5, $6::node_status, $7, $8, $9, $10, $11, $12
+            $1, $2, $3, $4, $5, $6::node_status, $7, $8, $9, $10, $11, $12, $13
         )
         ON CONFLICT (id) DO UPDATE SET
             uuid = EXCLUDED.uuid,
@@ -52,7 +52,8 @@ impl PgNode {
             label = EXCLUDED.label,
             interface = EXCLUDED.interface,
             cores = EXCLUDED.cores,
-            max_bandwidth_bps = EXCLUDED.max_bandwidth_bps
+            max_bandwidth_bps = EXCLUDED.max_bandwidth_bps,
+            country = EXCLUDED.country
     ";
 
         tx.execute(
@@ -70,6 +71,7 @@ impl PgNode {
                 &node.interface,
                 &cores,
                 &node.max_bandwidth_bps,
+                &node.country,
             ],
         )
         .await?;

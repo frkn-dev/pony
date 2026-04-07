@@ -1,7 +1,7 @@
-use super::response;
 use super::Env;
 use super::HttpClient;
-use pony::http::helpers::{Instance, InstanceWithId};
+use pony::http::response::ResponseMessage;
+use pony::http::response::{Instance, InstanceWithId};
 use pony::memory::key::Code;
 use pony::Subscription;
 
@@ -28,7 +28,7 @@ pub async fn validate_key(
     let text = res.text().await?;
 
     if status.is_success() {
-        let parsed: response::Api<InstanceWithId<Instance>> = serde_json::from_str(&text)?;
+        let parsed: ResponseMessage<InstanceWithId<Instance>> = serde_json::from_str(&text)?;
 
         log::debug!("Response validate_key {} {}", parsed.status, parsed.message);
 
@@ -69,7 +69,7 @@ pub async fn activate_key(
     let text = res.text().await?;
 
     if status.is_success() {
-        let parsed: response::Api<InstanceWithId<Instance>> = serde_json::from_str(&text)?;
+        let parsed: ResponseMessage<InstanceWithId<Instance>> = serde_json::from_str(&text)?;
 
         log::debug!("Response activate_key {} {}", parsed.status, parsed.message);
 
@@ -111,7 +111,7 @@ pub async fn create_subscription(
     let text = res.text().await?;
 
     if status.is_success() {
-        let parsed: response::Api<InstanceWithId<Instance>> = serde_json::from_str(&text)?;
+        let parsed: ResponseMessage<InstanceWithId<Instance>> = serde_json::from_str(&text)?;
 
         match parsed.response.instance {
             Instance::Subscription(sub) => Ok(sub),
@@ -172,7 +172,7 @@ pub async fn create_connection(
         anyhow::bail!("empty connection response, status = {}", status);
     }
 
-    let parsed: response::Api<InstanceWithId<Instance>> = serde_json::from_str(&text)?;
+    let parsed: ResponseMessage<InstanceWithId<Instance>> = serde_json::from_str(&text)?;
 
     log::debug!(
         "Response create_connection {} {}",

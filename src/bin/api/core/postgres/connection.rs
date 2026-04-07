@@ -8,7 +8,6 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 
 use pony::Connection as Conn;
-use pony::ConnectionStat;
 use pony::Proto;
 use pony::Tag;
 use pony::WgKeys;
@@ -27,7 +26,6 @@ pub struct ConnRow {
     pub modified_at: DateTime<Utc>,
     pub expires_at: Option<DateTime<Utc>>,
     pub subscription_id: Option<uuid::Uuid>,
-    pub stat: ConnectionStat,
     pub wg: Option<WgParam>,
     pub node_id: Option<uuid::Uuid>,
     pub proto: Tag,
@@ -37,12 +35,6 @@ pub struct ConnRow {
 
 impl From<(uuid::Uuid, Conn)> for ConnRow {
     fn from((conn_id, conn): (uuid::Uuid, Conn)) -> Self {
-        let conn_stat = ConnectionStat {
-            online: conn.stat.online,
-            uplink: conn.stat.uplink,
-            downlink: conn.stat.downlink,
-        };
-
         ConnRow {
             conn_id,
             password: conn.get_password(),
@@ -51,7 +43,6 @@ impl From<(uuid::Uuid, Conn)> for ConnRow {
             modified_at: conn.modified_at,
             expires_at: conn.expires_at,
             subscription_id: conn.subscription_id,
-            stat: conn_stat,
             wg: conn.get_wireguard().cloned(),
             node_id: conn.get_wireguard_node_id(),
             proto: conn.get_proto().proto(),
@@ -99,7 +90,6 @@ impl TryFrom<ConnRow> for Conn {
         Ok(Self {
             env: row.env,
             proto,
-            stat: row.stat,
             subscription_id: row.subscription_id,
             created_at: row.created_at,
             modified_at: row.modified_at,
@@ -132,9 +122,6 @@ impl PgConn {
             modified_at,
             expires_at,
             subscription_id,
-            online,
-            uplink,
-            downlink,
             proto,
             node_id,
             wg_privkey,
@@ -160,9 +147,6 @@ impl PgConn {
                 let expires_at: Option<DateTime<Utc>> = row.get("expires_at");
                 let subscription_id: Option<uuid::Uuid> = row.get("subscription_id");
                 let token: Option<uuid::Uuid> = row.get("token");
-                let online: i64 = row.get("online");
-                let uplink: i64 = row.get("uplink");
-                let downlink: i64 = row.get("downlink");
                 let proto: Tag = row.get("proto");
                 let node_id: Option<uuid::Uuid> = row.get("node_id");
                 let wg_privkey: Option<String> = row.get("wg_privkey");
@@ -189,11 +173,6 @@ impl PgConn {
                     modified_at,
                     expires_at,
                     subscription_id,
-                    stat: ConnectionStat {
-                        online,
-                        uplink,
-                        downlink,
-                    },
                     proto,
                     wg,
                     node_id,
@@ -201,25 +180,6 @@ impl PgConn {
                 }
             })
             .collect()
-    }
-
-    pub async fn update_stat(&self, conn_id: &uuid::Uuid, stat: ConnectionStat) -> Result<()> {
-        let mut manager = self.manager.lock().await;
-        let client = manager.get_client().await?;
-
-        let query = "
-                       UPDATE connections
-                       SET downlink = $1, uplink = $2, online = $3
-                       WHERE id = $4";
-
-        client
-            .execute(
-                query,
-                &[&stat.downlink, &stat.uplink, &stat.online, &conn_id],
-            )
-            .await?;
-
-        Ok(())
     }
 
     pub async fn delete(&self, conn_id: &uuid::Uuid) -> Result<()> {
@@ -257,9 +217,6 @@ impl PgConn {
             modified_at,
             expires_at,
             subscription_id,
-            online,
-            uplink,
-            downlink,
             proto,
             is_deleted,
             wg_privkey,
@@ -270,7 +227,7 @@ impl PgConn {
         )
         VALUES (
             $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-            $11, $12, $13, $14, $15, $16, $17
+            $11, $12, $13, $14
         )
     ";
 
@@ -285,9 +242,6 @@ impl PgConn {
                     &conn.modified_at,
                     &conn.expires_at,
                     &conn.subscription_id,
-                    &conn.stat.online,
-                    &conn.stat.uplink,
-                    &conn.stat.downlink,
                     &conn.proto,
                     &conn.is_deleted,
                     &conn.wg.as_ref().map(|w| &w.keys.privkey),

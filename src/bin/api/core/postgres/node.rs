@@ -163,7 +163,7 @@ impl PgNode {
             .query(
                 "SELECT
                 n.id AS node_id, n.uuid, n.env, n.hostname, n.address, n.status,
-                n.created_at, n.modified_at, n.label, n.interface, n.cores, n.max_bandwidth_bps,
+                n.created_at, n.modified_at, n.label, n.interface, n.cores, n.max_bandwidth_bps, n.country,
                 i.id AS inbound_id, i.tag, i.port, i.stream_settings, i.uplink, i.downlink,
                 i.conn_count, i.wg_pubkey, i.wg_privkey, i.wg_interface, i.wg_network, i.wg_address, i.dns, i.h2, i.mtproto_secret
              FROM nodes n
@@ -186,6 +186,7 @@ impl PgNode {
             let label: String = row.get("label");
             let interface: String = row.get("interface");
             let cores: i32 = row.get("cores");
+            let country: String = row.get("country");
             let max_bandwidth_bps: i64 = row.get("max_bandwidth_bps");
 
             let wg_network: Option<IpAddrMask> = row
@@ -224,6 +225,7 @@ impl PgNode {
                     inbounds: HashMap::new(),
                     cores: cores as usize,
                     max_bandwidth_bps,
+                    country,
                 });
 
                 if let Some(_inbound_id) = inbound_id {

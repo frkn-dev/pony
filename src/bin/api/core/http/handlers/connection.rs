@@ -2,19 +2,16 @@ use chrono::DateTime;
 use chrono::Utc;
 use defguard_wireguard_rs::net::IpAddrMask;
 use rkyv::to_bytes;
-use warp::http::StatusCode;
 
 use pony::http::helpers as http;
-use pony::http::IdResponse;
+use pony::http::response::Instance;
 use pony::http::IpParseError;
 use pony::http::MyRejection;
-use pony::http::ResponseMessage;
 use pony::memory::tag::ProtoTag;
 use pony::utils;
 use pony::Connection;
 use pony::ConnectionApiOp;
 use pony::ConnectionBaseOp;
-use pony::ConnectionStat;
 use pony::NodeStorageOp;
 use pony::OperationStatus as StorageOperationStatus;
 use pony::Proto;
@@ -72,7 +69,7 @@ where
         })
         .collect();
 
-    if !connections_to_send.is_empty() {
+    if connections_to_send.is_empty() {
         log::debug!(
             "Sending {} {:?} connections for env {:?} to topic {} ",
             connections_to_send.len(),
@@ -81,45 +78,36 @@ where
             topic
         );
 
-        let messages: Vec<_> = connections_to_send
-            .iter()
-            .map(|(conn_id, conn)| conn.as_create_message(conn_id))
-            .collect();
+        return Ok(http::not_modified(""));
+    }
 
-        if messages.is_empty() {
-            return Ok(http::not_modified(""));
-        }
+    let messages: Vec<_> = connections_to_send
+        .iter()
+        .map(|(conn_id, conn)| conn.as_create_message(conn_id))
+        .collect();
 
-        let bytes = to_bytes::<_, 1024>(&messages).map_err(|e| {
-            log::error!("Serialization error: {}", e);
+    if messages.is_empty() {
+        return Ok(http::not_modified(""));
+    }
+
+    let bytes = to_bytes::<_, 1024>(&messages).map_err(|e| {
+        log::error!("Serialization error: {}", e);
+        warp::reject::custom(MyRejection(Box::new(e)))
+    })?;
+
+    memory
+        .publisher
+        .send_binary(&topic, bytes.as_ref())
+        .await
+        .map_err(|e| {
+            log::error!("Publish error: {}", e);
             warp::reject::custom(MyRejection(Box::new(e)))
         })?;
 
-        memory
-            .publisher
-            .send_binary(&topic, bytes.as_ref())
-            .await
-            .map_err(|e| {
-                log::error!("Publish error: {}", e);
-                warp::reject::custom(MyRejection(Box::new(e)))
-            })?;
-    } else {
-        log::debug!(
-            "No message {} to send for env {:?} to topic {}",
-            proto,
-            env,
-            topic
-        );
-    }
-
-    let resp = ResponseMessage::<Option<IdResponse>> {
-        status: StatusCode::OK.as_u16(),
-        message: "Ok".to_string(),
-        response: None,
-    };
-    Ok(warp::reply::with_status(
-        warp::reply::json(&resp),
-        StatusCode::OK,
+    Ok(http::success_response(
+        "Ok".into(),
+        None,
+        Instance::Count(messages.len()),
     ))
 }
 
@@ -342,13 +330,8 @@ where
 
     drop(mem);
 
-    let conn: Connection = Connection::new(
-        &conn_req.env,
-        conn_req.subscription_id,
-        ConnectionStat::default(),
-        proto,
-        expired_at,
-    );
+    let conn: Connection =
+        Connection::new(&conn_req.env, conn_req.subscription_id, proto, expired_at);
 
     log::debug!("New connection to create {}", conn);
     let conn_id = uuid::Uuid::new_v4();
@@ -381,7 +364,7 @@ where
             Ok(http::success_response(
                 format!("Connection {} has been created", id),
                 Some(id),
-                http::Instance::Connection(conn),
+                Instance::Connection(conn),
             ))
         }
 
@@ -456,7 +439,7 @@ where
         Ok(StorageOperationStatus::Ok(id)) => Ok(http::success_response(
             format!("Connection {} has been deleted", id),
             Some(id),
-            http::Instance::Connection(conn.clone().into()),
+            Instance::Connection(conn.clone().into()),
         )),
 
         Ok(StorageOperationStatus::NotFound(id)) => {
@@ -504,7 +487,7 @@ where
         Ok(http::success_response(
             "Connection is found".to_string(),
             Some(conn_id),
-            http::Instance::Connection(conn.clone().into()),
+            Instance::Connection(conn.clone().into()),
         ))
     } else {
         Ok(http::not_found("Connection is not found"))

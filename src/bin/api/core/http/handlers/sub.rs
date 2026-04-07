@@ -1,18 +1,15 @@
 use base64::Engine;
 use chrono::DateTime;
 use chrono::Utc;
-use pony::mtproto_op::mtproto_conn;
-use url::Url;
 
-use super::super::request::TagReq;
+use url::Url;
 use warp::http::Response;
 use warp::http::StatusCode;
 
-use super::super::param::SubIdQueryParam;
-use super::super::param::SubQueryParam;
-use super::super::request::Subscription as SubReq;
 use pony::http::helpers as http;
+use pony::http::response::Instance;
 use pony::http::ResponseMessage;
+use pony::mtproto_op::mtproto_conn;
 use pony::utils;
 use pony::utils::get_uuid_last_octet_simple;
 use pony::xray_op::clash::generate_clash_config;
@@ -20,7 +17,6 @@ use pony::xray_op::clash::generate_proxy_config;
 use pony::Connection;
 use pony::ConnectionApiOp;
 use pony::ConnectionBaseOp;
-use pony::ConnectionStat;
 use pony::ConnectionStorageApiOp;
 use pony::NodeStorageOp;
 use pony::OperationStatus as StorageOperationStatus;
@@ -29,7 +25,12 @@ use pony::SubscriptionOp;
 use pony::SubscriptionStorageOp;
 use pony::Tag;
 
+use super::super::param::SubIdQueryParam;
+use super::super::param::SubQueryParam;
+use super::super::request::Subscription as SubReq;
+use super::super::request::TagReq;
 use super::html::{FOOTER, HEAD, LOGO};
+
 use crate::core::sync::tasks::SyncOp;
 use crate::core::sync::MemSync;
 
@@ -102,7 +103,7 @@ where
         Ok(StorageOperationStatus::Ok(id)) => Ok(http::success_response(
             format!("Subscription {} has been created", id),
             Some(sub_id),
-            http::Instance::Subscription(sub),
+            Instance::Subscription(sub),
         )),
         Ok(StorageOperationStatus::AlreadyExist(id)) => Ok(http::not_modified(&format!(
             "Subscription {} already exists",
@@ -152,7 +153,7 @@ where
         Ok(StorageOperationStatus::Updated(id)) => Ok(http::success_response(
             format!("Subscription {} has been updated", id),
             Some(sub_id),
-            http::Instance::None,
+            Instance::None,
         )),
         Ok(StorageOperationStatus::NotFound(id)) => Ok(http::not_found(&format!(
             "Subscription {} is not found",
@@ -173,55 +174,6 @@ where
             ))
         }
         _ => Ok(http::not_modified("")),
-    }
-}
-
-// GET /sub/stat?id=<>
-pub async fn subscription_conn_stat_handler<N, C, S>(
-    sub_param: SubIdQueryParam,
-    memory: MemSync<N, C, S>,
-) -> Result<impl warp::Reply, warp::Rejection>
-where
-    N: NodeStorageOp + Sync + Send + Clone + 'static,
-    S: SubscriptionOp + Send + Sync + Clone + 'static + PartialEq,
-    C: ConnectionApiOp
-        + ConnectionBaseOp
-        + Sync
-        + Send
-        + Clone
-        + 'static
-        + From<Connection>
-        + PartialEq,
-{
-    log::debug!("Received: {:?}", sub_param);
-
-    let mem = memory.memory.read().await;
-    let mut result: Vec<(uuid::Uuid, ConnectionStat, Tag)> = Vec::new();
-
-    if mem.subscriptions.find_by_id(&sub_param.id).is_none() {
-        return Ok(http::not_found("Subscription is not found"));
-    }
-
-    if let Some(connections) = mem.connections.get_by_subscription_id(&sub_param.id) {
-        for (conn_id, conn) in connections {
-            let tag = conn.get_proto().proto();
-
-            let stat = ConnectionStat {
-                online: conn.get_online(),
-                downlink: conn.get_downlink(),
-                uplink: conn.get_uplink(),
-            };
-
-            result.push((conn_id, stat, tag));
-        }
-
-        Ok(http::success_response(
-            "List of subscription connection statistics".to_string(),
-            None,
-            http::Instance::Stat(result),
-        ))
-    } else {
-        Ok(http::not_found("Connections is not found"))
     }
 }
 
@@ -250,26 +202,6 @@ where
 
     fn format_datetime(dt: chrono::DateTime<Utc>) -> String {
         dt.format("%d %B %Y · %H:%M UTC").to_string()
-    }
-
-    fn format_bytes(bytes: i64) -> String {
-        const KB: f64 = 1024.0;
-        const MB: f64 = KB * 1024.0;
-        const GB: f64 = MB * 1024.0;
-        const TB: f64 = GB * 1024.0;
-
-        let b = bytes as f64;
-        if b >= TB {
-            format!("{:.2} ТБ", b / TB)
-        } else if b >= GB {
-            format!("{:.2} ГБ", b / GB)
-        } else if b >= MB {
-            format!("{:.2} МБ", b / MB)
-        } else if b >= KB {
-            format!("{:.2} КБ", b / KB)
-        } else {
-            format!("{} байт", bytes)
-        }
     }
 
     let env = &sub_param.env;
@@ -306,19 +238,6 @@ where
         .unwrap_or_else(|| "∞".into());
 
     let invited = mem.subscriptions.count_invited_by(&sub.refer_code());
-
-    let mut downlink = 0;
-    let mut uplink = 0;
-
-    if let Some(conns) = mem.connections.get_by_subscription_id(id) {
-        for (_, c) in conns {
-            downlink += c.get_downlink();
-            uplink += c.get_uplink();
-        }
-    }
-
-    let down_str = format_bytes(downlink);
-    let up_str = format_bytes(uplink);
 
     let title = if is_ru {
         "Подписка на Рилзопровод (RU)"
@@ -564,7 +483,7 @@ r#"{head}
 </div>
 <div class="small-id">Id: <b>{subscription_id}</b></div>
 <hr>
-<div class="stat small-id">Трафик: ↓ {down_str} &nbsp;&nbsp; ↑ {up_str}</div>
+<div class="stat small-id">Трафик: ↓  &nbsp;&nbsp; ↑ </div>
 <hr>
 
 <h3>Ссылки для подключения</h3>
@@ -742,8 +661,6 @@ window.onload = () => {{
     status_text = status_text,
     expires = expires,
     days = days,
-    down_str = down_str,
-    up_str = up_str,
     ref = sub.refer_code(),
     invited = invited,
     subscription_id = id,
@@ -828,7 +745,7 @@ where
             Ok(http::success_response(
                 format!("Connections are found for {}", sub_id),
                 None,
-                http::Instance::Connections(cons.clone()),
+                Instance::Connections(cons.clone()),
             ))
         }
     }

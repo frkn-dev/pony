@@ -5,12 +5,11 @@ use rkyv::AlignedVec;
 use rkyv::Infallible;
 use tokio::time::Duration;
 
+use pony::metrics::Metrics;
 use pony::Action;
 use pony::BaseConnection as Connection;
 use pony::ConnectionBaseOp;
 use pony::Message;
-use pony::NodeStorageOp;
-use pony::SubscriptionOp;
 use pony::Topic;
 use pony::{PonyError, Result};
 
@@ -22,14 +21,13 @@ use super::AuthService;
 pub trait Tasks {
     async fn run_subscriber(&self) -> Result<()>;
     async fn handle_messages_batch(&self, msg: Vec<Message>) -> Result<()>;
+    async fn collect_metrics(&self);
 }
 
 #[async_trait]
-impl<T, C, S> Tasks for AuthService<T, C, S>
+impl<C> Tasks for AuthService<C>
 where
-    T: NodeStorageOp + Send + Sync + Clone,
     C: ConnectionBaseOp + Send + Sync + Clone + 'static + From<Connection>,
-    S: SubscriptionOp + Send + Sync + Clone + 'static + std::cmp::PartialEq,
 {
     async fn run_subscriber(&self) -> Result<()> {
         let sub = self.subscriber.clone();
@@ -116,15 +114,9 @@ where
                             msg.expires_at.map(Into::into),
                             msg.subscription_id,
                         );
-                        mem.connections
-                            .add(&conn_id, conn.into())
-                            .map(|_| ())
-                            .map_err(|err| {
-                                PonyError::Custom(format!(
-                                    "Failed to add conn {}: {}",
-                                    conn_id, err
-                                ))
-                            })
+                        mem.add(&conn_id, conn.into()).map(|_| ()).map_err(|err| {
+                            PonyError::Custom(format!("Failed to add conn {}: {}", conn_id, err))
+                        })
                     } else {
                         log::debug!("Skipped message {:?}", msg);
                         Ok(())
@@ -132,7 +124,7 @@ where
                 }
 
                 Action::Delete => {
-                    let _ = mem.connections.remove(&conn_id);
+                    let _ = mem.remove(&conn_id);
                     Ok(())
                 }
 
@@ -143,5 +135,14 @@ where
         }
 
         Ok(())
+    }
+
+    async fn collect_metrics(&self) {
+        self.heartbeat().await;
+        self.bandwidth().await;
+        self.cpu_usage().await;
+        self.loadavg().await;
+        self.memory().await;
+        self.disk_usage().await;
     }
 }

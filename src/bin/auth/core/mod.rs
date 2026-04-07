@@ -7,14 +7,11 @@ use warp::Filter;
 
 use pony::config::settings::ApiAccessConfig;
 use pony::http::filters as pony_filters;
+use pony::memory::connection::Connections;
 use pony::memory::node::Node;
+use pony::metrics::storage::MetricBuffer;
 use pony::zmq::subscriber::Subscriber as ZmqSubscriber;
-use pony::BaseConnection as Connection;
 use pony::ConnectionBaseOp;
-use pony::MemoryCache;
-use pony::NodeStorageOp;
-use pony::Subscription;
-use pony::SubscriptionOp;
 
 use crate::core::email::EmailStore;
 use crate::core::handlers::trial_handler;
@@ -25,12 +22,12 @@ pub mod filters;
 pub mod handlers;
 pub mod helpers;
 pub mod http;
+pub mod metrics;
 pub mod request;
 pub mod response;
 pub mod service;
 pub mod tasks;
 
-pub type AuthServiceState = MemoryCache<Node, Connection, Subscription>;
 pub type HttpClient = Client;
 
 const PROTOS: [&str; 4] = [
@@ -58,44 +55,45 @@ impl Display for Env {
 
 const DEFAULT_DAYS: i64 = 1;
 
-pub struct AuthService<N, C, S>
+pub struct AuthService<C>
 where
-    N: NodeStorageOp + Send + Sync + Clone + 'static,
     C: ConnectionBaseOp + Send + Sync + Clone + 'static,
-    S: SubscriptionOp + Send + Sync + Clone + 'static,
 {
-    pub memory: Arc<RwLock<MemoryCache<N, C, S>>>,
+    pub memory: Arc<RwLock<Connections<C>>>,
+    pub metrics: Arc<MetricBuffer>,
+    pub node: Node,
     pub subscriber: ZmqSubscriber,
     pub email_store: EmailStore,
     pub http_client: HttpClient,
-    pub ipaddr: Ipv4Addr,
-    pub port: u16,
     pub api: ApiAccessConfig,
+    pub listen: Ipv4Addr,
+    pub port: u16,
 }
 
-impl<N, C, S> AuthService<N, C, S>
+impl<C> AuthService<C>
 where
-    N: NodeStorageOp + Send + Sync + Clone + 'static,
-    C: ConnectionBaseOp + Send + Sync + Clone + 'static + Display + PartialEq,
-    S: SubscriptionOp + Send + Sync + Clone + 'static + PartialEq + serde::Serialize,
+    C: ConnectionBaseOp + Send + Sync + Clone + 'static,
 {
     pub fn new(
-        memory: Arc<RwLock<MemoryCache<N, C, S>>>,
+        metrics: Arc<MetricBuffer>,
+        node: Node,
         subscriber: ZmqSubscriber,
         email_store: EmailStore,
         http_client: HttpClient,
-        addr: Ipv4Addr,
-        port: u16,
         api: ApiAccessConfig,
+        listen: (Ipv4Addr, u16),
     ) -> Self {
+        let memory = Arc::new(RwLock::new(Connections::default()));
         Self {
             memory,
+            metrics,
+            node,
             subscriber,
             email_store,
             http_client,
-            ipaddr: addr,
-            port,
             api,
+            listen: listen.0,
+            port: listen.1,
         }
     }
 
@@ -146,7 +144,7 @@ where
             .or(activate_route);
 
         warp::serve(routes)
-            .run(SocketAddr::new(IpAddr::V4(self.ipaddr), self.port))
+            .run(SocketAddr::new(IpAddr::V4(self.listen), self.port))
             .await;
     }
 }

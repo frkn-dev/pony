@@ -1,64 +1,51 @@
-use chrono::Utc;
+use pony::metrics::storage::MetricStorage;
+use pony::metrics::MetricEnvelope;
+use pony::zmq::subscriber::Subscriber;
 
-use pony::metrics::cpuusage::cpu_metrics;
-use pony::metrics::heartbeat::heartbeat_metrics;
-use pony::metrics::loadavg::loadavg_metrics;
-use pony::metrics::memory::mem_metrics;
-use pony::metrics::Metric;
-use pony::metrics::MetricType;
-use pony::metrics::Metrics;
-use pony::Connection;
-use pony::ConnectionApiOp;
-use pony::ConnectionBaseOp;
-use pony::NodeStorageOp;
-use pony::SubscriptionOp;
+use rkyv::Deserialize;
+use std::sync::Arc;
 
-use crate::Api;
+pub struct MetricWorker;
 
-#[async_trait::async_trait]
-impl<N, C, S> Metrics<N> for Api<N, C, S>
-where
-    N: NodeStorageOp + Send + Sync + Clone + 'static,
-    C: ConnectionApiOp
-        + ConnectionBaseOp
-        + Send
-        + Sync
-        + Clone
-        + 'static
-        + From<Connection>
-        + std::cmp::PartialEq,
-    S: SubscriptionOp + Send + Sync + Clone + 'static,
-{
-    async fn collect_metrics<M>(&self) -> Vec<MetricType>
-    where
-        N: NodeStorageOp + Sync + Send + Clone + 'static,
-    {
-        let mut metrics = Vec::new();
+impl MetricWorker {
+    pub async fn start(metric_storage: Arc<MetricStorage>, subscriber: Subscriber) {
+        tokio::spawn(async move {
+            log::info!("MetricWorker: Monitoring pipeline initialized...");
 
-        let env = &self.settings.node.env;
-        let _uuid = self.settings.node.uuid;
+            loop {
+                if let Some((_topic, payload_bytes)) = subscriber.recv().await {
+                    let archived =
+                        match rkyv::check_archived_root::<Vec<MetricEnvelope>>(&payload_bytes) {
+                            Ok(a) => a,
+                            Err(e) => {
+                                log::error!("MetricWorker: Binary corruption detected: {:?}", e);
+                                continue;
+                            }
+                        };
 
-        if let Some(hostname) = &self.settings.node.hostname {
-            metrics.extend(cpu_metrics(env, hostname));
-            metrics.extend(loadavg_metrics(env, hostname));
-            metrics.extend(mem_metrics(env, hostname));
-        } else {
-            log::warn!("Hostname is not set, skipping metrics collection");
-        }
+                    let metrics: Vec<MetricEnvelope> = match archived
+                        .deserialize(&mut rkyv::Infallible)
+                    {
+                        Ok(m) => m,
+                        Err(e) => {
+                            log::error!("MetricWorker: Failed to reconstruct envelopes: {:?}", e);
+                            continue;
+                        }
+                    };
 
-        log::debug!("Total metrics collected: {}", metrics.len());
-        metrics
-    }
+                    for metric in metrics {
+                        log::debug!(
+                            "Incoming: node={} metric={} value={} tags={:?}",
+                            metric.node_id,
+                            metric.name,
+                            metric.value,
+                            metric.tags
+                        );
 
-    async fn collect_hb_metrics<M>(&self) -> MetricType {
-        if let Some(hostname) = &self.settings.node.hostname {
-            heartbeat_metrics(&self.settings.node.env, &self.settings.node.uuid, hostname)
-        } else {
-            MetricType::F64(Metric::new(
-                "hb.unknown".into(),
-                0.0,
-                Utc::now().timestamp(),
-            ))
-        }
+                        metric_storage.insert_envelope(metric);
+                    }
+                }
+            }
+        });
     }
 }

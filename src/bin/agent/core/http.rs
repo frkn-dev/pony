@@ -7,13 +7,13 @@ use std::collections::HashMap;
 
 use pony::config::xray::Inbound;
 use pony::ConnectionBaseOp;
-use pony::NodeStorageOp;
-use pony::SubscriptionOp;
 use pony::Tag;
 use pony::{PonyError, Result};
 use std::net::Ipv4Addr;
 
 use super::Agent;
+
+use pony::http::response::{Instance, InstanceWithId, ResponseMessage};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct ConnTypeParam {
@@ -34,6 +34,7 @@ pub struct NodeRequest {
     pub interface: String,
     pub cores: usize,
     pub max_bandwidth_bps: i64,
+    pub country: String,
 }
 
 #[async_trait]
@@ -49,11 +50,9 @@ pub trait ApiRequests {
 }
 
 #[async_trait]
-impl<T, C, S> ApiRequests for Agent<T, C, S>
+impl<C> ApiRequests for Agent<C>
 where
-    T: NodeStorageOp + Send + Sync + Clone,
     C: ConnectionBaseOp + Send + Sync + Clone + 'static,
-    S: SubscriptionOp + Send + Sync + Clone + 'static,
 {
     async fn get_connections(
         &self,
@@ -62,13 +61,7 @@ where
         proto: Tag,
         last_update: Option<u64>,
     ) -> Result<()> {
-        let node = {
-            let mem = self.memory.read().await;
-            mem.nodes
-                .get_self()
-                .expect("No node available to register")
-                .clone()
-        };
+        let node = self.node.clone();
 
         let id = node.uuid;
         let env = node.env;
@@ -97,8 +90,25 @@ where
 
         let status = res.status();
         let body = res.text().await?;
+
         if status.is_success() {
-            log::debug!("Connections Request Accepted for {}: {} ", proto, status);
+            let result: ResponseMessage<InstanceWithId<Instance>> = serde_json::from_str(&body)?;
+            let count = match result.response.instance {
+                Instance::Count(count) => count,
+                _ => {
+                    return Err(PonyError::Custom("Unexpected instance type".into()));
+                }
+            };
+            log::debug!(
+                "Message: {}. Connections Request Accepted for {}: {} Count: {} ",
+                result.message,
+                proto,
+                result.status,
+                count,
+            );
+            Ok(())
+        } else if status == StatusCode::NOT_MODIFIED {
+            log::debug!("Connections Request Accepted for {}: {} ", proto, status,);
             Ok(())
         } else {
             log::error!(
@@ -115,13 +125,7 @@ where
     }
 
     async fn register_node(&self, endpoint: String, token: String) -> Result<()> {
-        let node = {
-            let mem = self.memory.read().await;
-            mem.nodes
-                .get_self()
-                .expect("No node available to register")
-                .clone()
-        };
+        let node = self.node.clone();
 
         let mut endpoint_url = Url::parse(&endpoint)?;
         endpoint_url
@@ -145,6 +149,7 @@ where
             interface: node.interface.clone(),
             cores: node.cores,
             max_bandwidth_bps: node.max_bandwidth_bps,
+            country: node.country,
         };
 
         let res = HttpClient::new()

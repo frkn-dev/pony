@@ -24,6 +24,7 @@ config = "0.14"
 console-subscriber = {version = "0.4", optional = true}
 clickhouse = { version = "0.13.0" }
 clap = { version = "4.4", features = ["derive"] }
+dashmap = "6.1.0"
 defguard_wireguard_rs = {version = "0.7.2", features=["serde"]}
 default-net = "0.22"
 fern = "0.7"
@@ -59,6 +60,7 @@ qrcode = "0.14"
 x25519-dalek =  { version = "2", features = ["static_secrets"] }
 warp = "0.3"
 zmq = "0.10"
+parking_lot = "0.12.5"
 
 sha2 = "0.10"
 data-encoding = "2.5"

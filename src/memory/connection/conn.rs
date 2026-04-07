@@ -9,13 +9,11 @@ use serde::Serialize;
 use super::op::api::Operations as ApiOps;
 use super::op::base::Operations as BasOps;
 use super::proto::Proto;
-use super::stat::Stat;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Conn {
     pub env: String,
     pub proto: Proto,
-    pub stat: Stat,
     pub subscription_id: Option<uuid::Uuid>,
     pub created_at: DateTime<Utc>,
     pub modified_at: DateTime<Utc>,
@@ -33,7 +31,6 @@ impl fmt::Display for Conn {
             writeln!(f, "  subscription_id: None,")?;
         }
         writeln!(f, "  env: {},", self.env)?;
-        writeln!(f, "  conn stat: {},", self.stat)?;
         writeln!(f, "  created_at: {},", self.created_at)?;
         writeln!(f, "  modified_at: {},", self.modified_at)?;
         writeln!(f, "  expires_at: {:?},", self.expires_at)?;
@@ -57,7 +54,6 @@ impl Conn {
     pub fn new(
         env: &str,
         subscription_id: Option<uuid::Uuid>,
-        stat: Stat,
         proto: Proto,
         expires_at: Option<DateTime<Utc>>,
     ) -> Self {
@@ -65,7 +61,6 @@ impl Conn {
 
         Self {
             env: env.to_string(),
-            stat,
             created_at: now,
             modified_at: now,
             expires_at,
@@ -87,7 +82,6 @@ pub struct ConnWithId {
 pub struct ConnPatch {
     pub env: Option<String>,
     pub proto: Option<Proto>,
-    pub stat: Option<Stat>,
     pub subscription_id: Option<uuid::Uuid>,
     pub created_at: Option<NaiveDateTime>,
     pub modified_at: Option<NaiveDateTime>,

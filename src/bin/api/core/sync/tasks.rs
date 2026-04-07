@@ -6,7 +6,6 @@ use pony::Connection as Conn;
 use pony::Connection;
 use pony::ConnectionApiOp;
 use pony::ConnectionBaseOp;
-use pony::ConnectionStat;
 use pony::ConnectionStorageApiOp as ApiOp;
 use pony::ConnectionStorageBaseOp;
 use pony::NodeStorageOp;
@@ -83,7 +82,6 @@ where
         env: &str,
         status: NodeStatus,
     ) -> SyncResult<()>;
-    async fn update_conn_stat(&self, conn_id: &uuid::Uuid, stat: ConnectionStat) -> SyncResult<()>;
     async fn update_sub(&self, sub_id: &uuid::Uuid, sub_req: SubReq)
         -> SyncResult<OperationStatus>;
     async fn add_days(&self, sub_id: &uuid::Uuid, days: i64) -> SyncResult<OperationStatus>;
@@ -517,38 +515,6 @@ where
         }
 
         log::debug!("Successfully updated node {} status", uuid);
-        Ok(())
-    }
-
-    async fn update_conn_stat(
-        &self,
-        conn_id: &uuid::Uuid,
-        conn_stat: ConnectionStat,
-    ) -> SyncResult<()> {
-        log::debug!("Updating connection stats: {}", conn_id);
-
-        // Update database first
-        if let Err(e) = self.db.conn().update_stat(conn_id, conn_stat.clone()).await {
-            log::error!(
-                "Failed to update connection {} stats in database: {}",
-                conn_id,
-                e
-            );
-            return Err(SyncError::Database(e));
-        }
-
-        {
-            let mut memory = self.memory.write().await;
-            if let Err(e) = memory.connections.update_stats(conn_id, conn_stat) {
-                log::warn!(
-                    "Failed to update connection {} stats in memory: {}",
-                    conn_id,
-                    e
-                );
-            }
-        }
-
-        log::debug!("Successfully updated connection {} stats", conn_id);
         Ok(())
     }
 

@@ -3,16 +3,16 @@ use std::path::Path;
 use std::sync::Arc;
 use tokio::signal;
 use tokio::sync::broadcast;
-use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
 use tokio::time::Duration;
 
 use pony::config::settings::AuthServiceSettings;
 use pony::config::settings::NodeConfig;
-use pony::http::debug;
 use pony::memory::node::Node;
-use pony::MemoryCache;
+use pony::metrics::storage::MetricBuffer;
+use pony::BaseConnection as Connection;
+use pony::Publisher;
 use pony::Result;
 use pony::SnapshotManager;
 use pony::Subscriber as ZmqSubscriber;
@@ -20,7 +20,6 @@ use pony::Subscriber as ZmqSubscriber;
 use super::AuthService;
 use crate::core::http::ApiRequests;
 use crate::core::tasks::Tasks;
-use crate::core::AuthServiceState;
 use crate::core::EmailStore;
 use crate::core::HttpClient;
 
@@ -30,9 +29,6 @@ pub async fn run(settings: AuthServiceSettings) -> Result<()> {
 
     let node_config = NodeConfig::from_raw(settings.node.clone());
     let node = Node::new(node_config?, None, None, None, None);
-
-    let memory: Arc<RwLock<AuthServiceState>> =
-        Arc::new(RwLock::new(MemoryCache::with_node(node.clone())));
 
     let subscriber = ZmqSubscriber::new(
         &settings.zmq.endpoint,
@@ -50,21 +46,30 @@ pub async fn run(settings: AuthServiceSettings) -> Result<()> {
     email_store.load_trials().await?;
     let http_client = HttpClient::new();
 
-    let auth = Arc::new(AuthService::new(
-        memory.clone(),
+    let listen_addr = settings
+        .auth
+        .web_server
+        .unwrap_or(Ipv4Addr::from_octets([127, 0, 0, 1]));
+
+    let metric_publisher = Publisher::connect(&settings.metrics.publisher).await;
+
+    let metrics = MetricBuffer {
+        batch: parking_lot::Mutex::new(Vec::new()),
+        publisher: metric_publisher,
+    };
+
+    let auth = Arc::new(AuthService::<Connection>::new(
+        Arc::new(metrics),
+        node,
         subscriber,
         email_store,
         http_client,
-        settings
-            .auth
-            .web_server
-            .unwrap_or(Ipv4Addr::from_octets([127, 0, 0, 1])),
-        settings.auth.web_port,
         settings.api.clone(),
+        (listen_addr, settings.auth.web_port),
     ));
 
     let snapshot_manager =
-        SnapshotManager::new(settings.clone().auth.snapshot_path, memory.clone());
+        SnapshotManager::new(settings.clone().auth.snapshot_path, auth.memory.clone());
 
     let snapshot_timestamp = if Path::new(&snapshot_manager.snapshot_path).exists() {
         match snapshot_manager.load_snapshot().await {
@@ -94,6 +99,11 @@ pub async fn run(settings: AuthServiceSettings) -> Result<()> {
 
     let snapshot_manager = snapshot_manager.clone();
     let snapshot_handle = tokio::spawn(async move {
+        log::info!(
+            "Running snapshot task, interval {}",
+            settings.auth.snapshot_interval
+        );
+
         let mut interval = tokio::time::interval(std::time::Duration::from_secs(
             settings.auth.snapshot_interval,
         ));
@@ -102,7 +112,8 @@ pub async fn run(settings: AuthServiceSettings) -> Result<()> {
             if let Err(e) = snapshot_manager.create_snapshot().await {
                 log::error!("Failed to create snapshot: {}", e);
             } else {
-                log::debug!("Auth snapshot saved successfully");
+                let len = snapshot_manager.len().await;
+                log::debug!("Auth snapshot saved successfully; {} connections", len);
             }
         }
     });
@@ -129,6 +140,7 @@ pub async fn run(settings: AuthServiceSettings) -> Result<()> {
 
     {
         let settings = settings.clone();
+        let auth = auth.clone();
 
         loop {
             let api_token = settings.api.token.clone();
@@ -154,6 +166,7 @@ pub async fn run(settings: AuthServiceSettings) -> Result<()> {
 
     {
         let mut shutdown = shutdown_tx.subscribe();
+        let auth = auth.clone();
 
         let auth_handle = tokio::spawn(async move {
             tokio::select! {
@@ -164,31 +177,41 @@ pub async fn run(settings: AuthServiceSettings) -> Result<()> {
         tasks.push(auth_handle);
     };
 
-    let api_token = settings.api.token.clone();
+    log::info!("Running metrics task");
 
-    let token = Arc::new(api_token.clone());
-    if settings.debug.enabled {
-        log::debug!(
-            "Running debug server: localhost:{}",
-            settings.debug.web_port
-        );
+    let auth_for_collect = auth.clone();
+    let metrics_handle = tokio::spawn({
         let mut shutdown = shutdown_tx.subscribe();
-        let memory = memory.clone();
-        let addr = settings
-            .debug
-            .web_server
-            .unwrap_or(Ipv4Addr::new(127, 0, 0, 1));
-        let port = settings.debug.web_port;
-        let token = token.clone();
-
-        let debug_handle = tokio::spawn(async move {
-            tokio::select! {
-                _ = debug::start_ws_server(memory, addr, port, token) => {},
-                _ = shutdown.recv() => {},
+        async move {
+            loop {
+                tokio::select! {
+                    _ = sleep(Duration::from_secs(settings.metrics.interval)) => {
+                        auth_for_collect.collect_metrics().await;
+                    },
+                    _ = shutdown.recv() => break,
+                }
             }
-        });
-        tasks.push(debug_handle);
-    }
+        }
+    });
+
+    let auth_for_flush = auth.clone();
+    log::info!("Running flush metrics task");
+    let metrics_flush_handle = tokio::spawn({
+        let mut shutdown = shutdown_tx.subscribe();
+        async move {
+            loop {
+                tokio::select! {
+                    _ = sleep(Duration::from_secs(settings.metrics.interval + 2)) => {
+                        auth_for_flush.metrics.flush_to_zmq().await;
+                    },
+                    _ = shutdown.recv() => break,
+                }
+            }
+        }
+    });
+
+    tasks.push(metrics_handle);
+    tasks.push(metrics_flush_handle);
 
     wait_all_tasks_or_ctrlc(tasks, shutdown_tx).await;
     Ok(())

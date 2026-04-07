@@ -1,12 +1,7 @@
-use serde::{Deserialize, Serialize};
 use warp::http::StatusCode;
 use warp::reply::Json;
 
-use crate::memory::connection::conn::Conn as Connection;
-use crate::memory::connection::stat::Stat as ConnectionStat;
-use crate::memory::key::Key;
-use crate::memory::subscription::Subscription;
-use crate::memory::tag::ProtoTag as Tag;
+use super::response::{Instance, InstanceWithId, ResponseMessage};
 
 pub fn bad_request(msg: &str) -> warp::reply::WithStatus<Json> {
     let resp = ResponseMessage::<Option<uuid::Uuid>> {
@@ -65,27 +60,4 @@ pub fn success_response(
         response: Some(InstanceWithId { id, instance }),
     };
     warp::reply::with_status(warp::reply::json(&resp), StatusCode::OK)
-}
-
-#[derive(Serialize)]
-struct ResponseMessage<T> {
-    status: u16,
-    message: String,
-    response: T,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct InstanceWithId<T> {
-    pub id: uuid::Uuid,
-    pub instance: T,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub enum Instance {
-    Connection(Connection),
-    Subscription(Subscription),
-    Stat(Vec<(uuid::Uuid, ConnectionStat, Tag)>),
-    Connections(Vec<(uuid::Uuid, Connection)>),
-    Key(Key),
-    None,
 }

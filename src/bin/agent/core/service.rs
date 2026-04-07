@@ -1,12 +1,8 @@
-use qrcode::render::unicode;
-use qrcode::QrCode;
-use std::net::Ipv4Addr;
 use std::path::Path;
 use std::sync::Arc;
 use tokio::signal;
 use tokio::sync::broadcast;
 use tokio::sync::Mutex;
-use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
 use tokio::time::Duration;
@@ -17,34 +13,26 @@ use pony::config::settings::AgentSettings;
 use pony::config::settings::NodeConfig;
 use pony::config::wireguard::WireguardSettings;
 use pony::config::xray::Config as XrayConfig;
-use pony::http::debug;
-use pony::memory::connection::wireguard::IpAddrMaskSerializable;
-use pony::memory::connection::wireguard::Param as WgParam;
+use pony::metrics::storage::MetricBuffer;
+use pony::Publisher;
+
 use pony::memory::node::Node;
-use pony::metrics::Metrics;
 use pony::utils::*;
-use pony::wireguard_op::wireguard_conn;
 use pony::wireguard_op::WgApi;
-use pony::xray_op::client::HandlerActions;
 use pony::xray_op::client::HandlerClient;
 use pony::xray_op::client::StatsClient;
 use pony::xray_op::client::XrayClient;
 use pony::BaseConnection as Connection;
-use pony::ConnectionBaseOp;
-use pony::MemoryCache;
-use pony::NodeStorageOp;
-use pony::Proto;
+
 use pony::Result;
 use pony::SnapshotManager;
 use pony::Subscriber as ZmqSubscriber;
-use pony::Subscription;
 use pony::Tag;
 
 use super::snapshot::SnapshotRestore;
 use super::tasks::Tasks;
 use super::Agent;
 use crate::core::http::ApiRequests;
-use crate::core::AgentState;
 
 pub async fn run(settings: AgentSettings) -> Result<()> {
     let mut tasks: Vec<JoinHandle<()>> = vec![];
@@ -128,12 +116,6 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
         None
     };
 
-    let subscriber = ZmqSubscriber::new(
-        &settings.zmq.endpoint,
-        &settings.node.uuid,
-        &settings.node.env,
-    );
-
     let node_config = NodeConfig::from_raw(settings.node.clone());
     let node = Node::new(
         node_config?,
@@ -143,31 +125,38 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
         mtproto_config,
     );
 
-    let memory: Arc<RwLock<AgentState>> =
-        Arc::new(RwLock::new(MemoryCache::with_node(node.clone())));
+    let zmq_endpoint = settings.zmq.endpoint.clone();
+    let subscriber = ZmqSubscriber::new(&zmq_endpoint, &node.uuid, &node.env);
 
-    let agent = Arc::new(Agent::new(
-        memory.clone(),
+    let metric_publisher = Publisher::connect(&settings.metrics.publisher).await;
+
+    let metrics = MetricBuffer {
+        batch: parking_lot::Mutex::new(Vec::new()),
+        publisher: metric_publisher,
+    };
+
+    let agent = Arc::new(Agent::<Connection>::new(
+        node.clone(),
         subscriber,
+        Arc::new(metrics),
         xray_stats_client.clone(),
         xray_handler_client.clone(),
         wg_client.clone(),
     ));
 
-    let snapshot_manager =
-        SnapshotManager::new(settings.clone().agent.snapshot_path, memory.clone());
+    let snapshot_path = settings.agent.snapshot_path.clone();
+    let snapshot_manager = SnapshotManager::new(snapshot_path, agent.memory.clone());
 
     let snapshot_timestamp = if Path::new(&snapshot_manager.snapshot_path).exists() {
         match snapshot_manager.load_snapshot().await {
             Ok(Some(timestamp)) => {
-                let count = snapshot_manager.len().await;
                 if let Err(e) = snapshot_manager
-                    .restore_connections(xray_handler_client.clone(), wg_client)
+                    .restore_connections(agent.xray_handler_client.clone(), wg_client)
                     .await
                 {
                     log::error!("Couldn't restore connections from memory, {}", e);
-                    panic!("Couldn't restore connections from memory, {}", e);
                 }
+                let count = snapshot_manager.len().await;
                 log::info!(
                     "Loaded {} connections from snapshot with ts  {}",
                     count,
@@ -186,34 +175,36 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
             }
         }
     } else {
-        log::info!("No snapshot found, starting fresh");
+        log::warn!("No snapshot found, starting fresh");
         None
     };
 
-    let snapshot_manager = snapshot_manager.clone();
     tokio::spawn(async move {
+        log::info!(
+            "Running snapshot task, interval {}",
+            settings.agent.snapshot_interval
+        );
+
         let mut interval = tokio::time::interval(std::time::Duration::from_secs(
             settings.agent.snapshot_interval,
         ));
+
         loop {
             interval.tick().await;
-            if let Err(e) = measure_time(
-                snapshot_manager.create_snapshot(),
-                "Snapshot took".to_string(),
-            )
-            .await
-            {
+            if let Err(e) = measure_time(snapshot_manager.create_snapshot(), "Snapshot").await {
                 log::error!("Failed to create snapshot: {}", e);
             } else {
                 let count = snapshot_manager.len().await;
-                log::info!("Connections snapshot saved successfully {}", count);
+                log::debug!(
+                    "Connections snapshot saved successfully; {} Connections",
+                    count
+                );
             }
         }
     });
 
     {
         log::info!("ZMQ listener starting...");
-
         let zmq_task = tokio::spawn({
             let agent = agent.clone();
             let mut shutdown = shutdown_tx.subscribe();
@@ -231,6 +222,7 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
         if !settings.agent.local {
             {
                 let settings = settings.clone();
+                let node = node.clone();
 
                 loop {
                     match agent
@@ -267,278 +259,48 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
         }
     };
 
-    if settings.agent.metrics_enabled {
-        log::info!("Running metrics send task");
-        let carbon_addr = settings.carbon.address.clone();
-        let metrics_handle: JoinHandle<()> = tokio::spawn({
-            let agent = agent.clone();
-            let mut shutdown = shutdown_tx.subscribe();
-            async move {
-                loop {
-                    tokio::select! {
-                        _ = sleep(Duration::from_secs(settings.agent.metrics_interval)) => {
-                            match agent.send_metrics(&carbon_addr).await {
-                                Ok(_) => {},
-                                Err(e) => log::error!("❌ Failed to send metrics: {}", e),
-                            }
-                        },
-                        _ = shutdown.recv() => {
-                            log::info!("🛑 Metrics task received shutdown");
-                            break;
-                        },
-                    }
-                }
-            }
-        });
-        tasks.push(metrics_handle);
+    log::info!("Running metrics task");
 
-        log::info!("Running HB metrics send task");
-        let carbon_addr = settings.carbon.address.clone();
-        let metrics_handle = tokio::spawn({
-            let agent = agent.clone();
-            let mut shutdown = shutdown_tx.subscribe();
-            async move {
-                loop {
-                    tokio::select! {
-                        _ = sleep(Duration::from_secs(settings.agent.metrics_hb_interval)) => {
-                            match agent.send_hb_metric(&carbon_addr).await {
-                                Ok(_) => {},
-                                Err(e) => log::error!("❌ Failed to send heartbeat: {}", e),
-                            }
-                        },
-                        _ = shutdown.recv() => {
-                            log::info!("🛑 Heartbeat task received shutdown");
-                            break;
-                        },
-                    }
-                }
-            }
-        });
-        tasks.push(metrics_handle);
-    }
-
-    if settings.agent.stat_enabled {
-        log::info!("Running Stat Task");
-        let xray_stats_task = tokio::spawn({
-            let agent = Arc::new(agent.clone());
-            let mut shutdown = shutdown_tx.subscribe();
-            async move {
-                loop {
-                    tokio::select! {
-                        _ = sleep(Duration::from_secs(settings.agent.stat_job_interval)) => {
-                            let _ = <Arc<Agent<Node, Connection, Subscription>> as Clone>::clone(&agent)
-                                .collect_stats()
-                                .await;
-                        },
-                        _ = shutdown.recv() => break,
-                    }
-                }
-            }
-        });
-        tasks.push(xray_stats_task);
-    }
-
-    if settings.agent.stat_enabled && settings.wg.enabled {
-        log::info!("Running WG Stat Task");
-        let wg_stats_task = tokio::spawn({
-            let agent = Arc::new(agent.clone());
-            let mut shutdown = shutdown_tx.subscribe();
-            async move {
-                loop {
-                    tokio::select! {
-                        _ = sleep(Duration::from_secs(settings.agent.stat_job_interval)) => {
-                            let _ = <Arc<Agent<Node, Connection,  Subscription>> as Clone>::clone(&agent)
-                                .collect_wireguard_stats()
-                                .await;
-                        },
-                        _ = shutdown.recv() => break,
-                    }
-                }
-            }
-        });
-        tasks.push(wg_stats_task);
-    }
-
-    if settings.xray.enabled && settings.agent.local {
-        if let Some(xray_handler_client) = xray_handler_client {
-            let conn_task = tokio::spawn({
-                let conn_id = uuid::Uuid::new_v4();
-                let agent = agent.clone();
-                let node = node.clone();
-                let mut shutdown = shutdown_tx.subscribe();
-                async move {
-                    tokio::select! {
-                        _ = async {
-                             {
-                                let mut mem = agent.memory.write().await;
-                                for (tag, _) in node.inbounds {
-                                    let proto = Proto::new_xray(&tag);
-                                    let conn = Connection::new(proto, None, None);
-                                    let _ = mem.connections.insert(conn_id, conn);
-                                    let _ = xray_handler_client.create(&conn_id, tag, None).await;
-                                }
-                            };
-
-                            let mem = agent.memory.read().await;
-                            if let Some(node) = mem.nodes.get_self() {
-                                println!(
-                                    r#"
-╔════════════════════════════════════╗
-║       Xray Connection Details      ║
-╚════════════════════════════════════╝
-"#
-                                );
-                                for (tag, inbound) in node.inbounds {
-                                    if let Ok(conn) = create_conn_link(
-                                        tag,
-                                        &node.uuid,
-                                        &inbound,
-                                        &node.label,
-                                        node.address,
-                                        &None
-                                    ) {
-                                        println!("->>  {tag}  ➜ {:?}\n", conn);
-                                        let qrcode = QrCode::new(conn).unwrap();
-
-                                        let image = qrcode
-                                                .render::<unicode::Dense1x2>()
-                                                .quiet_zone(true)
-                                                .min_dimensions(1, 1)
-                                                .build();
-
-
-                                        println!("{}\n", image);
-                                    }
-                                }
-                            } else {
-                                panic!("Node information is missing");
-                            }
-                        } => {},
-                        _ = shutdown.recv() => {},
-                    }
-                }
-            });
-            tasks.push(conn_task);
-        }
-    }
-
-    if settings.wg.enabled && settings.agent.local {
-        let conn_task = tokio::spawn({
-            let agent = agent.clone();
-            let settings = settings.clone();
-            let node = node.clone();
-            let mut shutdown = shutdown_tx.subscribe();
-            async move {
-                tokio::select! {
-                    _ = async {
-                        let mut mem = agent.memory.write().await;
-                        for tag in node.inbounds.keys() {
-                            if tag.is_wireguard() {
-                                let conn_id = uuid::Uuid::new_v4();
-
-                                if let Some(wg_api) = &agent.wg_client {
-                                    if let Some(ref wg_config) = wg_config {
-                                    let next = match wg_api.next_available_ip_mask(&wg_config.network, &wg_config.address) {
-                                        Ok(ip) => ip,
-                                        Err(e) => {
-                                            log::error!("Failed to get next available WireGuard IP: {}; Check your Wireguard interface {}",
-                                                e, settings.wg.interface);
-                                            return Err(format!( "Failed to get next available WireGuard IP: {}; Check your Wireguard interface {}",
-                                                e, settings.wg.interface));
-                                        }
-                                    };
-                                    let wg_params = WgParam::new(next.clone());
-                                    let proto = Proto::new_wg(&wg_params, &node.uuid);
-                                    let conn = Connection::new(proto, None, None);
-                                    let _ = mem.connections.insert(conn_id, conn.clone());
-
-                                    if let Err(e) = wg_api.create(&wg_params.keys.pubkey, next) {
-                                        log::error!(
-                                            "Failed to register WireGuard peer (tag: {} {}): {}",
-                                            tag,
-                                            wg_params.keys.pubkey,
-                                            e
-                                        );
-                                        return Err(format!(
-                                            "Failed to register WireGuard peer (tag: {} {}): {}",
-                                            tag,
-                                            wg_params.keys.pubkey,
-                                            e,));
-                                    }
-                                    if let Some(inbound) = node.inbounds.get(&Tag::Wireguard) {
-                                        log::debug!("Inbound {:?}", inbound);
-
-
-
-                                        if let Some(wg) = conn.get_wireguard() {
-                                            let wg_address = <IpAddrMaskSerializable as Clone>::clone(&wg.address).into();
-
-                                                if let Ok(conn) = wireguard_conn(
-                                                    &conn_id,
-                                                    &node.address,
-                                                    inbound.clone(),
-                                                    &node.label,
-                                                    &wg.keys.privkey,
-                                                    &wg_address,
-                                                ) {
-
-                                                   println!(
-                                    r#"
-╔════════════════════════════════════╗
-║    Wireguard Connection  Details   ║
-╚════════════════════════════════════╝
-"#);
-                                                    println!("{}", conn);
-                                                    let qrcode = QrCode::new(conn).unwrap();
-
-                                                    let image = qrcode
-                                                         .render::<unicode::Dense1x2>()
-                                                        .quiet_zone(true)
-                                                       // .module_dimensions(100, 100)
-                                                        .build();
-                                                    println!("{}\n", image);
-                                                }
-                                            }
-                                        }
-                                    }
-                                } else {
-                                    log::warn!("WG API client is not available");
-                                    return Err("WG API client is not available".into());
-                                }
-                            }
-                        }
-                        Ok(())
-                    } => {},
-                    _ = shutdown.recv() => {},
-                }
-            }
-        });
-        tasks.push(conn_task);
-    }
-
-    let token = Arc::new(settings.api.token.clone());
-    if settings.debug.enabled {
-        log::debug!(
-            "Running debug server: localhost:{}",
-            settings.debug.web_port
-        );
+    let metrics_handle: JoinHandle<()> = tokio::spawn({
+        let agent = agent.clone();
         let mut shutdown = shutdown_tx.subscribe();
-        let memory = memory.clone();
-        let addr = settings
-            .debug
-            .web_server
-            .unwrap_or(Ipv4Addr::new(127, 0, 0, 1));
-        let port = settings.debug.web_port;
-        let token = token.clone();
+        async move {
+            loop {
+                tokio::select! {
+                    _ = sleep(Duration::from_secs(settings.metrics.interval)) => {
+                         agent.collect_metrics().await;
 
-        let debug_handle = tokio::spawn(async move {
-            tokio::select! {
-                _ = debug::start_ws_server(memory, addr, port, token) => {},
-                _ = shutdown.recv() => {},
+                    },
+                    _ = shutdown.recv() => {
+                        log::info!("🛑 Metrics task received shutdown");
+                        break;
+                    },
+                }
             }
-        });
-        tasks.push(debug_handle);
-    }
+        }
+    });
+
+    log::info!("Running flush metrics task");
+    let metrics_flush_handle: JoinHandle<()> = tokio::spawn({
+        let agent = agent.clone();
+        let mut shutdown = shutdown_tx.subscribe();
+        async move {
+            loop {
+                tokio::select! {
+                    _ = sleep(Duration::from_secs(settings.metrics.interval+3)) => {
+                         agent.metrics.flush_to_zmq().await;
+
+                    },
+                    _ = shutdown.recv() => {
+                        log::info!("🛑 Metrics flush task received shutdown");
+                        break;
+                    },
+                }
+            }
+        }
+    });
+    tasks.push(metrics_handle);
+    tasks.push(metrics_flush_handle);
 
     wait_all_tasks_or_ctrlc(tasks, shutdown_tx).await;
     Ok(())

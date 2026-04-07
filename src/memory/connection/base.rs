@@ -6,7 +6,6 @@ use std::fmt;
 
 use super::super::connection::conn::Conn;
 use super::super::connection::proto::Proto;
-use super::super::connection::stat::Stat as ConnectionStat;
 
 use rkyv::{Archive, Deserialize as RkyvDeserialize, Serialize as RkyvSerialize};
 
@@ -14,7 +13,6 @@ use rkyv::{Archive, Deserialize as RkyvDeserialize, Serialize as RkyvSerialize};
     Archive, Deserialize, Serialize, RkyvDeserialize, RkyvSerialize, Debug, Clone, PartialEq,
 )]
 pub struct Base {
-    pub stat: ConnectionStat,
     pub created_at: DateTime<Utc>,
     pub modified_at: DateTime<Utc>,
     pub expires_at: Option<DateTime<Utc>>,
@@ -32,7 +30,6 @@ impl Base {
         let now = Utc::now();
 
         Self {
-            stat: ConnectionStat::default(),
             created_at: now,
             modified_at: now,
             expires_at,
@@ -45,13 +42,7 @@ impl Base {
 
 impl From<Conn> for Base {
     fn from(conn: Conn) -> Self {
-        let conn_stat = ConnectionStat {
-            online: conn.stat.online,
-            uplink: conn.stat.uplink,
-            downlink: conn.stat.downlink,
-        };
         Base {
-            stat: conn_stat,
             created_at: conn.created_at,
             modified_at: conn.modified_at,
             expires_at: conn.expires_at,
@@ -64,13 +55,7 @@ impl From<Conn> for Base {
 
 impl From<&Conn> for Base {
     fn from(conn: &Conn) -> Self {
-        let conn_stat = ConnectionStat {
-            online: conn.stat.online,
-            uplink: conn.stat.uplink,
-            downlink: conn.stat.downlink,
-        };
         Base {
-            stat: conn_stat,
             created_at: conn.created_at,
             modified_at: conn.modified_at,
             expires_at: conn.expires_at,
@@ -85,7 +70,6 @@ impl fmt::Display for Base {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(f, "Connection Base {{")?;
 
-        writeln!(f, " conn stat: {}", self.stat)?;
         writeln!(f, "  created_at: {},", self.created_at)?;
         writeln!(f, "  modified_at: {},", self.modified_at)?;
         writeln!(f, "  expires_at: {:?},", self.expires_at)?;

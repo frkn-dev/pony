@@ -1,4 +1,5 @@
 use pony::http::helpers as http;
+use pony::http::response::Instance;
 use pony::memory::key::Distributor;
 use pony::memory::key::Key;
 use pony::Connection;
@@ -46,11 +47,11 @@ where
                 return Ok(http::success_response(
                     "Key is valid and already activated".to_string(),
                     Some(key.id),
-                    http::Instance::Key(key.clone()),
+                    Instance::Key(key.clone()),
                 ));
             }
 
-            let instance = http::Instance::Key(key.clone());
+            let instance = Instance::Key(key.clone());
             Ok(http::success_response(
                 "Key is valid".to_string(),
                 Some(key.id),
@@ -95,7 +96,7 @@ where
             Ok(http::success_response(
                 msg,
                 Some(key.id),
-                http::Instance::Key(key),
+                Instance::Key(key),
             ))
         }
         Err(e) => {
@@ -153,7 +154,7 @@ where
             Ok(http::success_response(
                 format!("Key {} activated", key.id),
                 Some(key.id),
-                http::Instance::Key(key),
+                Instance::Key(key),
             ))
         }
         Ok(StorageOperationStatus::NotFound(_)) => Ok(http::not_found("Subscription not found")),

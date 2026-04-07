@@ -1,12 +1,14 @@
 use async_trait::async_trait;
-use defguard_wireguard_rs::net::IpAddrMask;
 use futures::future::try_join_all;
-use pony::Proto;
 use rkyv::AlignedVec;
+use rkyv::Deserialize;
 use rkyv::Infallible;
 use tokio::time::Duration;
+
+use defguard_wireguard_rs::net::IpAddrMask;
 use tonic::Status;
 
+use pony::metrics::Metrics;
 use pony::xray_op::client::HandlerActions;
 use pony::xray_op::stats::StatOp;
 use pony::Action;
@@ -14,29 +16,26 @@ use pony::BaseConnection as Connection;
 use pony::ConnectionBaseOp;
 use pony::ConnectionStorageBaseOp;
 use pony::Message;
-use pony::NodeStorageOp;
-use pony::SubscriptionOp;
+use pony::Proto;
 use pony::Tag;
 use pony::Topic;
 use pony::{PonyError, Result};
 
-use rkyv::Deserialize;
-
+use super::metrics::BusinessMetrics;
 use super::Agent;
 
 #[async_trait]
 pub trait Tasks {
     async fn run_subscriber(&self) -> Result<()>;
-    async fn handle_message(&self, msg: Message) -> Result<()>;
     async fn handle_messages_batch(&self, msg: Vec<Message>) -> Result<()>;
+    async fn handle_message(&self, msg: Message) -> Result<()>;
+    async fn collect_metrics(&self);
 }
 
 #[async_trait]
-impl<T, C, S> Tasks for Agent<T, C, S>
+impl<C> Tasks for Agent<C>
 where
-    T: NodeStorageOp + Send + Sync + Clone,
     C: ConnectionBaseOp + Send + Sync + Clone + 'static + From<Connection>,
-    S: SubscriptionOp + Send + Sync + Clone + 'static + std::cmp::PartialEq,
 {
     async fn run_subscriber(&self) -> Result<()> {
         let sub = self.subscriber.clone();
@@ -106,6 +105,19 @@ where
         }
     }
 
+    async fn handle_messages_batch(&self, messages: Vec<Message>) -> Result<()> {
+        log::debug!("Got {} messages", messages.len());
+
+        let handles: Vec<_> = messages
+            .into_iter()
+            .map(|msg| self.handle_message(msg))
+            .collect();
+
+        let _results = try_join_all(handles).await?;
+
+        Ok(())
+    }
+
     async fn handle_message(&self, msg: Message) -> Result<()> {
         match msg.action {
             Action::Create | Action::Update => {
@@ -118,13 +130,7 @@ where
                             .clone()
                             .ok_or_else(|| PonyError::Custom("Missing WireGuard keys".into()))?;
 
-                        let node_id = {
-                            let mem = self.memory.read().await;
-                            let node = mem.nodes.get_self();
-                            node.map(|n| n.uuid).ok_or_else(|| {
-                                PonyError::Custom("Current node UUID not found".to_string())
-                            })?
-                        };
+                        let node_id = self.node.uuid;
                         let proto = Proto::new_wg(&wg, &node_id);
 
                         let conn = Connection::new(
@@ -135,8 +141,7 @@ where
 
                         {
                             let mut mem = self.memory.write().await;
-                            mem.connections
-                                .add(&conn_id.clone(), conn.clone().into())
+                            mem.add(&conn_id.clone(), conn.clone().into())
                                 .map_err(|err| {
                                     PonyError::Custom(format!(
                                         "Failed to add WireGuard conn {}: {}",
@@ -195,14 +200,9 @@ where
                             })?;
 
                         let mut mem = self.memory.write().await;
-                        mem.connections
-                            .add(&conn_id.clone(), conn.into())
-                            .map_err(|err| {
-                                PonyError::Custom(format!(
-                                    "Failed to add conn {}: {}",
-                                    conn_id, err
-                                ))
-                            })?;
+                        mem.add(&conn_id.clone(), conn.into()).map_err(|err| {
+                            PonyError::Custom(format!("Failed to add conn {}: {}", conn_id, err))
+                        })?;
 
                         return Ok(());
                     }
@@ -232,14 +232,12 @@ where
                                 })?;
 
                             let mut mem = self.memory.write().await;
-                            mem.connections
-                                .add(&conn_id.clone(), conn.into())
-                                .map_err(|err| {
-                                    PonyError::Custom(format!(
-                                        "Failed to add conn {}: {}",
-                                        conn_id, err
-                                    ))
-                                })?;
+                            mem.add(&conn_id.clone(), conn.into()).map_err(|err| {
+                                PonyError::Custom(format!(
+                                    "Failed to add conn {}: {}",
+                                    conn_id, err
+                                ))
+                            })?;
 
                             return Ok(());
                         } else {
@@ -275,7 +273,7 @@ where
                         })?;
 
                         let mut mem = self.memory.write().await;
-                        let _ = mem.connections.remove(&conn_id);
+                        let _ = mem.remove(&conn_id);
 
                         return Ok(());
                     }
@@ -301,7 +299,7 @@ where
                             })?;
 
                         let mut mem = self.memory.write().await;
-                        let _ = mem.connections.remove(&conn_id);
+                        let _ = mem.remove(&conn_id);
 
                         return Ok(());
                     }
@@ -324,16 +322,21 @@ where
         }
     }
 
-    async fn handle_messages_batch(&self, messages: Vec<Message>) -> Result<()> {
-        log::debug!("Got {} messages", messages.len());
+    async fn collect_metrics(&self) {
+        self.heartbeat().await;
+        self.bandwidth().await;
+        self.cpu_usage().await;
+        self.loadavg().await;
+        self.memory().await;
+        self.disk_usage().await;
 
-        let handles: Vec<_> = messages
-            .into_iter()
-            .map(|msg| self.handle_message(msg))
-            .collect();
+        if self.xray_stats_client.is_some() {
+            self.collect_inbound_metrics().await;
+            self.collect_user_metrics().await;
+        }
 
-        let _results = try_join_all(handles).await?;
-
-        Ok(())
+        if self.wg_client.is_some() {
+            self.collect_wg_metrics().await;
+        }
     }
 }

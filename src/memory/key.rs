@@ -303,9 +303,9 @@ mod tests {
 
         let mut chars: Vec<char> = code_str.chars().collect();
 
-        for i in 0..chars.len() {
-            if chars[i] != '-' {
-                chars[i] = if chars[i] == 'A' { 'B' } else { 'A' };
+        for c in chars.iter_mut() {
+            if *c != '-' {
+                *c = if *c == 'A' { 'B' } else { 'A' };
                 break;
             }
         }

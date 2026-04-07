@@ -13,7 +13,6 @@ pub mod zmq;
 
 pub use crate::error::{PonyError, Result, SyncError};
 
-pub use memory::cache::Cache as MemoryCache;
 pub use memory::connection::base::Base as BaseConnection;
 pub use memory::connection::conn::Conn as Connection;
 pub use memory::subscription::Subscription;

@@ -2,9 +2,6 @@ use serde::Deserialize;
 use serde::Serialize;
 use std::fmt;
 
-use super::super::stat::Kind;
-use crate::metrics::Metric;
-
 use rkyv::{Archive, Deserialize as RkyvDeserialize, Serialize as RkyvSerialize};
 
 #[derive(
@@ -22,22 +19,6 @@ pub struct Stat {
     pub downlink: i64,
     pub uplink: i64,
     pub online: i64,
-}
-
-impl Stat {
-    pub fn from_metrics<T: Into<i64> + Clone + Copy>(metrics: Vec<Metric<T>>) -> Self {
-        let mut stat = Stat::default();
-        for metric in metrics {
-            let value = metric.value;
-            match metric.stat_type() {
-                Kind::Uplink => stat.uplink = value.into(),
-                Kind::Downlink => stat.downlink = value.into(),
-                Kind::Online => stat.online = value.into(),
-                Kind::Unknown => {}
-            }
-        }
-        stat
-    }
 }
 
 impl fmt::Display for Stat {

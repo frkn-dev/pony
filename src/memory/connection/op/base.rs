@@ -4,22 +4,10 @@ use chrono::Utc;
 use super::super::base::Base;
 use super::super::conn::Conn;
 use super::super::proto::Proto;
-use super::super::stat::Stat;
 use super::super::wireguard::Param as WgParam;
 use crate::error::{PonyError, Result};
 
 pub trait Operations {
-    fn get_uplink(&self) -> i64;
-    fn set_uplink(&mut self, v: i64);
-    fn reset_uplink(&mut self);
-
-    fn get_downlink(&self) -> i64;
-    fn set_downlink(&mut self, v: i64);
-    fn reset_downlink(&mut self);
-
-    fn get_online(&self) -> i64;
-    fn set_online(&mut self, v: i64);
-
     fn get_modified_at(&self) -> DateTime<Utc>;
     fn set_modified_at(&mut self);
 
@@ -32,8 +20,6 @@ pub trait Operations {
     fn set_deleted(&mut self, v: bool);
     fn get_deleted(&self) -> bool;
 
-    fn as_conn_stat(&self) -> Stat;
-
     fn get_wireguard(&self) -> Option<&WgParam>;
     fn get_wireguard_node_id(&self) -> Option<uuid::Uuid>;
     fn get_password(&self) -> Option<String>;
@@ -42,33 +28,6 @@ pub trait Operations {
 }
 
 impl Operations for Base {
-    fn get_uplink(&self) -> i64 {
-        self.stat.uplink
-    }
-    fn set_uplink(&mut self, v: i64) {
-        self.stat.uplink = v;
-    }
-    fn reset_uplink(&mut self) {
-        self.stat.uplink = 0;
-    }
-
-    fn get_downlink(&self) -> i64 {
-        self.stat.downlink
-    }
-    fn set_downlink(&mut self, v: i64) {
-        self.stat.downlink = v;
-    }
-    fn reset_downlink(&mut self) {
-        self.stat.downlink = 0;
-    }
-
-    fn get_online(&self) -> i64 {
-        self.stat.online
-    }
-    fn set_online(&mut self, v: i64) {
-        self.stat.online = v;
-    }
-
     fn get_modified_at(&self) -> DateTime<Utc> {
         self.modified_at
     }
@@ -89,14 +48,6 @@ impl Operations for Base {
     }
     fn get_proto(&self) -> Proto {
         self.proto.clone()
-    }
-
-    fn as_conn_stat(&self) -> Stat {
-        Stat {
-            uplink: self.stat.uplink,
-            downlink: self.stat.downlink,
-            online: self.stat.online,
-        }
     }
 
     fn set_deleted(&mut self, v: bool) {
@@ -148,33 +99,6 @@ impl Operations for Base {
 }
 
 impl Operations for Conn {
-    fn get_uplink(&self) -> i64 {
-        self.stat.uplink
-    }
-    fn set_uplink(&mut self, v: i64) {
-        self.stat.uplink = v;
-    }
-    fn reset_uplink(&mut self) {
-        self.stat.uplink = 0;
-    }
-
-    fn get_downlink(&self) -> i64 {
-        self.stat.downlink
-    }
-    fn set_downlink(&mut self, v: i64) {
-        self.stat.downlink = v;
-    }
-    fn reset_downlink(&mut self) {
-        self.stat.downlink = 0;
-    }
-
-    fn get_online(&self) -> i64 {
-        self.stat.online
-    }
-    fn set_online(&mut self, v: i64) {
-        self.stat.online = v;
-    }
-
     fn get_modified_at(&self) -> DateTime<Utc> {
         self.modified_at
     }
@@ -202,14 +126,6 @@ impl Operations for Conn {
     }
     fn get_deleted(&self) -> bool {
         self.is_deleted
-    }
-
-    fn as_conn_stat(&self) -> Stat {
-        Stat {
-            uplink: self.stat.uplink,
-            downlink: self.stat.downlink,
-            online: self.stat.online,
-        }
     }
 
     fn get_wireguard_node_id(&self) -> Option<uuid::Uuid> {

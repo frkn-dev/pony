@@ -1,26 +1,24 @@
 use fern::Dispatch;
-use std::net::Ipv4Addr;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tokio::time::sleep;
 use tokio::time::Duration;
 
 use pony::config::settings::ApiSettings;
 use pony::config::settings::Settings;
-use pony::http::debug;
-use pony::metrics::Metrics;
+use pony::metrics::storage::MetricStorage;
 use pony::utils::*;
 use pony::zmq::publisher::Publisher as ZmqPublisher;
-use pony::MemoryCache;
 use pony::Result;
+use pony::Subscriber;
 
-use crate::core::clickhouse::ChContext;
 use crate::core::http::routes::Http;
+use crate::core::metrics::MetricWorker;
 use crate::core::postgres::PgContext;
 use crate::core::sync::MemSync;
 use crate::core::tasks::Tasks;
 use crate::core::Api;
 use crate::core::ApiState;
+use crate::core::Cache;
 
 mod core;
 
@@ -55,8 +53,6 @@ async fn main() -> Result<()> {
         .apply()
         .unwrap();
 
-    let debug = settings.debug.enabled;
-
     let db = match PgContext::init(&settings.pg).await {
         Ok(db) => db,
         Err(err) => {
@@ -65,15 +61,18 @@ async fn main() -> Result<()> {
         }
     };
 
-    let ch = ChContext::new(&settings.clickhouse.address);
     let publisher = ZmqPublisher::new(&settings.zmq.endpoint).await;
 
-    let mem: Arc<RwLock<ApiState>> = Arc::new(RwLock::new(MemoryCache::new()));
+    let mem: Arc<RwLock<ApiState>> = Arc::new(RwLock::new(Cache::new()));
     let mem_sync = MemSync::new(mem.clone(), db.clone(), publisher.clone());
+    let metric_storage = Arc::new(MetricStorage::new(
+        settings.api.max_points,
+        settings.api.retention_seconds,
+    ));
 
-    let api = Arc::new(Api::new(ch.clone(), mem_sync.clone(), settings.clone()));
+    let api = Arc::new(Api::new(mem_sync.clone(), settings.clone(), metric_storage));
 
-    measure_time(api.get_state_from_db(), "Init PG DB".to_string()).await?;
+    measure_time(api.get_state_from_db(), "Init PG DB").await?;
 
     let api_clone = api.clone();
     tokio::spawn(async move {
@@ -82,77 +81,24 @@ async fn main() -> Result<()> {
             .await;
     });
 
-    if settings.api.metrics_enabled {
-        log::info!("Running metrics send task");
-        tokio::spawn({
-            let settings = settings.clone();
-            let api = api.clone();
+    log::debug!("Running metrics reciever task");
+    let subscriber = Subscriber::new_bound(&settings.metrics.reciever, settings.metrics.topic);
 
-            async move {
-                loop {
-                    sleep(Duration::from_secs(settings.api.metrics_interval)).await;
-                    let _ = api.send_metrics(&settings.carbon.address).await;
-                }
-            }
-        });
-    }
+    MetricWorker::start(api.metrics.clone(), subscriber).await;
 
-    if settings.api.metrics_enabled {
-        log::info!("Running HB metrics send task");
-        tokio::spawn({
-            let settings = settings.clone();
-            let api = api.clone();
+    log::info!("Metrics system initialized via MetricWorker");
 
-            async move {
-                loop {
-                    sleep(Duration::from_secs(settings.api.metrics_hb_interval)).await;
-                    let _ = api.send_hb_metric(&settings.carbon.address).await;
-                }
-            }
-        });
-    }
-
-    let token = settings.api.token.clone();
-    if debug {
-        let token = Arc::new(token);
-        tokio::spawn(debug::start_ws_server(
-            mem.clone(),
-            settings
-                .debug
-                .web_server
-                .unwrap_or(Ipv4Addr::new(127, 0, 0, 1)),
-            settings.debug.web_port,
-            token,
-        ));
-    }
-
-    tokio::spawn({
-        log::info!("node_healthcheck task started");
-        let job_interval = Duration::from_secs(settings.api.healthcheck_interval);
-        let api = api.clone();
-
-        async move {
-            loop {
-                if let Err(e) = api.node_healthcheck().await {
-                    log::error!("node_healthcheck task  failed: {:?}", e);
-                }
-                tokio::time::sleep(job_interval).await;
-            }
-        }
-    });
-
-    tokio::spawn({
-        log::info!("collect_conn_stat task started");
-        let api = api.clone();
-        let job_interval = Duration::from_secs(settings.api.collect_conn_stat_interval);
-
-        async move {
-            loop {
-                tokio::time::sleep(job_interval).await;
-                if let Err(e) = api.collect_conn_stat().await {
-                    log::error!("collect_conn_stat task  failed: {:?}", e);
-                }
-            }
+    let metrics_storage = api.metrics.clone();
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
+        loop {
+            interval.tick().await;
+            let s = metrics_storage.clone();
+            tokio::task::spawn_blocking(move || {
+                log::info!("Starting MetricStorage GC...");
+                s.perform_gc();
+                log::info!("MetricStorage GC finished.");
+            });
         }
     });
 

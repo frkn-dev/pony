@@ -65,7 +65,10 @@ async fn main() -> Result<()> {
 
     let mem: Arc<RwLock<ApiState>> = Arc::new(RwLock::new(Cache::new()));
     let mem_sync = MemSync::new(mem.clone(), db.clone(), publisher.clone());
-    let metric_storage = Arc::new(MetricStorage::new(100_000_000, 24 * 60 * 7));
+    let metric_storage = Arc::new(MetricStorage::new(
+        settings.api.max_points,
+        settings.api.retention_seconds,
+    ));
 
     let api = Arc::new(Api::new(mem_sync.clone(), settings.clone(), metric_storage));
 
@@ -78,14 +81,12 @@ async fn main() -> Result<()> {
             .await;
     });
 
-    if settings.api.metrics_enabled {
-        log::debug!("Running metrics task");
-        let subscriber = Subscriber::new_bound("tcp://0.0.0.0:5555", vec![]);
+    log::debug!("Running metrics reciever task");
+    let subscriber = Subscriber::new_bound(&settings.metrics.reciever, settings.metrics.topic);
 
-        MetricWorker::start(api.metrics.clone(), subscriber).await;
+    MetricWorker::start(api.metrics.clone(), subscriber).await;
 
-        log::info!("Metrics system initialized via MetricWorker");
-    }
+    log::info!("Metrics system initialized via MetricWorker");
 
     let metrics_storage = api.metrics.clone();
     tokio::spawn(async move {

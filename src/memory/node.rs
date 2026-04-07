@@ -65,6 +65,7 @@ pub struct NodeResponse {
     pub cores: usize,
     pub max_bandwidth_bps: i64,
     pub metrics: Vec<NodeMetricInfo>,
+    pub country: String,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -88,6 +89,7 @@ pub struct Node {
     pub inbounds: HashMap<Tag, Inbound>,
     pub cores: usize,
     pub max_bandwidth_bps: i64,
+    pub country: String,
 }
 
 impl Node {
@@ -177,6 +179,7 @@ impl Node {
             inbounds,
             cores: settings.cores,
             max_bandwidth_bps: settings.max_bandwidth_bps,
+            country: settings.country,
         }
     }
 
@@ -193,6 +196,7 @@ impl Node {
             "max_bandwidth_bps".to_string(),
             self.max_bandwidth_bps.to_string(),
         );
+        tags.insert("country".to_string(), self.country.clone());
         tags
     }
 
@@ -210,6 +214,7 @@ impl Node {
             cores: self.cores,
             max_bandwidth_bps: self.max_bandwidth_bps,
             metrics: [].to_vec(),
+            country: self.country.clone(),
         }
     }
 

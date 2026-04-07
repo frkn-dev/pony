@@ -35,6 +35,7 @@ pub struct NodeRequest {
     pub interface: String,
     pub cores: usize,
     pub max_bandwidth_bps: i64,
+    pub country: String,
 }
 
 impl NodeRequest {
@@ -53,6 +54,7 @@ impl NodeRequest {
             interface: self.interface.clone(),
             cores: self.cores,
             max_bandwidth_bps: self.max_bandwidth_bps,
+            country: self.country.clone(),
         }
     }
 }

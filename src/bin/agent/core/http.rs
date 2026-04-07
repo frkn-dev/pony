@@ -34,6 +34,7 @@ pub struct NodeRequest {
     pub interface: String,
     pub cores: usize,
     pub max_bandwidth_bps: i64,
+    pub country: String,
 }
 
 #[async_trait]
@@ -148,6 +149,7 @@ where
             interface: node.interface.clone(),
             cores: node.cores,
             max_bandwidth_bps: node.max_bandwidth_bps,
+            country: node.country,
         };
 
         let res = HttpClient::new()

@@ -1,26 +1,28 @@
+[auth]
+snapshot_interval = 30
+snapshot_path = "snapshots/auth_snapshot.bin"
+web_host = "https://auth.frkn.org"
+web_server = "0.0.0.0"
+web_port = 3005
+email_file = "users_trials.csv"
 
-[debug]
-#enable = true
-#web_server = "127.0.0.1"
-#web_port = 3445
+[api]
+endpoint = "http://localhost:3005"
+token = "your-super-secret-api-token"
 
+[smtp]
+server = "smtp.gmail.com"
+port = 587
+username = "notifications@frkn.org"
+password = "app-password-here"
+from = "FRKN Privacy <noreply@frkn.org>"
+
+[metrics]
+publisher = "tcp://127.0.0.1:5555"
+interval = 60
 
 [logging]
-#level = "debug"
- 
+level = "info"
+
 [zmq]
-#endpoint = "tcp://localhost:4000"
-
-[auth]
-#snapshot_path = "snapshots/snapshot.bin"
- 
-[node]
-#env = "dev"
-#hostname = "darkmachine-test"
-#uuid = "9557b391-01cb-4031-a3f5-6cbdd74fffff"
- 
-[api]
-#endpoint = "http://127.0.0.1:5005"
-#token = "token"
-
-
+endpoint = "tcp://localhost:3000"

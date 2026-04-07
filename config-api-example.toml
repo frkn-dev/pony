@@ -1,39 +1,29 @@
 [api]
-# address = "127.0.0.1"
-# port = 3005
-# endpoint = "http://localhost:3005"
-# node_health_check_timeout = 60
-# user_limit_check_interval = 60
-# user_reactivate_interval = 60
-# token = "supetsecrettoken"
-# user_limit_mb = 1000
-# healthcheck_interval = 60
-
-[debug]
-# enabled = true
-# web_server = "127.0.0.1"
-# web_port = 3001
+address = "0.0.0.0"
+port = 3005
+token = "your-super-secret-api-token"
+metrics_enabled = true
+metrics_interval = 60
+db_sync_interval_sec = 300
+subscription_restore_interval = 60
+subscription_expire_interval = 60
+max_points = 100000000
+retention_seconds = 604800 # 7 days
 
 [node]
-# env = "dev"
-# hostname = "<define in env or config>"
-# default_interface = "<autodetected>"
-# ipv4 = "<autodetected>"
-# uuid = "9658b391-01cb-4031-a3f5-6cbdd749bcff"
-# label = "🏴‍☠️🏴‍☠️🏴‍☠️ dev"
+env = "experimental"
+label = "🏴‍☠️ DarkMachine"
+max_bandwidth_bps = 1000000000 #1gbps
 
 [logging]
-# level = "debug"
+level = "debug"
 
 [zmq]
-# endpoint = "tcp://*:3000"
-
-[clickhouse]
-# address = "http://localhost:8123"
+endpoint = "tcp://*:3000"
 
 [pg]
-# host = "localhost"
-# port = 5432
-# db = "postgres"
-# username = "postgres"
-# password = "password"
+host = "localhost"
+port = 5432
+db = "frkn_db"
+username = "postgres"
+password = "password"

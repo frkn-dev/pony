@@ -128,11 +128,7 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
     let zmq_endpoint = settings.zmq.endpoint.clone();
     let subscriber = ZmqSubscriber::new(&zmq_endpoint, &node.uuid, &node.env);
 
-    let metric_publisher = if settings.metrics.enabled {
-        Publisher::connect(&settings.metrics.publisher).await
-    } else {
-        panic!("Metrics ZMQ publisher couldn't run");
-    };
+    let metric_publisher = Publisher::connect(&settings.metrics.publisher).await;
 
     let metrics = MetricBuffer {
         batch: parking_lot::Mutex::new(Vec::new()),
@@ -159,7 +155,6 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
                     .await
                 {
                     log::error!("Couldn't restore connections from memory, {}", e);
-                    panic!("Couldn't restore connections from memory, {}", e);
                 }
                 let count = snapshot_manager.len().await;
                 log::info!(
@@ -264,50 +259,48 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
         }
     };
 
-    if settings.metrics.enabled {
-        log::info!("Running metrics task");
+    log::info!("Running metrics task");
 
-        let metrics_handle: JoinHandle<()> = tokio::spawn({
-            let agent = agent.clone();
-            let mut shutdown = shutdown_tx.subscribe();
-            async move {
-                loop {
-                    tokio::select! {
-                        _ = sleep(Duration::from_secs(settings.metrics.interval)) => {
-                             agent.collect_metrics().await;
+    let metrics_handle: JoinHandle<()> = tokio::spawn({
+        let agent = agent.clone();
+        let mut shutdown = shutdown_tx.subscribe();
+        async move {
+            loop {
+                tokio::select! {
+                    _ = sleep(Duration::from_secs(settings.metrics.interval)) => {
+                         agent.collect_metrics().await;
 
-                        },
-                        _ = shutdown.recv() => {
-                            log::info!("🛑 Metrics task received shutdown");
-                            break;
-                        },
-                    }
+                    },
+                    _ = shutdown.recv() => {
+                        log::info!("🛑 Metrics task received shutdown");
+                        break;
+                    },
                 }
             }
-        });
+        }
+    });
 
-        log::info!("Running flush metrics task");
-        let metrics_flush_handle: JoinHandle<()> = tokio::spawn({
-            let agent = agent.clone();
-            let mut shutdown = shutdown_tx.subscribe();
-            async move {
-                loop {
-                    tokio::select! {
-                        _ = sleep(Duration::from_secs(settings.metrics.interval+2)) => {
-                             agent.metrics.flush_to_zmq().await;
+    log::info!("Running flush metrics task");
+    let metrics_flush_handle: JoinHandle<()> = tokio::spawn({
+        let agent = agent.clone();
+        let mut shutdown = shutdown_tx.subscribe();
+        async move {
+            loop {
+                tokio::select! {
+                    _ = sleep(Duration::from_secs(settings.metrics.interval+3)) => {
+                         agent.metrics.flush_to_zmq().await;
 
-                        },
-                        _ = shutdown.recv() => {
-                            log::info!("🛑 Metrics flush task received shutdown");
-                            break;
-                        },
-                    }
+                    },
+                    _ = shutdown.recv() => {
+                        log::info!("🛑 Metrics flush task received shutdown");
+                        break;
+                    },
                 }
             }
-        });
-        tasks.push(metrics_handle);
-        tasks.push(metrics_flush_handle);
-    }
+        }
+    });
+    tasks.push(metrics_handle);
+    tasks.push(metrics_flush_handle);
 
     wait_all_tasks_or_ctrlc(tasks, shutdown_tx).await;
     Ok(())

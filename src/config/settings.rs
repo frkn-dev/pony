@@ -9,268 +9,53 @@ use std::fs;
 use std::net::Ipv4Addr;
 use uuid::Uuid;
 
-fn default_enabled() -> bool {
-    true
-}
 fn default_disabled() -> bool {
     false
 }
 fn default_env() -> String {
     "dev".to_string()
 }
-fn default_carbon_server() -> String {
-    "localhost:2003".to_string()
-}
-
-fn default_loglevel() -> String {
-    "debug".to_string()
-}
-fn default_zmq_sub_endpoint() -> String {
-    "tcp://localhost:3000".to_string()
-}
-fn default_zmq_pub_endpoint() -> String {
-    "tcp://*:3000".to_string()
-}
-fn default_metrics_zmq_pub_endpoint() -> String {
-    "tcp://127.0.0.1:5555".to_string()
-}
-fn default_xray_config_path() -> String {
-    "dev/xray-config.json".to_string()
-}
-fn default_wg_port() -> u16 {
-    51820
-}
-fn default_wg_interface() -> String {
-    "wg0".to_string()
-}
-fn default_pg_address() -> String {
-    "localhost".to_string()
-}
-fn default_pg_port() -> u16 {
-    5432
-}
-fn default_pg_db() -> String {
-    "postgres".to_string()
-}
-fn default_pg_username() -> String {
-    "postgres".to_string()
-}
-fn default_pg_password() -> String {
-    "password".to_string()
-}
-fn default_api_endpoint_address() -> String {
-    "http://localhost:3005".to_string()
-}
-fn default_uuid() -> Uuid {
-    Uuid::parse_str("9658b391-01cb-4031-a3f5-6cbdd749bcff").unwrap()
-}
-fn default_debug_web_server() -> Option<Ipv4Addr> {
-    Some(Ipv4Addr::new(127, 0, 0, 1))
-}
-fn default_debug_web_port() -> u16 {
-    3001
-}
-fn default_auth_web_server() -> Option<Ipv4Addr> {
-    Some(Ipv4Addr::new(127, 0, 0, 1))
-}
-fn default_auth_web_port() -> u16 {
-    3005
-}
-fn default_api_web_listen() -> Option<Ipv4Addr> {
-    Some(Ipv4Addr::new(127, 0, 0, 1))
-}
-fn default_api_web_port() -> u16 {
-    3005
-}
-fn default_api_token() -> String {
-    "token".to_string()
-}
-
-fn default_key_sign_token() -> Vec<u8> {
-    b"sign-token".to_vec()
-}
-
-fn default_label() -> String {
-    "🏴‍☠️🏴‍☠️🏴‍☠️ dev".to_string()
-}
-
-fn default_stat_job_interval() -> u64 {
-    60
-}
-
-fn default_snapshot_interval() -> u64 {
-    30
-}
-
-fn default_snapshot_path() -> String {
-    "snapshots/snapshot.bin".to_string()
-}
-
-fn default_metrics_interval() -> u64 {
-    60
-}
-
-fn default_metrics_hb_interval() -> u64 {
-    1
-}
-
-fn default_healthcheck_interval() -> u64 {
-    60
-}
-fn default_collect_conn_stat_interval() -> u64 {
-    60
-}
-fn default_db_sync_interval_sec() -> u64 {
-    300
-}
-
-fn default_subscription_restore_interval_sec() -> u64 {
-    60
-}
-
-fn default_subscription_expire_interval_sec() -> u64 {
-    60
-}
-
-fn default_node_healthcheck_timeout() -> i16 {
-    60
-}
-
-fn default_max_bandwidth_bps() -> i64 {
-    100_000_000
-}
-
-fn default_web_host() -> String {
-    "http://localhost:8000".to_string()
-}
-
-fn default_api_web_host() -> String {
-    "http://localhost:5005".to_string()
-}
-
-fn default_h2_config_path() -> String {
-    "dev/h2.yaml".to_string()
-}
-
-fn default_mtproto_port() -> u16 {
-    8443
-}
-
-fn default_smtp_username() -> String {
-    "user".to_string()
-}
-
-fn default_smtp_password() -> String {
-    "password".to_string()
-}
-
-fn default_smtp_server() -> String {
-    "smtp.example.com".to_string()
-}
-
-fn default_smtp_port() -> u16 {
-    587
-}
-
-fn default_smtp_from() -> String {
-    "noreply@example.com".to_string()
-}
-
-fn default_email_file() -> String {
-    "trials.csv".to_string()
-}
-
-fn default_email_sign_token() -> Vec<u8> {
-    b"email-sign-token".to_vec()
-}
-
-fn default_bonus_days() -> i64 {
-    7
-}
-
-fn default_promo_codes() -> Vec<String> {
-    vec![
-        "FRKN.ORG".to_string(),
-        "mobile".to_string(),
-        "mobile-dev".to_string(),
-    ]
-}
 
 #[derive(Clone, Debug, Deserialize, Default)]
 pub struct ApiServiceConfig {
-    #[serde(default = "default_api_web_listen")]
     pub address: Option<Ipv4Addr>,
-    #[serde(default = "default_api_web_port")]
     pub port: u16,
-    #[serde(default = "default_collect_conn_stat_interval")]
-    pub collect_conn_stat_interval: u64,
-    #[serde(default = "default_healthcheck_interval")]
-    pub healthcheck_interval: u64,
-    #[serde(default = "default_api_token")]
     pub token: String,
-    #[serde(default = "default_enabled")]
-    pub metrics_enabled: bool,
-    #[serde(default = "default_metrics_interval")]
-    pub metrics_interval: u64,
-    #[serde(default = "default_metrics_hb_interval")]
-    pub metrics_hb_interval: u64,
-    #[serde(default = "default_db_sync_interval_sec")]
     pub db_sync_interval_sec: u64,
-    #[serde(default = "default_web_host")]
     pub web_host: String,
-    #[serde(default = "default_api_web_host")]
     pub api_web_host: String,
-    #[serde(default = "default_subscription_restore_interval_sec")]
     pub subscription_restore_interval: u64,
-    #[serde(default = "default_subscription_expire_interval_sec")]
     pub subscription_expire_interval: u64,
-    #[serde(default = "default_node_healthcheck_timeout")]
-    pub node_health_check_timeout: i16,
-    #[serde(default = "default_key_sign_token")]
     pub key_sign_token: Vec<u8>,
-    #[serde(default = "default_bonus_days")]
     pub bonus_days: i64,
-    #[serde(default = "default_promo_codes")]
     pub promo_codes: Vec<String>,
+    pub max_points: usize,
+    pub retention_seconds: i64,
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]
 pub struct ApiAccessConfig {
-    #[serde(default = "default_api_endpoint_address")]
     pub endpoint: String,
-    #[serde(default = "default_api_token")]
     pub token: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]
 pub struct AuthServiceConfig {
-    #[serde(default = "default_snapshot_interval")]
     pub snapshot_interval: u64,
-    #[serde(default = "default_snapshot_path")]
     pub snapshot_path: String,
-    #[serde(default = "default_web_host")]
     pub web_host: String,
-    #[serde(default = "default_auth_web_server")]
     pub web_server: Option<Ipv4Addr>,
-    #[serde(default = "default_auth_web_port")]
     pub web_port: u16,
-    #[serde(default = "default_email_file")]
     pub email_file: String,
-    #[serde(default = "default_email_sign_token")]
     pub email_sign_token: Vec<u8>,
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]
 pub struct SmtpConfig {
-    #[serde(default = "default_smtp_server")]
     pub server: String,
-    #[serde(default = "default_smtp_port")]
     pub port: u16,
-    #[serde(default = "default_smtp_username")]
     pub username: String,
-    #[serde(default = "default_smtp_password")]
     pub password: String,
-    #[serde(default = "default_smtp_from")]
     pub from: String,
 }
 
@@ -278,47 +63,24 @@ pub struct SmtpConfig {
 pub struct AgentConfig {
     #[serde(default = "default_disabled")]
     pub local: bool,
-    #[serde(default = "default_enabled")]
-    pub stat_enabled: bool,
-    #[serde(default = "default_stat_job_interval")]
-    pub stat_job_interval: u64,
-    #[serde(default = "default_snapshot_interval")]
     pub snapshot_interval: u64,
-    #[serde(default = "default_snapshot_path")]
     pub snapshot_path: String,
 }
 
 #[derive(Clone, Default, Debug, Deserialize)]
-pub struct MetricsConfig {
-    #[serde(default = "default_metrics_zmq_pub_endpoint")]
+pub struct MetricsTxConfig {
     pub publisher: String,
-    #[serde(default = "default_enabled")]
-    pub enabled: bool,
-    #[serde(default = "default_metrics_interval")]
     pub interval: u64,
-    #[serde(default = "default_metrics_hb_interval")]
-    pub hb_interval: u64,
 }
 
-#[derive(Clone, Debug, Deserialize, Default)]
-pub struct CarbonConfig {
-    #[serde(default = "default_carbon_server")]
-    pub address: String,
-}
-
-#[derive(Clone, Debug, Deserialize, Default)]
-pub struct DebugConfig {
-    #[serde(default = "default_enabled")]
-    pub enabled: bool,
-    #[serde(default = "default_debug_web_server")]
-    pub web_server: Option<Ipv4Addr>,
-    #[serde(default = "default_debug_web_port")]
-    pub web_port: u16,
+#[derive(Clone, Default, Debug, Deserialize)]
+pub struct MetricsRxConfig {
+    pub reciever: String,
+    pub topic: Vec<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]
 pub struct LoggingConfig {
-    #[serde(default = "default_loglevel")]
     pub level: String,
 }
 
@@ -332,6 +94,7 @@ pub struct NodeConfig {
     pub label: String,
     pub max_bandwidth_bps: i64,
     pub cores: usize,
+    pub country: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]
@@ -341,12 +104,10 @@ pub struct NodeConfigRaw {
     pub hostname: Option<String>,
     pub default_interface: Option<String>,
     pub address: Option<Ipv4Addr>,
-    #[serde(default = "default_uuid")]
     pub uuid: Uuid,
-    #[serde(default = "default_label")]
     pub label: String,
-    #[serde(default = "default_max_bandwidth_bps")]
     pub max_bandwidth_bps: i64,
+    pub country: String,
 }
 
 impl NodeConfig {
@@ -434,29 +195,24 @@ impl NodeConfig {
             label: raw.label,
             max_bandwidth_bps: raw.max_bandwidth_bps,
             cores: num_cpus,
+            country: raw.country,
         })
     }
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]
 pub struct PostgresConfig {
-    #[serde(default = "default_pg_address")]
     pub host: String,
-    #[serde(default = "default_pg_port")]
     pub port: u16,
-    #[serde(default = "default_pg_db")]
     pub db: String,
-    #[serde(default = "default_pg_username")]
     pub username: String,
-    #[serde(default = "default_pg_password")]
     pub password: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]
 pub struct XrayConfig {
-    #[serde(default = "default_enabled")]
+    #[serde(default = "default_disabled")]
     pub enabled: bool,
-    #[serde(default = "default_xray_config_path")]
     pub xray_config_path: String,
 }
 
@@ -464,9 +220,7 @@ pub struct XrayConfig {
 pub struct WgConfig {
     #[serde(default = "default_disabled")]
     pub enabled: bool,
-    #[serde(default = "default_wg_port")]
     pub port: u16,
-    #[serde(default = "default_wg_interface")]
     pub interface: String,
     pub network: Option<String>,
     pub privkey: Option<String>,
@@ -479,7 +233,6 @@ pub struct WgConfig {
 pub struct H2Config {
     #[serde(default = "default_disabled")]
     pub enabled: bool,
-    #[serde(default = "default_h2_config_path")]
     pub path: String,
 }
 
@@ -487,14 +240,12 @@ pub struct H2Config {
 pub struct MtprotoConfig {
     #[serde(default = "default_disabled")]
     pub enabled: bool,
-    #[serde(default = "default_mtproto_port")]
     pub port: u16,
     pub secret: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]
 pub struct ZmqSubscriberConfig {
-    #[serde(default = "default_zmq_sub_endpoint")]
     pub endpoint: String,
 }
 
@@ -511,7 +262,6 @@ impl ZmqSubscriberConfig {
 
 #[derive(Clone, Debug, Deserialize, Default)]
 pub struct ZmqPublisherConfig {
-    #[serde(default = "default_zmq_pub_endpoint")]
     pub endpoint: String,
 }
 
@@ -551,8 +301,6 @@ pub struct ApiSettings {
     #[serde(default)]
     pub api: ApiServiceConfig,
     #[serde(default)]
-    pub debug: DebugConfig,
-    #[serde(default)]
     pub node: NodeConfigRaw,
     #[serde(default)]
     pub logging: LoggingConfig,
@@ -561,13 +309,11 @@ pub struct ApiSettings {
     #[serde(default)]
     pub pg: PostgresConfig,
     #[serde(default)]
-    pub carbon: CarbonConfig,
+    pub metrics: MetricsRxConfig,
 }
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct AuthServiceSettings {
-    #[serde(default)]
-    pub debug: DebugConfig,
     #[serde(default)]
     pub logging: LoggingConfig,
     #[serde(default)]
@@ -581,7 +327,7 @@ pub struct AuthServiceSettings {
     #[serde(default)]
     pub smtp: SmtpConfig,
     #[serde(default)]
-    pub metrics: MetricsConfig,
+    pub metrics: MetricsTxConfig,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -605,7 +351,7 @@ pub struct AgentSettings {
     #[serde(default)]
     pub api: ApiAccessConfig,
     #[serde(default)]
-    pub metrics: MetricsConfig,
+    pub metrics: MetricsTxConfig,
 }
 
 impl Settings for AgentSettings {

@@ -51,11 +51,7 @@ pub async fn run(settings: AuthServiceSettings) -> Result<()> {
         .web_server
         .unwrap_or(Ipv4Addr::from_octets([127, 0, 0, 1]));
 
-    let metric_publisher = if settings.metrics.enabled {
-        Publisher::connect(&settings.metrics.publisher).await
-    } else {
-        panic!("Metrics ZMQ publisher couldn't run");
-    };
+    let metric_publisher = Publisher::connect(&settings.metrics.publisher).await;
 
     let metrics = MetricBuffer {
         batch: parking_lot::Mutex::new(Vec::new()),
@@ -181,45 +177,41 @@ pub async fn run(settings: AuthServiceSettings) -> Result<()> {
         tasks.push(auth_handle);
     };
 
-    if settings.metrics.enabled {
-        log::info!("Running metrics task");
+    log::info!("Running metrics task");
 
-        // Клон для первого таска
-        let auth_for_collect = auth.clone();
-        let metrics_handle = tokio::spawn({
-            let mut shutdown = shutdown_tx.subscribe();
-            async move {
-                loop {
-                    tokio::select! {
-                        _ = sleep(Duration::from_secs(settings.metrics.interval)) => {
-                            auth_for_collect.collect_metrics().await;
-                        },
-                        _ = shutdown.recv() => break,
-                    }
+    let auth_for_collect = auth.clone();
+    let metrics_handle = tokio::spawn({
+        let mut shutdown = shutdown_tx.subscribe();
+        async move {
+            loop {
+                tokio::select! {
+                    _ = sleep(Duration::from_secs(settings.metrics.interval)) => {
+                        auth_for_collect.collect_metrics().await;
+                    },
+                    _ = shutdown.recv() => break,
                 }
             }
-        });
+        }
+    });
 
-        // Клон для второго таска
-        let auth_for_flush = auth.clone();
-        log::info!("Running flush metrics task");
-        let metrics_flush_handle = tokio::spawn({
-            let mut shutdown = shutdown_tx.subscribe();
-            async move {
-                loop {
-                    tokio::select! {
-                        _ = sleep(Duration::from_secs(settings.metrics.interval + 2)) => {
-                            auth_for_flush.metrics.flush_to_zmq().await;
-                        },
-                        _ = shutdown.recv() => break,
-                    }
+    let auth_for_flush = auth.clone();
+    log::info!("Running flush metrics task");
+    let metrics_flush_handle = tokio::spawn({
+        let mut shutdown = shutdown_tx.subscribe();
+        async move {
+            loop {
+                tokio::select! {
+                    _ = sleep(Duration::from_secs(settings.metrics.interval + 2)) => {
+                        auth_for_flush.metrics.flush_to_zmq().await;
+                    },
+                    _ = shutdown.recv() => break,
                 }
             }
-        });
+        }
+    });
 
-        tasks.push(metrics_handle);
-        tasks.push(metrics_flush_handle);
-    }
+    tasks.push(metrics_handle);
+    tasks.push(metrics_flush_handle);
 
     wait_all_tasks_or_ctrlc(tasks, shutdown_tx).await;
     Ok(())

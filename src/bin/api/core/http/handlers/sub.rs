@@ -1,7 +1,5 @@
 use std::collections::HashSet;
 
-use url::Url;
-
 use base64::Engine;
 use chrono::DateTime;
 use chrono::Utc;
@@ -13,7 +11,6 @@ use warp::http::StatusCode;
 use pony::http::helpers as http;
 use pony::http::response::Instance;
 use pony::http::ResponseMessage;
-use pony::mtproto_op::mtproto_conn;
 use pony::utils;
 use pony::utils::get_uuid_last_octet_simple;
 use pony::xray_op::clash::generate_clash_config;
@@ -239,8 +236,6 @@ where
         .map(|d| d.max(0).to_string())
         .unwrap_or_else(|| "∞".into());
 
-    let invited = mem.subscriptions.count_invited_by(&sub.refer_code());
-
     let title = if is_ru {
         "Подписка на Рилзопровод (RU)"
     } else if is_wl {
@@ -248,11 +243,6 @@ where
     } else {
         "Подписка на Рилзопровод"
     };
-
-    let sub_link = format!("https://api.frkn.org/sub/info?id={}", id);
-    let ru_link = format!("{}&env={}", sub_link, "ru");
-    let wl_link = format!("{}&env={}", sub_link, "wl");
-    let main_link = format!("{}&env={}", sub_link, "dev");
 
     let html = format!(
         r#"{head}
@@ -267,12 +257,18 @@ where
 <body>
 <h1>{title}</h1>
 </br>
-<h3>Твоя Новая Страница подписки теперь доступна по АДРЕСУ </h3>
-
-<h3>https://frkn.org/subscription?id={subscription_id}</h3>
-
-
+<p>Мы постоянно работаем над улучшениями.
+Переработали страницу подписки.
+<br>Теперь твоя страница подписки доступна по адресу:
+<br><br>
 <a href="https://frkn.org/subscription?id={subscription_id}"> https://frkn.org/subscription?id={subscription_id}</a></h1>
+<br>
+</p>
+
+<br>
+<hr>
+
+
 <br>
 <div class="stat">Статус: <span class="{status_class}">{status_text}</span></div>
 <div class="stat">Дата окончания: <span id="expires">{expires}</span></div>

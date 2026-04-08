@@ -112,8 +112,6 @@ impl EmailStore {
         &self,
         to: &str,
         sub_id: &uuid::Uuid,
-        api_address: &str,
-        web_host: &str,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let html_body = format!(
             r#"
@@ -180,7 +178,7 @@ impl EmailStore {
         <p>Привет!</p>
         <p>Твоя подписка для <strong>FRKN</strong> успешно активирована 🎉</p>
 
-        <a href="{api_address}/sub/info?id={sub_id}"
+        <a href="{web_host}/subscription?id={sub_id}"
 
          style="
            display: inline-block;
@@ -198,27 +196,25 @@ impl EmailStore {
             <div style="font-size: small;">Мы не храним твой email</div>
 
         </p>
-        <p><a href="{web_host}/activation-keys.html" style="font-size: small;>  Добавить дней в подписку </a><p>
 
         <p>Подписывайся на наш Telegram: <a href="https://t.me/frkn_org">@frkn_org</a></p>
         <br>
         <div class="footer">
         <a href="https://t.me/frkn_support">Поддержка</a></p> • Vive la résistance!<br/>
-           {web_host} • © 2026 FRKN
+           {web_host} • © 2026 FRKN Privacy Company
         </div>
     </div>
     </body>
     </html>
     "#,
-            api_address = api_address,
             sub_id = sub_id,
-            web_host = web_host,
+            web_host = self.web_host,
         );
 
         let msg = Message::builder()
             .from(format!("FRKN <{}>", self.smtp.from).parse()?)
             .to(to.parse()?)
-            .subject("FRKN Рилзопровод 🚀")
+            .subject("FRKN Рилзопровод")
             .header(lettre::message::header::ContentType::TEXT_HTML)
             .body(html_body)?;
 

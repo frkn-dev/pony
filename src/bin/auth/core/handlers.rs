@@ -1,22 +1,23 @@
-use pony::memory::connection::Connections;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-use super::helpers::{activate_key, create_connection, create_subscription, validate_key};
+use crate::core::helpers::{activate_key, validate_key};
+
+use super::helpers::{create_connection, create_subscription};
 use super::request;
 use super::response;
 use super::EmailStore;
 use super::HttpClient;
 
-use pony::config::settings::ApiAccessConfig;
-use pony::http::helpers as http;
-use pony::http::response::Instance;
-use pony::ConnectionBaseOp;
-use pony::ConnectionStorageBaseOp;
-
 use super::Env;
 use super::DEFAULT_DAYS;
 use super::PROTOS;
+use pony::config::settings::ApiAccessConfig;
+use pony::http::helpers as http;
+use pony::http::response::Instance;
+use pony::memory::connection::Connections;
+use pony::ConnectionBaseOp;
+use pony::ConnectionStorageBaseOp;
 
 pub async fn activate_key_handler(
     req: request::Key,
@@ -120,13 +121,9 @@ pub async fn activate_key_handler(
     }
 
     /* ================= SEND EMAIL + SAVE ================= */
-    let endpoint = api.endpoint.clone();
 
     if let Some(email) = req.email {
-        if let Err(e) = store
-            .send_email(&email, &sub.id, &endpoint, &store.web_host)
-            .await
-        {
+        if let Err(e) = store.send_email(&email, &sub.id).await {
             log::error!("email error: {}", e);
             return Ok(http::internal_error(
                 "Failed to send email. Please try again later or contact support.",
@@ -227,12 +224,8 @@ pub async fn trial_handler(
     let now = Utc::now();
     let email = req.email.clone();
     let ref_by = referred_by.clone();
-    let endpoint = api.endpoint.clone();
 
-    if let Err(e) = store
-        .send_email(&email, &sub.id, &endpoint, &store.web_host)
-        .await
-    {
+    if let Err(e) = store.send_email(&email, &sub.id).await {
         log::error!("📧 email error: {}", e);
         return Ok(http::internal_error(
             "Failed to send confirmation email. Please try again later or contact support.",
@@ -258,7 +251,7 @@ pub async fn auth_handler<C>(
     memory: Arc<RwLock<Connections<C>>>,
 ) -> Result<impl warp::Reply, warp::Rejection>
 where
-    C: ConnectionBaseOp + Sync + Send + Clone + 'static,
+    C: ConnectionBaseOp + Sync + Send + Clone + 'static + std::fmt::Display,
 {
     log::debug!("Auth req {} {} {}", req.auth, req.addr, req.tx);
     let mem = memory.read().await;

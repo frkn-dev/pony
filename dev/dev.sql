@@ -124,3 +124,13 @@ DROP TABLE keys;
 
 DROP TYPE node_status;
 DROP TYPE proto;
+
+
+
+
+===
+
+CREATE TYPE node_type AS ENUM ('common', 'premium');
+
+ALTER TABLE nodes
+ADD COLUMN node_type node_type NOT NULL DEFAULT 'common';

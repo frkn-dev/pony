@@ -79,11 +79,19 @@ where
         std::thread::sleep(std::time::Duration::from_secs(1));
         networks.refresh(true);
 
+        let default_if = self.node_settings().interface.clone();
+
         let node = self.node_settings();
-        let tags = node.get_base_tags();
+        let mut tags = node.get_base_tags();
         let node_uuid = node.uuid;
 
         for (interface, data) in networks.iter() {
+            if interface == &default_if {
+                tags.insert("default_interface".to_string(), "true".to_string());
+            } else {
+                tags.insert("default_interface".to_string(), "false".to_string());
+            }
+
             self.metrics().write(
                 &node_uuid,
                 &format!("net.{interface}.total_rx_bps"),

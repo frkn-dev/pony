@@ -53,11 +53,41 @@ impl FromStr for Status {
     }
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize, Copy, ToSql, FromSql, PartialEq)]
+#[postgres(name = "node_type", rename_all = "snake_case")]
+#[serde(rename_all = "lowercase")]
+pub enum Type {
+    Common,
+    Premium,
+}
+
+impl fmt::Display for Type {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Type::Common => write!(f, "Common"),
+            Type::Premium => write!(f, "Premium"),
+        }
+    }
+}
+
+impl FromStr for Type {
+    type Err = ();
+
+    fn from_str(input: &str) -> Result<Self, Self::Err> {
+        match input {
+            "Common" => Ok(Type::Common),
+            "Premium" => Ok(Type::Premium),
+            _ => Ok(Type::Common),
+        }
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct NodeResponse {
     pub uuid: uuid::Uuid,
     pub env: String,
     pub hostname: String,
+    pub interface: String,
     pub address: Ipv4Addr,
     pub inbounds: Vec<Tag>,
     pub status: Status,
@@ -66,6 +96,7 @@ pub struct NodeResponse {
     pub max_bandwidth_bps: i64,
     pub metrics: Vec<NodeMetricInfo>,
     pub country: String,
+    pub r#type: Type,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -90,6 +121,7 @@ pub struct Node {
     pub cores: usize,
     pub max_bandwidth_bps: i64,
     pub country: String,
+    pub r#type: Type,
 }
 
 impl Node {
@@ -180,6 +212,7 @@ impl Node {
             cores: settings.cores,
             max_bandwidth_bps: settings.max_bandwidth_bps,
             country: settings.country,
+            r#type: settings.r#type,
         }
     }
 
@@ -190,13 +223,13 @@ impl Node {
         tags.insert("label".to_string(), self.label.clone());
         tags.insert("address".to_string(), self.address.to_string());
         tags.insert("label".to_string(), self.label.clone());
-        tags.insert("interface".to_string(), self.interface.clone());
         tags.insert("cores".to_string(), self.cores.to_string());
         tags.insert(
             "max_bandwidth_bps".to_string(),
             self.max_bandwidth_bps.to_string(),
         );
         tags.insert("country".to_string(), self.country.clone());
+        tags.insert("type".to_string(), self.r#type.to_string());
         tags
     }
 
@@ -206,6 +239,7 @@ impl Node {
         NodeResponse {
             env: self.env.clone(),
             hostname: self.hostname.clone(),
+            interface: self.interface.clone(),
             address: self.address,
             uuid: self.uuid,
             inbounds: tags,
@@ -215,6 +249,7 @@ impl Node {
             max_bandwidth_bps: self.max_bandwidth_bps,
             metrics: [].to_vec(),
             country: self.country.clone(),
+            r#type: self.r#type,
         }
     }
 

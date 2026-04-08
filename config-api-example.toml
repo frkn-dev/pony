@@ -2,13 +2,15 @@
 address = "0.0.0.0"
 port = 3005
 token = "your-super-secret-api-token"
-metrics_enabled = true
-metrics_interval = 60
 db_sync_interval_sec = 300
 subscription_restore_interval = 60
 subscription_expire_interval = 60
 max_points = 100000000
 retention_seconds = 604800 # 7 days
+
+[metrics]
+reciever = "tcp://0.0.0.0:3001"
+topic = ["metrics"]
 
 [node]
 env = "experimental"

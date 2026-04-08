@@ -136,33 +136,24 @@ where
                         node_metrics_map
                             .iter()
                             .filter_map(|entry| {
-                                let series_key = entry.key();
+                                let series_hash = entry.key();
                                 let points = entry.value();
 
                                 if points.is_empty() {
                                     return None;
                                 }
 
-                                if !(series_key.starts_with("sys.")
-                                    || series_key.starts_with("net."))
-                                {
+                                let (name, tags) = metrics.metadata.get(series_hash).map(|m| {
+                                    let val = m.value();
+                                    (val.0.clone(), val.1.clone())
+                                })?;
+
+                                if !(name.starts_with("sys.") || name.starts_with("net.")) {
                                     return None;
                                 }
 
-                                let tags = metrics
-                                    .metadata
-                                    .get(series_key)
-                                    .map(|m| m.value().clone())
-                                    .unwrap_or_default();
-
-                                let name = series_key
-                                    .split(':')
-                                    .next()
-                                    .unwrap_or(series_key)
-                                    .to_string();
-
                                 Some(NodeMetricInfo {
-                                    key: series_key.clone(),
+                                    key: series_hash.to_string(),
                                     name,
                                     tags,
                                 })
@@ -189,9 +180,12 @@ where
         None => {
             let response = ResponseMessage::<Option<Vec<NodeResponse>>> {
                 status: StatusCode::NOT_FOUND.as_u16(),
+
                 message: "List of nodes".to_string(),
+
                 response: vec![].into(),
             };
+
             Ok(warp::reply::with_status(
                 warp::reply::json(&response),
                 StatusCode::NOT_FOUND,

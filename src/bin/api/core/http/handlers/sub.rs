@@ -1,15 +1,16 @@
+use std::collections::HashSet;
+
 use base64::Engine;
 use chrono::DateTime;
 use chrono::Utc;
 
-use url::Url;
+use pony::metrics::storage::MetricStorage;
 use warp::http::Response;
 use warp::http::StatusCode;
 
 use pony::http::helpers as http;
 use pony::http::response::Instance;
 use pony::http::ResponseMessage;
-use pony::mtproto_op::mtproto_conn;
 use pony::utils;
 use pony::utils::get_uuid_last_octet_simple;
 use pony::xray_op::clash::generate_clash_config;
@@ -182,8 +183,6 @@ where
 pub async fn subscription_info_handler<N, C, S>(
     sub_param: SubQueryParam,
     memory: MemSync<N, C, S>,
-    web_host: String,
-    api_web_host: String,
 ) -> Result<Box<dyn warp::Reply + Send>, warp::Rejection>
 where
     N: NodeStorageOp + Sync + Send + Clone + 'static,
@@ -237,8 +236,6 @@ where
         .map(|d| d.max(0).to_string())
         .unwrap_or_else(|| "∞".into());
 
-    let invited = mem.subscriptions.count_invited_by(&sub.refer_code());
-
     let title = if is_ru {
         "Подписка на Рилзопровод (RU)"
     } else if is_wl {
@@ -247,234 +244,32 @@ where
         "Подписка на Рилзопровод"
     };
 
-    let sub_link = format!("{}/sub/info?id={}", api_web_host, id);
-    let ru_link = format!("{}&env={}", sub_link, "ru");
-    let wl_link = format!("{}&env={}", sub_link, "wl");
-    let main_link = format!("{}&env={}", sub_link, "dev");
-
-    let ru_block = if is_ru || is_wl {
-        format!(r#"<a href="{main_link}" class="small text-link right">Иностранные сервера</a>"#)
-    } else {
-        format!(
-            r#"<a href="{ru_link}" class="small text-link right">Российские сервера&nbsp;&nbsp;</a>"#
-        )
-    };
-
-    let wl_block = if !is_wl {
-        format!(r#"<a href="{wl_link}" class="small text-link right">Обход Белых Списков</a>"#)
-    } else {
-        "".to_string()
-    };
-
-    let xray_node_exists = mem
-        .nodes
-        .get_by_env(env)
-        .map(|nodes| {
-            nodes.iter().any(|node| {
-                node.inbounds.values().any(|inb| {
-                    matches!(
-                        inb.tag,
-                        Tag::VlessGrpcReality | Tag::VlessTcpReality | Tag::VlessXhttpReality
-                    )
-                })
-            })
-        })
-        .unwrap_or(false);
-
-    let hysteria_node_exists = mem
-        .nodes
-        .get_by_env(env)
-        .map(|nodes| {
-            nodes
-                .iter()
-                .any(|node| node.inbounds.values().any(|inb| inb.tag == Tag::Hysteria2))
-        })
-        .unwrap_or(false);
-
-    let (has_xray, has_h2) = if let Some(conns) = mem.connections.get_by_subscription_id(id) {
-        let xray_tags = [
-            Tag::VlessGrpcReality,
-            Tag::VlessTcpReality,
-            Tag::VlessXhttpReality,
-        ];
-
-        let mut is_xray = false;
-        let mut is_h2 = false;
-
-        for (_id, conn) in conns {
-            let proto = conn.get_proto().proto();
-            let is_deleted = conn.get_deleted();
-
-            if !is_deleted && env == &conn.get_env() {
-                if xray_node_exists && xray_tags.contains(&proto) {
-                    is_xray = true;
-                }
-                if hysteria_node_exists && proto == Tag::Hysteria2 {
-                    is_h2 = true;
-                }
-            }
-        }
-
-        (is_xray, is_h2)
-    } else {
-        (false, false)
-    };
-
-    let base_link = format!("{}/sub?id={}&env={}", api_web_host, id, env);
-
-    let xray_block = if has_xray && is_active {
-        format!(
-            r#"
-            <ul class="proxy-list">
-                <li class="proxy-item" onclick="copyText('{base_link}&format=plain&proto=Xray')">
-                    <div class="proxy-label">Универсальная</div>
-                    <div class="proxy-action">Скопировать</div>
-                </li>
-                <li class="proxy-item" onclick="copyText('{base_link}&format=txt&proto=Xray')">
-                    <div class="proxy-label">TXT</div>
-                    <div class="proxy-action">Скопировать</div>
-                </li>
-                <li class="proxy-item" onclick="copyText('{base_link}&format=clash&proto=Xray')">
-                    <div class="proxy-label">Clash</div>
-                    <div class="proxy-action">Скопировать</div>
-                </li>
-            </ul>
-
-            <div class="qr">
-                <canvas id="qr"></canvas>
-                <div class="small">Отсканируйте в приложении</div>
-            </div>
-            <br><br>
-
-            <div class="small">
-               <h3>Поддерживаемые приложения</h3>
-               <ul>
-               <li>Happ, Hiddify, v2rayNG, Shadowrocket, Streisand, Clash Verge, Nekobox</li>
-               </ul>
-            </div>
-        "#
-        )
-    } else {
-        format!(
-            r#"<div class="small">Нет доступных Xray подключений для {}. Обратитесь в поддержку.</div>"#,
-            env
-        )
-    };
-
-    let hysteria_block = if has_h2 && is_active {
-        format!(
-            r#"
-            <ul class="proxy-list">
-                 <li class="proxy-item" onclick="copyText('{base_link}&format=plain&proto=Hysteria2')">
-                     <div class="proxy-label">Универсальная</div>
-                     <div class="proxy-action">Скопировать</div>
-                 </li>
-                <li class="proxy-item" onclick="copyText('{base_link}&format=txt&proto=Hysteria2')">
-                    <div class="proxy-label">TXT</div>
-                    <div class="proxy-action">Скопировать</div>
-                </li>
-            </ul>
-
-            <div class="qr">
-                <canvas id="qr2"></canvas>
-                <div class="small">Отсканируйте в приложении</div>
-            </div>
-
-            <br><br>
-            <div class="small">
-                <h3>Поддерживаемые приложения</h3>
-                <ul>
-                    <li>Shadowrocket, hiddify, v2rayN</li>
-                </ul>
-            </div>
-        "#
-        )
-    } else {
-        format!(
-            r#"<div class="small">Нет доступных Hysteria2 подключений для {}. Обратитесь в поддержку.</div>"#,
-            env
-        )
-    };
-
-    fn proxy_label_from_url(url_str: &str) -> String {
-        if let Ok(url) = Url::parse(url_str) {
-            if let Some(fragment) = url.fragment() {
-                return percent_encoding::percent_decode_str(fragment)
-                    .decode_utf8_lossy()
-                    .to_string();
-            }
-        }
-        "Telegram Proxy".into()
-    }
-
-    let mtproto_block = if is_active {
-        match mem.nodes.get_by_env(env) {
-            Some(nodes) if !nodes.is_empty() => {
-                let links_html: String = nodes
-                    .iter()
-                    .filter_map(|node| {
-                        node.inbounds
-                            .values()
-                            .find(|inb| inb.tag == Tag::Mtproto)
-                            .and_then(|inb| mtproto_conn(node.address, inb, &node.label).ok())
-                    })
-                    .map(|link| {
-                        let label = proxy_label_from_url(&link);
-                        format!(
-                            r#"<li class="proxy-item">
-        <div class="proxy-label">{label}</div>
-        <a class="proxy-action link-btn" href="{href}" target="_blank">Connect</a>
-    </li>"#,
-                            href = link,
-                            label = label
-                        )
-                    })
-                    .collect::<Vec<_>>()
-                    .join("\n");
-
-                if links_html.is_empty() {
-                    format!(
-                        r#"<div class="small">Нет доступных Mtproto подключений для {}. Обратитесь в поддержку.</div>"#,
-                        env
-                    )
-                } else {
-                    links_html
-                }
-            }
-            _ => format!(
-                r#"<div class="small">Нет доступных Mtproto подключений для {}. Обратитесь в поддержку.</div>"#,
-                env
-            ),
-        }
-    } else {
-        format!(
-            r#"<div class="small">Нет доступных Mtproto подключений для {}. Обратитесь в поддержку.</div>"#,
-            env
-        )
-    };
-
-    let main_link_vless = format!(
-        "{}/sub?id={}&format=txt&env={}&proto=Xray",
-        api_web_host, id, env
-    );
-    let main_link_h2 = format!(
-        "{}/sub?id={}&format=txt&env={}&proto=Hysteria2",
-        api_web_host, id, env
-    );
-
     let html = format!(
-r#"{head}
+        r#"{head}
 <div class="card">
-{ru_block}
-{wl_block}
+
 <header>
   <div class="logo">
     <img src="{logo}" alt="FRKN Logo" />
-    <a href="{web_host}">FRKN</a>
+    <a href="https://frkn.org">FRKN</a>
   </div>
 </header>
 <body>
 <h1>{title}</h1>
+</br>
+<p>Мы постоянно работаем над улучшениями.
+Переработали страницу подписки.
+<br>Теперь твоя страница подписки доступна по адресу:
+<br><br>
+<a href="https://frkn.org/subscription?id={subscription_id}"> https://frkn.org/subscription?id={subscription_id}</a></h1>
+<br>
+</p>
+
+<br>
+<hr>
+
+
+<br>
 <div class="stat">Статус: <span class="{status_class}">{status_text}</span></div>
 <div class="stat">Дата окончания: <span id="expires">{expires}</span></div>
 <div class="stat">
@@ -483,199 +278,136 @@ r#"{head}
 </div>
 <div class="small-id">Id: <b>{subscription_id}</b></div>
 <hr>
-<div class="stat small-id">Трафик: ↓  &nbsp;&nbsp; ↑ </div>
-<hr>
-
-<h3>Ссылки для подключения</h3>
-
-<div class="tabs">
-    <button class="tab active" data-tab="xray">Xray</button>
-    <button class="tab" data-tab="hysteria">Hysteria2</button>
-    <button class="tab" data-tab="mtproto">MTproto</button>
-    <button class="tab" data-tab="wg">Wireguard</button>
-    <button class="tab" data-tab="awg">Amnezia Wireguard</button>
-    <button class="tab" data-tab="tt">TrustTunnel</button>
-</div>
-
-<div id="tab-xray" class="tab-content active">
-{xray_block}
-
-</div>
-
-<div id="tab-hysteria" class="tab-content">
-{hysteria_block}
-
-</div>
-
-<div id="tab-mtproto" class="tab-content">
-   {mtproto_block}
-</div>
-
-<div id="tab-wg" class="tab-content">
-    <div class="small">Wireguard скоро будет доступен</div>
-</div>
-
-<div id="tab-awg" class="tab-content">
-    <div class="small">Amnezia Wireguard скоро будет доступен</div>
-</div>
-
-<div id="tab-tt" class="tab-content">
-    <div class="small">TrustTunnel скоро будет доступен</div>
-</div>
-
-<hr>
-<div class="key" id="key">
-<h3>Докинуть дней (Активировать ключ) </h3>
-
-<div class="stat">
-    <input id="keyInput" placeholder="XXXXX-XXXXX-XXXXX-XXXXX-XXXXX-X" style="padding:8px; width:270px;" />
-    <button onclick="activateKey()">Активировать</button><br><br>
-    &nbsp;&nbsp; <a href="{web_host}/activation-keys.html" target="_blank" class="small text-link">
-           Что такое ключ активации и где его взять?
-       </a>
-</div>
-
-<div id="keyResult" class="small"></div>
-</div>
-
-<hr>
-<h3>Реферальная программа</h3>
-<div class="stat">Твой реферальный код: <b>{ref}</b><br>
- <button onclick="copyText('{ref}')">Скопировать код</button>
- <button onclick="copyText('{web_host}/?code={ref}#subscribe')">Скопировать ссылку для друга</button></div>
-<div class="small">Вы пригласили: {invited} </div>
-<div class="small">Добавим по 7 дней доступа и тебе и другу</a></div>
-<br><hr>
 
 {footer}
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js"></script>
-<script>
-document.querySelectorAll(".tab").forEach(btn => {{
-    btn.onclick = () => {{
-        const name = btn.dataset.tab;
 
-        document.querySelectorAll(".tab").forEach(el => el.classList.remove("active"));
-        document.querySelectorAll(".tab-content").forEach(el => el.classList.remove("active"));
-
-        btn.classList.add("active");
-        document.getElementById("tab-" + name).classList.add("active");
-    }};
-}});
-</script>
-<script>
-const scrollBtn = document.getElementById("scrollToAdd");
-const keySection = document.getElementById("key");
-
-if (scrollBtn && keySection) {{
-    scrollBtn.addEventListener("click", () => {{
-        keySection.scrollIntoView({{ behavior: "smooth" }});
-    }});
-}}
-</script>
-
-<script>async function activateKey() {{
-    const key = document.getElementById("keyInput").value;
-    const resultEl = document.getElementById("keyResult");
-
-    if (!key) {{
-        resultEl.innerText = "Введите ключ";
-        return;
-    }}
-
-    try {{
-        const res = await fetch("/key/activate", {{
-            method: "POST",
-            headers: {{
-                "Content-Type": "application/json"
-            }},
-            body: JSON.stringify({{
-                code: key,
-                subscription_id: "{subscription_id}"
-            }})
-        }});
-
-        const data = await res.json();
-
-        if (res.ok && data.status === 200 && data.response) {{
-            const {{ days, expires_at }} = data.response;
-
-            if (days && expires_at) {{
-                document.getElementById("days").innerText = days;
-                document.getElementById("expires").innerText = expires_at;
-            }}
-            setTimeout(() => location.reload(), 1000);
-            const key = data.response?.instance?.Key;
-            if (key) {{
-                const addedDays = key.days;
-                resultEl.innerText = `✅ Ключ активирован! +${{addedDays}} дней`;
-            }}
-        }} else {{
-            resultEl.innerText = "❌ " + data.message;
-        }}
-    }} catch (e) {{
-        resultEl.innerText = "Ошибка сети";
-    }}
-}}
-
-function showToast(text) {{
-const toast = document.getElementById("toast");
-   if (!toast) return;
-
-   toast.innerText = text;
-   toast.classList.add("show");
-
-   setTimeout(() => {{
-       toast.classList.remove("show");
-   }}, 2000);
-}}
-
-function copyText(text) {{
-    navigator.clipboard.writeText(text).then(() => {{
-        showToast("Скопировано");
-    }});
-}}
-
-window.onload = () => {{
-    QRCode.toCanvas(
-        document.getElementById("qr"),
-        "{main_link_vless}",
-        {{ width: 220 }}
-    );
-
-    QRCode.toCanvas(
-        document.getElementById("qr2"),
-        "{main_link_h2}",
-        {{ width: 220 }}
-    );
-}};
-</script>
-<div id="toast" class="toast">Скопировано</div>
 </body>
 </html>"#,
-    head = HEAD,
-    footer = FOOTER,
-    logo = LOGO,
-    status_class = status_class,
-    status_text = status_text,
-    expires = expires,
-    days = days,
-    ref = sub.refer_code(),
-    invited = invited,
-    subscription_id = id,
-    title = title,
-    ru_block = ru_block,
-    wl_block = wl_block,
-    xray_block = xray_block,
-    hysteria_block = hysteria_block,
-    mtproto_block = mtproto_block
+        head = HEAD,
+        footer = FOOTER,
+        logo = LOGO,
+        status_class = status_class,
+        status_text = status_text,
+        expires = expires,
+        days = days,
+        subscription_id = id,
+        title = title,
     );
 
     Ok(Box::new(warp::reply::with_status(
         warp::reply::with_header(html, "Content-Type", "text/html; charset=utf-8"),
         StatusCode::OK,
     )))
+}
+
+#[derive(serde::Serialize)]
+pub struct EnvInfo {
+    pub env: String,
+    pub has_xray: bool,
+    pub has_hysteria: bool,
+}
+
+#[derive(serde::Serialize)]
+pub struct SubscriptionResponse {
+    pub id: uuid::Uuid,
+    pub expires: DateTime<Utc>,
+    pub days: i64,
+    pub ref_code: String,
+    pub invited_count: usize,
+    pub locations: Vec<EnvInfo>,
+}
+
+/// get subscription_info_json
+pub async fn get_subscription_info_json<N, C, S>(
+    subscription_id: uuid::Uuid,
+    memory: MemSync<N, C, S>,
+    _metrics: std::sync::Arc<MetricStorage>,
+) -> Result<Box<dyn warp::Reply + Send>, warp::Rejection>
+where
+    N: NodeStorageOp + Sync + Send + Clone + 'static,
+    S: SubscriptionOp + Send + Sync + Clone + 'static + PartialEq,
+    C: ConnectionApiOp
+        + ConnectionBaseOp
+        + Sync
+        + Send
+        + Clone
+        + 'static
+        + std::fmt::Debug
+        + PartialEq,
+{
+    let mem = memory.memory.read().await;
+
+    let Some(sub) = mem.subscriptions.find_by_id(&subscription_id) else {
+        return Ok(Box::new(warp::reply::with_status(
+            warp::reply::json(&"Subscription not found"),
+            warp::http::StatusCode::NOT_FOUND,
+        )));
+    };
+
+    let connections = mem.connections.get_by_subscription_id(&subscription_id);
+    let mut locations = Vec::new();
+
+    if let Some(conns) = connections.clone() {
+        let active_envs: HashSet<String> = conns
+            .iter()
+            .filter(|(_, conn)| !conn.get_deleted())
+            .map(|(_, conn)| conn.get_env())
+            .collect();
+
+        for env in active_envs {
+            let xray_tags = [
+                Tag::VlessGrpcReality,
+                Tag::VlessTcpReality,
+                Tag::VlessXhttpReality,
+            ];
+
+            let nodes = mem.nodes.get_by_env(&env);
+            let xray_nodes = nodes.clone();
+            let xray_node_exists = xray_nodes.is_some_and(|ns| {
+                ns.iter()
+                    .any(|n| n.inbounds.values().any(|i| xray_tags.contains(&i.tag)))
+            });
+
+            let hyst_node_exists = nodes.is_some_and(|ns| {
+                ns.iter()
+                    .any(|n| n.inbounds.values().any(|i| i.tag == Tag::Hysteria2))
+            });
+
+            let mut has_xray = false;
+            let mut has_hysteria = false;
+
+            for (_, conn) in conns.clone() {
+                if !conn.get_deleted() && conn.get_env() == env {
+                    let proto = conn.get_proto().proto();
+                    if xray_node_exists && xray_tags.contains(&proto) {
+                        has_xray = true;
+                    }
+                    if hyst_node_exists && proto == Tag::Hysteria2 {
+                        has_hysteria = true;
+                    }
+                }
+            }
+
+            locations.push(EnvInfo {
+                env,
+                has_xray,
+                has_hysteria,
+            });
+        }
+    }
+
+    let sub_resp = SubscriptionResponse {
+        id: sub.id(),
+        expires: sub.expires_at().unwrap_or_default(),
+        days: sub.days_remaining().unwrap_or(0),
+        ref_code: sub.refer_code(),
+        invited_count: mem.subscriptions.count_invited_by(&sub.refer_code()),
+        locations,
+    };
+
+    Ok(Box::new(warp::reply::json(&sub_resp)))
 }
 
 /// Get list of subscription connection credentials

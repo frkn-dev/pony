@@ -72,7 +72,7 @@ where
 
 impl<C> AuthService<C>
 where
-    C: ConnectionBaseOp + Send + Sync + Clone + 'static,
+    C: ConnectionBaseOp + Send + Sync + Clone + 'static + std::fmt::Display,
 {
     pub fn new(
         metrics: Arc<MetricBuffer>,

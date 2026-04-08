@@ -115,9 +115,14 @@ where
             .and(warp::path::end())
             .and(warp::query::<SubQueryParam>())
             .and(with_sync(self.sync.clone()))
-            .and(with_param_string(params.web_host))
-            .and(with_param_string(params.api_web_host))
             .and_then(subscription_info_handler);
+
+        let get_subscription_info_route_new = warp::get()
+            .and(warp::path!("subscription" / Uuid))
+            .and(warp::path::end())
+            .and(with_sync(self.sync.clone()))
+            .and(with_metrics(self.metrics.clone()))
+            .and_then(get_subscription_info_json);
 
         let post_subscription_route = warp::post()
             .and(warp::path("subscription"))
@@ -201,26 +206,39 @@ where
             .and_then(post_activate_key_handler);
 
         use uuid::Uuid;
-        let ws_metrics_route = warp::path!("metrics" / Uuid / String / "ws")
+        let ws_all_metrics_route = warp::path!("metrics" / "all" / Uuid / u64 / "ws")
             .and(warp::ws())
             .and(with_metrics(self.metrics.clone()))
             .map(
-                |node_id, encoded_metric: String, ws: warp::ws::Ws, storage| {
-                    let metric_name = urlencoding::decode(&encoded_metric)
-                        .map(|s| s.into_owned())
-                        .unwrap_or(encoded_metric);
-
+                |node_id: Uuid, series_hash: u64, ws: warp::ws::Ws, storage| {
                     ws.on_upgrade(move |socket| {
-                        handle_ws_client(socket, node_id, metric_name, storage)
+                        handle_ws_client(socket, node_id, series_hash, storage)
                     })
                 },
             );
+
+        let ws_aggregate_route =
+            warp::path!("metrics" / "aggregate" / String / String / String / "ws")
+                .and(warp::ws())
+                .and(with_metrics(self.metrics.clone()))
+                .map(
+                    |tag_key: String,
+                     tag_value: String,
+                     metric_name: String,
+                     ws: warp::ws::Ws,
+                     storage| {
+                        ws.on_upgrade(move |socket| {
+                            handle_aggregated_ws(socket, tag_key, tag_value, metric_name, storage)
+                        })
+                    },
+                );
 
         let routes = get_healthcheck_route
             // Subscription
             .or(get_subscription_connections_route)
             .or(get_subscription_route)
             .or(get_subscription_info_route)
+            .or(get_subscription_info_route_new)
             .or(post_subscription_route)
             .or(put_subscription_route)
             // Node
@@ -237,7 +255,8 @@ where
             .or(post_key_route)
             .or(post_activate_key_route)
             // Metrics
-            .or(ws_metrics_route)
+            .or(ws_all_metrics_route)
+            .or(ws_aggregate_route)
             .recover(rejection)
             .with(cors);
 

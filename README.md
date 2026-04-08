@@ -8,17 +8,15 @@ Pony is a lightweight control plane and orchestration platform for modern proxy 
 
 Contains parts
 
-- agent — manages Xray/Wireguard(in progress) connections/users/metrics
+- agent — manages Xray/Wireguard/Hysteria2 connections/users/metrics
 - api — manages cluster of servers, gets API calls and send commands to servers
-- auth — handles auth for Hysteri2 cleints
+- auth — handles auth for Hysteri2 cleints 
 - utils — helper to work/debug Bin messages
 
 ### As dependencies the platfrom has
 
 - ZeroMQ — communicating bus
 - PostgreSQL — user and node data storage
-- Clickhouse — metrics storage
-- Carbon — metrics relay
 - Xray Core
 - Hysteria2
 - MTproto

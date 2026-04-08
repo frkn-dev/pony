@@ -6,6 +6,7 @@ use super::ProtocolConn;
 use crate::config::xray::Inbound;
 use crate::error::{PonyError, Result as PonyResult};
 use crate::memory::tag::ProtoTag as Tag;
+use crate::utils::get_uuid_last_octet_simple;
 use crate::xray_api::xray::proxy::vless;
 use crate::xray_api::xray::{common::protocol::User, common::serial::TypedMessage};
 
@@ -109,7 +110,8 @@ pub fn vless_xtls_conn(
         .append_pair("pbk", &pbk)
         .append_pair("sid", sid);
 
-    url.set_fragment(Some(&format!("{} XTLS", label)));
+    let last = get_uuid_last_octet_simple(conn_id);
+    url.set_fragment(Some(&format!("{} | {} XTLS", last, label)));
 
     Ok(url.to_string())
 }
@@ -154,7 +156,8 @@ pub fn vless_grpc_conn(
         .append_pair("pbk", &pbk)
         .append_pair("sid", sid);
 
-    url.set_fragment(Some(&format!("{label} GRPC")));
+    let last = get_uuid_last_octet_simple(conn_id);
+    url.set_fragment(Some(&format!("{} | {} GRPC", last, label)));
 
     Ok(url.to_string())
 }
@@ -199,7 +202,8 @@ pub fn vless_xhttp_conn(
         .append_pair("pbk", &pbk)
         .append_pair("sid", sid);
 
-    url.set_fragment(Some(&format!("{label} XHTTP")));
+    let last = get_uuid_last_octet_simple(conn_id);
+    url.set_fragment(Some(&format!("{} | {} XHTTP", last, label)));
 
     Ok(url.to_string())
 }

@@ -2,6 +2,7 @@ use defguard_wireguard_rs::net::IpAddrMask;
 
 use chrono::DateTime;
 use chrono::Utc;
+use pony::memory::node::Type;
 use std::collections::HashMap;
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
@@ -165,8 +166,10 @@ impl PgNode {
             .query(
                 "SELECT
                 n.id AS node_id, n.uuid, n.env, n.hostname, n.address, n.status,
-                n.created_at, n.modified_at, n.label, n.interface, n.cores, n.max_bandwidth_bps, n.country,
-                i.id AS inbound_id, i.tag, i.port, i.stream_settings, i.uplink, i.downlink,
+                n.created_at, n.modified_at, n.label, n.interface,
+                n.cores, n.max_bandwidth_bps, n.country, n.node_type, i.id
+
+             AS inbound_id, i.tag, i.port, i.stream_settings, i.uplink, i.downlink,
                 i.conn_count, i.wg_pubkey, i.wg_privkey, i.wg_interface, i.wg_network, i.wg_address, i.dns, i.h2, i.mtproto_secret
              FROM nodes n
              LEFT JOIN inbounds i ON n.id = i.node_id",
@@ -190,6 +193,7 @@ impl PgNode {
             let cores: i32 = row.get("cores");
             let country: String = row.get("country");
             let max_bandwidth_bps: i64 = row.get("max_bandwidth_bps");
+            let r#type: Type = row.get("node_type");
 
             let wg_network: Option<IpAddrMask> = row
                 .get::<_, Option<String>>("wg_network")
@@ -228,6 +232,7 @@ impl PgNode {
                     cores: cores as usize,
                     max_bandwidth_bps,
                     country,
+                    r#type,
                 });
 
                 if let Some(_inbound_id) = inbound_id {

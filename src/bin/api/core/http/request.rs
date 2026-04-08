@@ -2,6 +2,7 @@ use pony::config::xray::Inbound;
 use pony::memory::connection::wireguard::Param as WgParam;
 use pony::memory::node::Node;
 use pony::memory::node::Status as NodeStatus;
+use pony::memory::node::Type;
 use pony::memory::tag::ProtoTag as Tag;
 
 use chrono::Utc;
@@ -36,11 +37,18 @@ pub struct NodeRequest {
     pub cores: usize,
     pub max_bandwidth_bps: i64,
     pub country: String,
+    pub r#type: Option<Type>,
 }
 
 impl NodeRequest {
     pub fn as_node(&self) -> Node {
         let now = Utc::now();
+
+        let t = if let Some(t) = self.r#type {
+            t
+        } else {
+            Type::Common
+        };
         Node {
             uuid: self.uuid,
             env: self.env.clone(),
@@ -55,6 +63,7 @@ impl NodeRequest {
             cores: self.cores,
             max_bandwidth_bps: self.max_bandwidth_bps,
             country: self.country.clone(),
+            r#type: t,
         }
     }
 }

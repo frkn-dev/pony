@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use pony::memory::node::Type;
 use reqwest::Client as HttpClient;
 use reqwest::StatusCode;
 use reqwest::Url;
@@ -35,6 +36,7 @@ pub struct NodeRequest {
     pub cores: usize,
     pub max_bandwidth_bps: i64,
     pub country: String,
+    pub r#type: Type,
 }
 
 #[async_trait]
@@ -150,6 +152,7 @@ where
             cores: node.cores,
             max_bandwidth_bps: node.max_bandwidth_bps,
             country: node.country,
+            r#type: node.r#type,
         };
 
         let res = HttpClient::new()

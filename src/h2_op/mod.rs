@@ -1,5 +1,6 @@
 use crate::config::xray::Inbound;
 
+use crate::utils::get_uuid_last_octet_simple;
 use crate::{PonyError, Result};
 use url::Url;
 
@@ -37,7 +38,8 @@ pub fn hysteria2_conn(
                 .append_pair("up-mbps", &h2.up_mbps.unwrap_or(0).to_string())
                 .append_pair("down-mbps", &h2.down_mbps.unwrap_or(0).to_string());
 
-            url.set_fragment(Some(label));
+            let last = get_uuid_last_octet_simple(token);
+            url.set_fragment(Some(&format!("{} {} H2", last, label)));
 
             Ok(url.to_string())
         } else {

@@ -11,6 +11,14 @@
         "command": "cargo run --bin agent -- dev/config-agent.toml ",
     },
     {
+        "label": "Run agent2",
+        "command": "cargo run --bin agent -- dev/config-agent2.toml ",
+    },
+    {
+        "label": "Run agent3",
+        "command": "cargo run --bin agent -- dev/config-agent3.toml ",
+    },
+    {
         "label": "Run api",
         "command": "cargo run --bin api -- dev/config-api.toml ",
     },

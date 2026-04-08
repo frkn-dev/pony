@@ -1,3 +1,4 @@
+use crate::memory::node::Type;
 use crate::PonyError;
 use crate::Result;
 use default_net::{get_default_interface, get_interfaces};
@@ -22,8 +23,6 @@ pub struct ApiServiceConfig {
     pub port: u16,
     pub token: String,
     pub db_sync_interval_sec: u64,
-    pub web_host: String,
-    pub api_web_host: String,
     pub subscription_restore_interval: u64,
     pub subscription_expire_interval: u64,
     pub key_sign_token: Vec<u8>,
@@ -95,6 +94,7 @@ pub struct NodeConfig {
     pub max_bandwidth_bps: i64,
     pub cores: usize,
     pub country: String,
+    pub r#type: Type,
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]
@@ -108,6 +108,7 @@ pub struct NodeConfigRaw {
     pub label: String,
     pub max_bandwidth_bps: i64,
     pub country: String,
+    pub r#type: String,
 }
 
 impl NodeConfig {
@@ -196,6 +197,7 @@ impl NodeConfig {
             max_bandwidth_bps: raw.max_bandwidth_bps,
             cores: num_cpus,
             country: raw.country,
+            r#type: raw.r#type.parse().unwrap_or(Type::Common),
         })
     }
 }

@@ -129,8 +129,15 @@ DROP TYPE proto;
 
 
 ===
+ALTER TABLE nodes
+ALTER COLUMN country SET NOT NULL;
+
 
 CREATE TYPE node_type AS ENUM ('common', 'premium');
 
 ALTER TABLE nodes
 ADD COLUMN node_type node_type NOT NULL DEFAULT 'common';
+
+
+ALTER TYPE node_type ADD VALUE 'service';
+ALTER TYPE node_type ADD VALUE 'agent';

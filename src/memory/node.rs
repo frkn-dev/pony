@@ -59,6 +59,8 @@ impl FromStr for Status {
 pub enum Type {
     Common,
     Premium,
+    Service,
+    Agent,
 }
 
 impl fmt::Display for Type {
@@ -66,6 +68,8 @@ impl fmt::Display for Type {
         match self {
             Type::Common => write!(f, "Common"),
             Type::Premium => write!(f, "Premium"),
+            Type::Service => write!(f, "Service"),
+            Type::Agent => write!(f, "Agent"),
         }
     }
 }
@@ -77,6 +81,8 @@ impl FromStr for Type {
         match input {
             "Common" => Ok(Type::Common),
             "Premium" => Ok(Type::Premium),
+            "Service" => Ok(Type::Service),
+            "Agent" => Ok(Type::Agent),
             _ => Ok(Type::Common),
         }
     }

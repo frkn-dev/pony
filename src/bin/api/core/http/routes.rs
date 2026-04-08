@@ -57,8 +57,12 @@ where
         let auth = auth(Arc::new(self.settings.api.token.clone()));
 
         let cors = warp::cors()
-            .allow_any_origin()
-            .allow_methods(vec!["GET", "POST", "DELETE"]);
+            .allow_origin("http://localhost:8000")
+            .allow_origin("https://frkn.org")
+            .allow_methods(vec!["GET", "POST", "DELETE", "OPTIONS"])
+            .allow_headers(vec!["Content-Type", "Authorization"])
+            .max_age(86400)
+            .build();
 
         let get_healthcheck_route = warp::get()
             .and(warp::path("healthcheck"))

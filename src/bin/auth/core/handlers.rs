@@ -176,7 +176,7 @@ pub async fn trial_handler(
 
     /* ================= CREATE CONNECTIONS ================= */
 
-    let envs = [Env::Dev, Env::Ru];
+    let envs = [Env::Dev, Env::Ru, Env::Wl];
 
     let futures = envs.iter().flat_map(|env| {
         PROTOS.iter().map({

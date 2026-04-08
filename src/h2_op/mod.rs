@@ -39,7 +39,7 @@ pub fn hysteria2_conn(
                 .append_pair("down-mbps", &h2.down_mbps.unwrap_or(0).to_string());
 
             let last = get_uuid_last_octet_simple(token);
-            url.set_fragment(Some(&format!("{} {} H2", last, label)));
+            url.set_fragment(Some(&format!("{} | {} H2", label, last)));
 
             Ok(url.to_string())
         } else {

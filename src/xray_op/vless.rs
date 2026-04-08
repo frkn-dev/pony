@@ -111,7 +111,7 @@ pub fn vless_xtls_conn(
         .append_pair("sid", sid);
 
     let last = get_uuid_last_octet_simple(conn_id);
-    url.set_fragment(Some(&format!("{} | {} XTLS", last, label)));
+    url.set_fragment(Some(&format!("{} | {} XTLS", label, last)));
 
     Ok(url.to_string())
 }
@@ -157,7 +157,7 @@ pub fn vless_grpc_conn(
         .append_pair("sid", sid);
 
     let last = get_uuid_last_octet_simple(conn_id);
-    url.set_fragment(Some(&format!("{} | {} GRPC", last, label)));
+    url.set_fragment(Some(&format!("{} | {} GRPC", label, last)));
 
     Ok(url.to_string())
 }
@@ -203,7 +203,7 @@ pub fn vless_xhttp_conn(
         .append_pair("sid", sid);
 
     let last = get_uuid_last_octet_simple(conn_id);
-    url.set_fragment(Some(&format!("{} | {} XHTTP", last, label)));
+    url.set_fragment(Some(&format!("{} | {} XHTTP", label, last)));
 
     Ok(url.to_string())
 }

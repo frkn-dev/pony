@@ -1,6 +1,7 @@
 use super::Env;
 use super::HttpClient;
 use pony::http::response::ResponseMessage;
+use pony::http::response::SubscriptionResponse;
 use pony::http::response::{Instance, InstanceWithId};
 use pony::memory::key::Code;
 use pony::Subscription;
@@ -36,6 +37,39 @@ pub async fn validate_key(
             Instance::Key(key) => Ok(key),
             _ => anyhow::bail!("Unexpected instance type"),
         }
+    } else {
+        #[derive(Deserialize)]
+        struct ErrResp {
+            message: Option<String>,
+        }
+        let err: ErrResp = serde_json::from_str(&text).unwrap_or(ErrResp { message: None });
+        anyhow::bail!(err.message.unwrap_or_else(|| "Unknown error".to_string()))
+    }
+}
+
+pub async fn get_subscription(
+    http: &HttpClient,
+    api_address: &str,
+    api_token: &str,
+    subscription_id: &uuid::Uuid,
+) -> anyhow::Result<SubscriptionResponse> {
+    let url = format!("{}/subscription/{}", api_address, subscription_id);
+    log::debug!("URL = {}", url);
+
+    let res = auth_headers(http.get(url), api_token).send().await?;
+    let status = res.status();
+    let text = res.text().await?;
+
+    if status.is_success() {
+        let parsed: SubscriptionResponse = serde_json::from_str(&text)?;
+
+        log::debug!(
+            "Response for GET subscription/{} {:?}",
+            subscription_id,
+            parsed
+        );
+
+        Ok(parsed)
     } else {
         #[derive(Deserialize)]
         struct ErrResp {
@@ -132,36 +166,20 @@ pub async fn create_connection(
     env: &Env,
     proto: &str,
     sub_id: &uuid::Uuid,
-    token: &Option<uuid::Uuid>,
     api_address: &str,
     api_token: &str,
 ) -> anyhow::Result<uuid::Uuid> {
-    let res = if let Some(token) = token {
-        auth_headers(
-            http.post(format!("{}/connection", api_address))
-                .json(&serde_json::json!({
-                    "env": env.to_string(),
-                    "proto": proto,
-                    "subscription_id": sub_id,
-                    "token": token,
-                })),
-            api_token,
-        )
-        .send()
-        .await?
-    } else {
-        auth_headers(
-            http.post(format!("{}/connection", api_address))
-                .json(&serde_json::json!({
-                    "env": env.to_string(),
-                    "proto": proto,
-                    "subscription_id": sub_id
-                })),
-            api_token,
-        )
-        .send()
-        .await?
-    };
+    let res = auth_headers(
+        http.post(format!("{}/connection", api_address))
+            .json(&serde_json::json!({
+                "env": env.to_string(),
+                "proto": proto,
+                "subscription_id": sub_id
+            })),
+        api_token,
+    )
+    .send()
+    .await?;
 
     let status = res.status();
     let text = res.text().await?;

@@ -14,8 +14,8 @@ use pony::zmq::subscriber::Subscriber as ZmqSubscriber;
 use pony::ConnectionBaseOp;
 
 use crate::core::email::EmailStore;
-use crate::core::handlers::trial_handler;
 use crate::core::handlers::{activate_key_handler, auth_handler};
+use crate::core::handlers::{tg_trial_handler, trial_handler};
 
 pub mod email;
 pub mod filters;
@@ -123,6 +123,13 @@ where
             .and_then(trial_handler)
             .with(&cors);
 
+        let tg_trial_route = warp::post()
+            .and(warp::path("tg-trial"))
+            .and(warp::body::json::<request::TgTrial>())
+            .and(pony_filters::with_http_client(http_client.clone()))
+            .and(filters::with_api_settings(api.clone()))
+            .and_then(tg_trial_handler);
+
         let auth_route = warp::post()
             .and(warp::path("auth"))
             .and(warp::body::json::<request::Auth>())
@@ -131,8 +138,7 @@ where
 
         let activate_route = warp::post()
             .and(warp::path("activate"))
-            .and(warp::body::json::<request::Key>())
-            .and(filters::with_store(email_store))
+            .and(warp::body::json::<request::ActivateKey>())
             .and(pony_filters::with_http_client(http_client))
             .and(filters::with_api_settings(api))
             .and_then(activate_key_handler)
@@ -141,6 +147,7 @@ where
         let routes = health_check
             .or(auth_route)
             .or(trial_route)
+            .or(tg_trial_route)
             .or(activate_route);
 
         warp::serve(routes)

@@ -3,7 +3,7 @@ use tokio::sync::RwLock;
 
 use crate::core::helpers::{activate_key, validate_key};
 
-use super::helpers::{create_connection, create_subscription};
+use super::helpers::{create_connection, create_subscription, get_subscription};
 use super::request;
 use super::response;
 use super::EmailStore;
@@ -20,15 +20,11 @@ use pony::ConnectionBaseOp;
 use pony::ConnectionStorageBaseOp;
 
 pub async fn activate_key_handler(
-    req: request::Key,
-    store: EmailStore,
+    req: request::ActivateKey,
     http: HttpClient,
     api: ApiAccessConfig,
 ) -> Result<impl warp::Reply, warp::Rejection> {
-    use futures::future::join_all;
-
-    /* ================= Key Code Validation ================= */
-
+    // 1. Validate Key
     let key = match validate_key(&http, &api.endpoint, &api.token, &req.code).await {
         Ok(k) => k,
         Err(e) => {
@@ -41,100 +37,55 @@ pub async fn activate_key_handler(
         return Ok(http::bad_request("Failed: Key is already activated. "));
     }
 
-    /* ================= CREATE SUBSCRIPTION ================= */
-
-    let referred_by = "FRKN.ORG";
-
-    let sub = match create_subscription(&http, &api.endpoint, &api.token, DEFAULT_DAYS, referred_by)
-        .await
-    {
-        Ok(sub) => sub,
-        Err(e) => {
-            log::error!("Subscription creation failed: {}", e);
-            return Ok(http::internal_error(&format!(
-                "Failed: {}. Please try again later or contact support.",
-                e
-            )));
+    // 2. Create or Get Subscription
+    let sub = if let Some(subscription_id) = req.subscription_id {
+        match get_subscription(&http, &api.endpoint, &api.token, &subscription_id).await {
+            Ok(sub) => sub,
+            Err(e) => return Ok(http::not_found(&format!("Subscription not found: {}", e))),
         }
+    } else {
+        let referred_by = "FRKN.ORG"; // TODO: Из конфига
+        let new_sub = match create_subscription(&http, &api.endpoint, &api.token, 0, referred_by)
+            .await
+        {
+            Ok(s) => match get_subscription(&http, &api.endpoint, &api.token, &s.id).await {
+                Ok(s) => s,
+                Err(e) => return Ok(http::not_found(&format!("Subscription not found: {}", e))),
+            },
+            Err(e) => return Ok(http::internal_error(&format!("Creation failed: {}", e))),
+        };
+
+        if let Err(e) = setup_connections(&http, &api, &new_sub.id).await {
+            log::error!("{}", e);
+            return Ok(http::internal_error("Failed to establish connections."));
+        }
+        new_sub
     };
 
-    /* ================== ACTIVATE KEY  ======================= */
-
-    let key = match activate_key(&http, &api.endpoint, &api.token, &req.code, &sub.id).await {
-        Ok(k) => k,
-        Err(e) => {
-            log::error!("Code activation is failed: {}", e);
-            return Ok(http::bad_request(&format!("Failed: {}. ", e)));
-        }
-    };
-
-    /* Update subscriptions days  */
-
-    let mut updated_sub = sub.clone();
-    if let Some(expires) = updated_sub.expires_at {
-        updated_sub.expires_at = Some(expires + chrono::Duration::days(key.days as i64));
-    }
-
-    /* ================= CREATE CONNECTIONS ================= */
-
-    let envs = [Env::Dev, Env::Ru, Env::Wl];
-
-    let futures = envs.iter().flat_map(|env| {
-        PROTOS.iter().map({
-            let api_token = api.token.clone();
-            let api_endpoint = api.endpoint.clone();
-            let http = http.clone();
-            move |proto| {
-                let http = http.clone();
-                let api_endpoint = api_endpoint.clone();
-                let api_token = api_token.clone();
-
-                async move {
-                    let token = if proto == &"Hysteria2" {
-                        Some(uuid::Uuid::new_v4())
-                    } else {
-                        None
-                    };
-
-                    create_connection(
-                        &http,
-                        env,
-                        proto,
-                        &sub.id,
-                        &token,
-                        &api_endpoint,
-                        &api_token,
-                    )
-                    .await
-                }
+    // 3. Key activation
+    let activated_key =
+        match activate_key(&http, &api.endpoint, &api.token, &req.code, &sub.id).await {
+            Ok(k) => k,
+            Err(e) => {
+                log::error!("Code activation failed: {}", e);
+                return Ok(http::bad_request(&format!("Activation failed: {}", e)));
             }
-        })
-    });
+        };
 
-    let results = join_all(futures).await;
-
-    if results.iter().any(|r| r.is_err()) {
-        log::error!("One or more connections failed for subscription {}", sub.id);
-        return Ok(http::internal_error(
-            "Failed to establish connections. Please try again later or contact support.",
-        ));
-    }
-
-    /* ================= SEND EMAIL + SAVE ================= */
-
-    if let Some(email) = req.email {
-        if let Err(e) = store.send_email(&email, &sub.id).await {
-            log::error!("email error: {}", e);
-            return Ok(http::internal_error(
-                "Failed to send email. Please try again later or contact support.",
-            ));
-        }
-    }
+    // 4. New expires date
+    let mut updated_sub = sub.clone();
+    let now = chrono::Utc::now();
+    let base_date = if updated_sub.expires > now {
+        updated_sub.expires
+    } else {
+        now
+    };
+    updated_sub.expires = base_date + chrono::Duration::days(activated_key.days as i64);
 
     Ok(http::success_response(
         "Key code activated.".to_string(),
-        Some(key.id),
-        Instance::Subscription(updated_sub),
+        Some(activated_key.id),
+        Instance::SubscriptionResponse(updated_sub),
     ))
 }
 
@@ -144,105 +95,78 @@ pub async fn trial_handler(
     http: HttpClient,
     api: ApiAccessConfig,
 ) -> Result<impl warp::Reply, warp::Rejection> {
-    use chrono::Utc;
-    use futures::future::join_all;
-
-    /* ================= ATOMIC TRIAL CHECK ================= */
-
-    {
-        let exists = store.check_email_hmac(&req.email).await;
-        if exists {
-            return Ok(http::bad_request("Trial already requested"));
-        }
+    if store.check_email_hmac(&req.email).await {
+        return Ok(http::bad_request("Trial already requested"));
     }
 
-    /* ================= CREATE SUBSCRIPTION ================= */
-
-    let referred_by = req.referred_by.unwrap_or_else(|| "FRKN.ORG".to_string());
-
+    let ref_by = req
+        .referred_by
+        .clone()
+        .unwrap_or_else(|| "FRKN.ORG".to_string());
     let sub =
-        match create_subscription(&http, &api.endpoint, &api.token, DEFAULT_DAYS, &referred_by)
-            .await
-        {
-            Ok(sub) => sub,
-            Err(e) => {
-                log::error!("Subscription creation failed: {}", e);
-                return Ok(http::internal_error(&format!(
-                    "Failed: {}. Please try again later or contact support.",
-                    e
-                )));
-            }
+        match create_subscription(&http, &api.endpoint, &api.token, DEFAULT_DAYS, &ref_by).await {
+            Ok(s) => s,
+            Err(e) => return Ok(http::internal_error(&format!("Subscription failed: {}", e))),
         };
 
-    /* ================= CREATE CONNECTIONS ================= */
-
-    let envs = [Env::Dev, Env::Ru, Env::Wl];
-
-    let futures = envs.iter().flat_map(|env| {
-        PROTOS.iter().map({
-            let api_token = api.token.clone();
-            let api_endpoint = api.endpoint.clone();
-            let http = http.clone();
-            move |proto| {
-                let http = http.clone();
-                let api_endpoint = api_endpoint.clone();
-                let api_token = api_token.clone();
-
-                async move {
-                    let token = if proto == &"Hysteria2" {
-                        Some(uuid::Uuid::new_v4())
-                    } else {
-                        None
-                    };
-
-                    create_connection(
-                        &http,
-                        env,
-                        proto,
-                        &sub.id,
-                        &token,
-                        &api_endpoint,
-                        &api_token,
-                    )
-                    .await
-                }
-            }
-        })
-    });
-
-    let results = join_all(futures).await;
-
-    if results.iter().any(|r| r.is_err()) {
-        log::error!("One or more connections failed for subsctiption {}", sub.id);
+    if let Err(e) = setup_connections(&http, &api, &sub.id).await {
+        log::error!("{}", e);
         return Ok(http::internal_error(
-            "Failed to establish trial connections. Please try again later or contact support.",
+            "Failed to establish trial connections.",
         ));
     }
 
-    /* ================= SEND EMAIL + SAVE ================= */
-
-    let now = Utc::now();
-    let email = req.email.clone();
-    let ref_by = referred_by.clone();
-
-    if let Err(e) = store.send_email(&email, &sub.id).await {
-        log::error!("📧 email error: {}", e);
-        return Ok(http::internal_error(
-            "Failed to send confirmation email. Please try again later or contact support.",
-        ));
+    let now = chrono::Utc::now();
+    if let Err(e) = store
+        .save_trial_hmac(&req.email, &sub.id, &now, &ref_by)
+        .await
+    {
+        log::error!("HMAC save error: {}", e);
+        return Ok(http::internal_error("Failed to record trial."));
     }
 
-    if let Err(e) = store.save_trial_hmac(&email, &sub.id, &now, &ref_by).await {
-        log::error!("Hamc email save error: {}", e);
+    if let Err(e) = store.send_email(&req.email, &sub.id).await {
+        log::error!("Email error: {}", e);
         return Ok(http::internal_error(
-            "Failed to record trial. Please contact support if the issue persists.",
+            "Trial created, but failed to send email.",
         ));
     }
 
     Ok(http::success_response(
-        "Trial activated. Check your email".to_string(),
+        "Trial activated. Check email".into(),
         Some(sub.id),
         Instance::None,
+    ))
+}
+
+pub async fn tg_trial_handler(
+    req: request::TgTrial,
+    http: HttpClient,
+    api: ApiAccessConfig,
+) -> Result<impl warp::Reply, warp::Rejection> {
+    let referred_by = req.referred_by.unwrap_or_else(|| "TG".to_string());
+
+    // 1. Create subscription
+    let sub =
+        match create_subscription(&http, &api.endpoint, &api.token, DEFAULT_DAYS, &referred_by)
+            .await
+        {
+            Ok(s) => s,
+            Err(e) => return Ok(http::internal_error(&format!("Subscription failed: {}", e))),
+        };
+
+    // 2. Create connections
+    if let Err(e) = setup_connections(&http, &api, &sub.id).await {
+        log::error!("{}", e);
+        return Ok(http::internal_error(
+            "Failed to establish trial connections.",
+        ));
+    }
+
+    Ok(http::success_response(
+        "Trial activated".into(),
+        Some(sub.id),
+        Instance::Subscription(sub),
     ))
 }
 
@@ -266,4 +190,26 @@ where
             id: None,
         }))
     }
+}
+
+async fn setup_connections(
+    http: &HttpClient,
+    api: &ApiAccessConfig,
+    sub_id: &uuid::Uuid,
+) -> Result<(), String> {
+    let envs = [Env::Dev, Env::Ru, Env::Wl];
+    let futures = envs.iter().flat_map(|env| {
+        PROTOS.iter().map(move |proto| {
+            create_connection(http, env, proto, sub_id, &api.endpoint, &api.token)
+        })
+    });
+
+    let results = futures::future::join_all(futures).await;
+    if results.iter().any(|r| r.is_err()) {
+        return Err(format!(
+            "Failed to establish connections for sub {}",
+            sub_id
+        ));
+    }
+    Ok(())
 }

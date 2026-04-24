@@ -9,7 +9,7 @@ use warp::http::Response;
 use warp::http::StatusCode;
 
 use pony::http::helpers as http;
-use pony::http::response::Instance;
+use pony::http::response::{EnvInfo, Instance, SubscriptionResponse};
 use pony::http::ResponseMessage;
 use pony::utils;
 use pony::utils::get_uuid_last_octet_simple;
@@ -300,23 +300,6 @@ where
         warp::reply::with_header(html, "Content-Type", "text/html; charset=utf-8"),
         StatusCode::OK,
     )))
-}
-
-#[derive(serde::Serialize)]
-pub struct EnvInfo {
-    pub env: String,
-    pub has_xray: bool,
-    pub has_hysteria: bool,
-}
-
-#[derive(serde::Serialize)]
-pub struct SubscriptionResponse {
-    pub id: uuid::Uuid,
-    pub expires: DateTime<Utc>,
-    pub days: i64,
-    pub ref_code: String,
-    pub invited_count: usize,
-    pub locations: Vec<EnvInfo>,
 }
 
 /// get subscription_info_json

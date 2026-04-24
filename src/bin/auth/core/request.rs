@@ -7,6 +7,10 @@ pub struct Trial {
     pub referred_by: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct TgTrial {
+    pub referred_by: Option<String>,
+}
 #[derive(Deserialize)]
 pub struct Auth {
     pub addr: String,
@@ -15,7 +19,7 @@ pub struct Auth {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct Key {
+pub struct ActivateKey {
     pub code: Code,
-    pub email: Option<String>,
+    pub subscription_id: Option<uuid::Uuid>,
 }

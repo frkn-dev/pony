@@ -5,6 +5,9 @@ use crate::memory::subscription::Subscription;
 use crate::memory::tag::ProtoTag as Tag;
 use serde::{Deserialize, Serialize};
 
+use chrono::DateTime;
+use chrono::Utc;
+
 #[derive(Deserialize, Serialize)]
 pub struct ResponseMessage<T> {
     pub status: u16,
@@ -22,9 +25,27 @@ pub struct InstanceWithId<T> {
 pub enum Instance {
     Connection(Connection),
     Subscription(Subscription),
+    SubscriptionResponse(SubscriptionResponse),
     Stat(Vec<(uuid::Uuid, ConnectionStat, Tag)>),
     Connections(Vec<(uuid::Uuid, Connection)>),
     Key(Key),
     Count(usize),
     None,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct SubscriptionResponse {
+    pub id: uuid::Uuid,
+    pub expires: DateTime<Utc>,
+    pub days: i64,
+    pub ref_code: String,
+    pub invited_count: usize,
+    pub locations: Vec<EnvInfo>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct EnvInfo {
+    pub env: String,
+    pub has_xray: bool,
+    pub has_hysteria: bool,
 }

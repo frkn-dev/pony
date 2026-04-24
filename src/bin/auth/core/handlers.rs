@@ -37,32 +37,29 @@ pub async fn activate_key_handler(
         return Ok(http::bad_request("Failed: Key is already activated. "));
     }
 
-    // 2. Create or Get Subscription
-    let sub = if let Some(subscription_id) = req.subscription_id {
-        match get_subscription(&http, &api.endpoint, &api.token, &subscription_id).await {
-            Ok(sub) => sub,
-            Err(e) => return Ok(http::not_found(&format!("Subscription not found: {}", e))),
-        }
+    let subscription_id = if let Some(subscription_id) = req.subscription_id {
+        subscription_id
     } else {
-        let referred_by = "FRKN.ORG"; // TODO: Из конфига
-        let new_sub = match create_subscription(&http, &api.endpoint, &api.token, 0, referred_by)
-            .await
+        let referred_by = "FRKN.ORG";
+        let sub = match create_subscription(&http, &api.endpoint, &api.token, 0, referred_by).await
         {
-            Ok(s) => match get_subscription(&http, &api.endpoint, &api.token, &s.id).await {
-                Ok(s) => s,
-                Err(e) => return Ok(http::not_found(&format!("Subscription not found: {}", e))),
-            },
+            Ok(s) => s,
             Err(e) => return Ok(http::internal_error(&format!("Creation failed: {}", e))),
         };
 
-        if let Err(e) = setup_connections(&http, &api, &new_sub.id).await {
+        if let Err(e) = setup_connections(&http, &api, &sub.id).await {
             log::error!("{}", e);
             return Ok(http::internal_error("Failed to establish connections."));
         }
-        new_sub
+
+        sub.id
     };
 
-    // 3. Key activation
+    let sub = match get_subscription(&http, &api.endpoint, &api.token, &subscription_id).await {
+        Ok(s) => s,
+        Err(e) => return Ok(http::not_found(&format!("Subscription not found: {}", e))),
+    };
+
     let activated_key =
         match activate_key(&http, &api.endpoint, &api.token, &req.code, &sub.id).await {
             Ok(k) => k,
@@ -72,7 +69,6 @@ pub async fn activate_key_handler(
             }
         };
 
-    // 4. New expires date
     let mut updated_sub = sub.clone();
     let now = chrono::Utc::now();
     let base_date = if updated_sub.expires > now {

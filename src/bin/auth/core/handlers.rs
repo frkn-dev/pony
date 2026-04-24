@@ -41,11 +41,13 @@ pub async fn activate_key_handler(
         subscription_id
     } else {
         let referred_by = "FRKN.ORG";
-        let sub = match create_subscription(&http, &api.endpoint, &api.token, 0, referred_by).await
-        {
-            Ok(s) => s,
-            Err(e) => return Ok(http::internal_error(&format!("Creation failed: {}", e))),
-        };
+        let sub =
+            match create_subscription(&http, &api.endpoint, &api.token, DEFAULT_DAYS, referred_by)
+                .await
+            {
+                Ok(s) => s,
+                Err(e) => return Ok(http::internal_error(&format!("Creation failed: {}", e))),
+            };
 
         if let Err(e) = setup_connections(&http, &api, &sub.id).await {
             log::error!("{}", e);

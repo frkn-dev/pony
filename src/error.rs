@@ -1,8 +1,8 @@
 use defguard_wireguard_rs::{error::WireguardInterfaceError, net::IpAddrParseError};
-use thiserror::Error;
+use thiserror::Error as ThisError;
 
-#[derive(Debug, Error)]
-pub enum PonyError {
+#[derive(Debug, ThisError)]
+pub enum Error {
     #[error(transparent)]
     Database(#[from] tokio_postgres::Error),
 
@@ -68,10 +68,10 @@ pub enum PonyError {
     ConvertInfallibleError(#[from] std::convert::Infallible),
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug, ThisError)]
 pub enum SyncError {
     #[error("Database operation failed: {0}")]
-    Database(#[from] PonyError),
+    Database(#[from] Error),
 
     #[error("Memory operation failed: {0}")]
     Memory(String),
@@ -102,30 +102,30 @@ pub enum SyncError {
     ConcurrentModification { resource: String, id: uuid::Uuid },
 }
 
-pub type Result<T> = std::result::Result<T, PonyError>;
+pub type Result<T> = std::result::Result<T, Error>;
 
-impl From<String> for PonyError {
+impl From<String> for Error {
     fn from(err: String) -> Self {
-        PonyError::Custom(err)
+        Error::Custom(err)
     }
 }
 
-impl From<anyhow::Error> for PonyError {
+impl From<anyhow::Error> for Error {
     fn from(err: anyhow::Error) -> Self {
-        PonyError::Custom(err.to_string())
+        Error::Custom(err.to_string())
     }
 }
 
-impl<T: std::fmt::Debug> From<tokio::sync::mpsc::error::SendError<T>> for PonyError {
+impl<T: std::fmt::Debug> From<tokio::sync::mpsc::error::SendError<T>> for Error {
     fn from(err: tokio::sync::mpsc::error::SendError<T>) -> Self {
-        PonyError::Custom(format!("SendError: {:?}", err))
+        Error::Custom(format!("SendError: {:?}", err))
     }
 }
 
-impl From<tonic::Status> for PonyError {
+impl From<tonic::Status> for Error {
     fn from(status: tonic::Status) -> Self {
-        PonyError::Grpc(Box::new(status))
+        Error::Grpc(Box::new(status))
     }
 }
 
-impl warp::reject::Reject for PonyError {}
+impl warp::reject::Reject for Error {}

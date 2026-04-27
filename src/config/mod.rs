@@ -1,4 +1,4 @@
-pub mod h2;
-pub mod settings;
-pub mod wireguard;
-pub mod xray;
+pub(crate) mod h2;
+pub(crate) mod inbound;
+pub(crate) mod settings;
+pub(crate) mod wireguard;

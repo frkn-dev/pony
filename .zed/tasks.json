@@ -8,7 +8,7 @@
     },
     {
         "label": "Run agent",
-        "command": "cargo run --bin agent -- dev/config-agent.toml ",
+        "command": "cargo run --bin agent -- experimental/config-agent.toml ",
     },
     {
         "label": "Run agent2",
@@ -20,11 +20,11 @@
     },
     {
         "label": "Run api",
-        "command": "cargo run --bin api -- dev/config-api.toml ",
+        "command": "cargo run --bin api -- experimental/config-api.toml ",
     },
     {
         "label": "Run auth",
-        "command": "cargo run --bin auth -- dev/config-auth.toml ",
+        "command": "cargo run --bin auth -- experimental/config-auth.toml ",
     },
     {
         "label": "Run tests",

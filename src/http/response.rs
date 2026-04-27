@@ -1,5 +1,6 @@
 use crate::memory::connection::conn::Conn as Connection;
 use crate::memory::connection::stat::Stat as ConnectionStat;
+use crate::memory::env::Env;
 use crate::memory::key::Key;
 use crate::memory::subscription::Subscription;
 use crate::memory::tag::ProtoTag as Tag;
@@ -45,7 +46,8 @@ pub struct SubscriptionResponse {
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct EnvInfo {
-    pub env: String,
+    pub env: Env,
     pub has_xray: bool,
     pub has_hysteria: bool,
+    pub has_mtproto: bool,
 }

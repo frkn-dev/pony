@@ -73,7 +73,7 @@ impl MetricBuffer {
             .send_binary("metrics", bytes.as_slice())
             .await
         {
-            log::error!("Batch publish failed: {}", e);
+            tracing::error!("Batch publish failed: {}", e);
         }
     }
 }
@@ -211,8 +211,6 @@ impl MetricStorage {
         let retention_ms = self.retention_seconds * 1000;
         let min_ts = now_ms - retention_ms;
 
-        log::debug!("Starting MetricStorage GC. Min timestamp: {}", min_ts);
-
         self.inner.retain(|_node_id, node_map| {
             node_map.retain(|_series_key, deque| {
                 while let Some(front) = deque.front() {
@@ -247,7 +245,5 @@ impl MetricStorage {
 
             !tag_map.is_empty()
         });
-
-        log::debug!("GC completed. Alive series: {}", alive_series.len());
     }
 }

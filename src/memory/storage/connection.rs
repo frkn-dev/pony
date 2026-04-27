@@ -2,13 +2,13 @@ use std::collections::hash_map::Entry;
 
 use super::super::connection::conn::Conn as Connection;
 use super::super::connection::conn::ConnPatch as ConnectionPatch;
-use super::super::connection::op::api::Operations as ConnectionApiOp;
-use super::super::connection::op::base::Operations as ConnectionBaseOp;
+use super::super::connection::operation::api::Operations as ConnectionApiOp;
+use super::super::connection::operation::base::Operations as ConnectionBaseOp;
+use super::super::connection::proto::Proto;
 use super::super::connection::Connections;
 use super::super::storage::Status as OperationStatus;
 use super::super::tag::ProtoTag as Tag;
-use crate::error::{PonyError, Result};
-use crate::Proto;
+use crate::error::{Error, Result};
 
 pub trait ApiOp<C>
 where
@@ -68,7 +68,7 @@ where
         self.0
             .remove(conn_id)
             .map(|_| ())
-            .ok_or(PonyError::Custom("Conn not found".into()))
+            .ok_or(Error::Custom("Conn not found".into()))
     }
 
     fn get(&self, conn_id: &uuid::Uuid) -> Option<C> {

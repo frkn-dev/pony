@@ -1,5 +1,5 @@
 [api]
-address = "0.0.0.0"
+listen = "127.0.0.1"
 port = 3005
 token = "your-super-secret-api-token"
 db_sync_interval_sec = 300

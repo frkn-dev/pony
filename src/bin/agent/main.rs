@@ -1,10 +1,16 @@
-use fern::Dispatch;
+use pony::level_from_settings;
+use pony::Settings;
+use tracing::info;
 
-use pony::config::settings::AgentSettings;
-use pony::config::settings::Settings;
-use pony::utils::*;
+mod agent;
+mod config;
+mod http;
+pub(crate) mod metrics;
+mod snapshot;
+mod stats;
+mod tasks;
 
-mod core;
+use crate::config::AgentSettings;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("                                                                                                    ");
@@ -49,28 +55,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     settings.validate().expect("Wrong settings file");
     println!(">>> Settings: {:?}", settings.clone());
 
-    Dispatch::new()
-        .format(|out, message, record| {
-            out.finish(format_args!(
-                "[{}][{}][{}] {}",
-                record.level(),
-                human_readable_date(current_timestamp() as u64),
-                record.target(),
-                message
-            ))
-        })
-        .level(level_from_settings(&settings.logging.level))
-        .chain(std::io::stdout())
-        .apply()
-        .unwrap();
+    tracing_subscriber::fmt()
+        .with_env_filter(level_from_settings(&settings.logging.level))
+        .init();
 
     let num_cpus = std::thread::available_parallelism()?.get();
 
     let worker_threads = if num_cpus <= 1 { 1 } else { num_cpus * 2 };
-    log::info!(
+    info!(
         "🧠 CPU cores: {}, configured worker threads: {}",
-        num_cpus,
-        worker_threads
+        num_cpus, worker_threads
     );
 
     let runtime = tokio::runtime::Builder::new_multi_thread()
@@ -79,7 +73,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build()
         .unwrap();
 
-    runtime.block_on(core::service::run(settings))?;
+    runtime.block_on(agent::run(settings))?;
 
     Ok(())
 }

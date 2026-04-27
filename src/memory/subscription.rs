@@ -112,11 +112,6 @@ impl<S> DerefMut for Subscriptions<S> {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct UpdateSubscription {
-    pub expires_at: Option<DateTime<Utc>>,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SubscriptionStats {
     pub id: uuid::Uuid,

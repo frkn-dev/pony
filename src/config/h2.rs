@@ -1,7 +1,6 @@
-use crate::PonyError;
-use crate::Result;
-use serde::Deserialize;
-use serde::Serialize;
+use crate::error::{Error, Result};
+
+use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::Read;
 
@@ -81,32 +80,32 @@ pub struct H2Obfs {
 impl HysteriaServerConfig {
     pub fn validate(&self) -> Result<()> {
         if self.listen.is_none() {
-            return Err(PonyError::Custom("Hysteria2: listen is required".into()));
+            return Err(Error::Custom("Hysteria2: listen is required".into()));
         }
 
         let _auth = self
             .auth
             .as_ref()
-            .ok_or_else(|| PonyError::Custom("Hysteria2: auth section is required".into()))?;
+            .ok_or_else(|| Error::Custom("Hysteria2: auth section is required".into()))?;
 
         Ok(())
     }
 }
 
 impl TryFrom<HysteriaServerConfig> for H2Settings {
-    type Error = PonyError;
+    type Error = Error;
 
-    fn try_from(server: HysteriaServerConfig) -> std::result::Result<H2Settings, PonyError> {
+    fn try_from(server: HysteriaServerConfig) -> std::result::Result<H2Settings, Error> {
         let listen = server
             .listen
-            .ok_or_else(|| PonyError::Custom("Hysteria2: listen missing".into()))?;
+            .ok_or_else(|| Error::Custom("Hysteria2: listen missing".into()))?;
 
         let port = listen
             .split(':')
             .next_back()
             .unwrap_or("443")
             .parse::<u16>()
-            .map_err(|_| PonyError::Custom("Hysteria2: invalid port".into()))?;
+            .map_err(|_| Error::Custom("Hysteria2: invalid port".into()))?;
 
         let host = server
             .acme
@@ -114,7 +113,7 @@ impl TryFrom<HysteriaServerConfig> for H2Settings {
             .and_then(|a| a.domains.as_ref())
             .and_then(|d| d.first())
             .cloned()
-            .ok_or_else(|| PonyError::Custom("Hysteria2: acme.domains missing".into()))?;
+            .ok_or_else(|| Error::Custom("Hysteria2: acme.domains missing".into()))?;
 
         let auth_info = server.auth.map(|a| H2AuthInfo {
             auth_type: a.r#type.unwrap_or_else(|| "unknown".into()),

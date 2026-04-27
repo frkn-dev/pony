@@ -24,7 +24,7 @@ impl Proto {
             Proto::Shadowsocks { .. } => Tag::Shadowsocks,
             Proto::Hysteria2 { .. } => Tag::Hysteria2,
             Proto::Xray(tag) => *tag,
-            Proto::Mtproto { .. } => unreachable!(),
+            Proto::Mtproto { .. } => Tag::Mtproto,
         }
     }
 
@@ -69,5 +69,9 @@ impl Proto {
 
     pub fn is_hysteria2(&self) -> bool {
         matches!(self, Proto::Hysteria2 { .. })
+    }
+
+    pub fn is_mtproto(&self) -> bool {
+        matches!(self, Proto::Mtproto { .. })
     }
 }

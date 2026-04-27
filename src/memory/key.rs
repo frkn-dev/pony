@@ -6,7 +6,7 @@ use std::str::FromStr;
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
 
-use crate::PonyError;
+use crate::error::Error;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Key {
@@ -196,11 +196,11 @@ impl Code {
 pub struct Distributor([u8; 4]);
 
 impl Distributor {
-    pub fn new(s: &str) -> Result<Self, PonyError> {
+    pub fn new(s: &str) -> Result<Self, Error> {
         let bytes = s.as_bytes();
 
         if bytes.len() != 4 {
-            return Err(PonyError::Custom(
+            return Err(Error::Custom(
                 "Distributor must be exactly 4 characters".to_string(),
             ));
         }
@@ -209,7 +209,7 @@ impl Distributor {
             .iter()
             .all(|b| b.is_ascii_uppercase() || b.is_ascii_digit())
         {
-            return Err(PonyError::Custom(
+            return Err(Error::Custom(
                 "Distributor must be uppercase ASCII letters or digits".to_string(),
             ));
         }

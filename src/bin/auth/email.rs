@@ -205,7 +205,7 @@ impl EmailStore {
 
                       <tr>
                         <td style="text-align:center;padding-top:24px;font-size:11px;color:#6b7280;">
-                          {company_name}• <a href="{support}">Поддержка</a>
+                          {company_name} • <a href="{support}">Поддержка</a>
                         </td>
                       </tr>
 

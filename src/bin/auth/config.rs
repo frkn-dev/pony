@@ -13,6 +13,10 @@ pub struct SmtpConfig {
     pub password: String,
     pub port: u16,
     pub from: String,
+
+    pub title: String,
+    pub company_name: String,
+    pub support: String,
 }
 
 fn default_listen_address() -> Ipv4Addr {

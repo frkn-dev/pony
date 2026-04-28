@@ -136,27 +136,99 @@ impl EmailStore {
         let mailer = self.mailer.clone();
         let web_host = self.web_host.clone();
         let from = self.smtp.from.clone();
+        let title = self.smtp.title.clone();
+        let company_name = self.smtp.company_name.clone();
+        let support = self.smtp.support.clone();
+
         tokio::spawn(async move {
             let html_body = format!(
                 r#"
-                <html>
-                <body>
-                    <h2>Твой Тест-Драйв активирован</h2>
-                    <p>Ссылка:</p>
-                    <a href="{web_host}/subscription?id={sub_id}">
-                        Открыть подписку
-                    </a>
-                </body>
-                </html>
-                "#,
+            <!DOCTYPE html>
+            <html>
+            <head>
+              <meta charset="UTF-8">
+              <title>{title}</title>
+            </head>
+            <body style="margin:0;padding:0;background:#0b0d12;font-family:Arial,sans-serif;">
+
+              <table width="100%" cellpadding="0" cellspacing="0" style="background:#0b0d12;padding:40px 0;">
+                <tr>
+                  <td align="center">
+
+                    <table width="600" cellpadding="0" cellspacing="0" style="background:#121621;border-radius:16px;padding:32px;color:#e6e8ef;">
+
+                      <tr>
+                        <td style="text-align:center;">
+                          <h1 style="margin:0;color:#5b7cfa;">{title}</h1>
+                          <p style="color:#9aa1b2;margin-top:8px;">
+                            Твоя подписка для тест-драйва успешно создана
+                          </p>
+                        </td>
+                      </tr>
+
+                      <tr>
+                        <td style="padding:20px 0;text-align:center;">
+                          <div style="font-size:12px;color:#9aa1b2;">Subscription ID</div>
+                          <div style="font-family:monospace;font-size:14px;word-break:break-all;">
+                            {sub_id}
+                          </div>
+                        </td>
+                      </tr>
+
+                      <tr>
+                        <td align="center" style="padding:20px 0;">
+
+                          <a href="{web_host}/subscription?id={sub_id}"
+                             style="
+                              display:inline-block;
+                              padding:14px 24px;
+                              background:linear-gradient(90deg,#5b7cfa,#22d3ee);
+                              color:#fff;
+                              text-decoration:none;
+                              border-radius:12px;
+                              font-weight:bold;
+                             ">
+                            Открыть подписку
+                          </a>
+
+                        </td>
+                      </tr>
+
+                      <tr>
+                        <td style="text-align:center;color:#9aa1b2;font-size:12px;padding-top:16px;">
+                          Если кнопка не работает — скопируй ссылку:<br>
+                          <span style="color:#5b7cfa;">
+                            {web_host}/subscription?id={sub_id}
+                          </span>
+                        </td>
+                      </tr>
+
+                      <tr>
+                        <td style="text-align:center;padding-top:24px;font-size:11px;color:#6b7280;">
+                          {company_name}• <a href="{support}">Поддержка</a>
+                        </td>
+                      </tr>
+
+                    </table>
+
+                  </td>
+                </tr>
+              </table>
+
+            </body>
+            </html>
+            "#,
                 web_host = web_host,
                 sub_id = sub_id,
+                title = title,
+                company_name = company_name,
+                support = support,
             );
 
             let msg = match Message::builder()
                 .from(from.parse().unwrap())
                 .to(to.parse().unwrap())
-                .subject("Тест-Драйв")
+                .subject(title)
                 .header(lettre::message::header::ContentType::TEXT_HTML)
                 .body(html_body)
             {

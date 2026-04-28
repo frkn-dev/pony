@@ -96,10 +96,13 @@ pub async fn trial_handler(
     }
 
     let ref_by = req.referred_by.clone().unwrap_or_else(|| "WEB".to_string());
+
     let sub =
         match create_subscription(&http, &api.endpoint, &api.token, DEFAULT_DAYS, &ref_by).await {
             Ok(s) => s,
-            Err(e) => return Ok(http::internal_error(&format!("Subscription failed: {}", e))),
+            Err(e) => {
+                return Ok(http::internal_error(&format!("Subscription failed: {}", e)));
+            }
         };
 
     if let Err(e) = setup_connections(&http, &api, &sub.id).await {
@@ -110,6 +113,7 @@ pub async fn trial_handler(
     }
 
     let now = chrono::Utc::now();
+
     if let Err(e) = store
         .save_trial_hmac(&req.email, &sub.id, &now, &ref_by)
         .await
@@ -118,12 +122,7 @@ pub async fn trial_handler(
         return Ok(http::internal_error("Failed to record trial."));
     }
 
-    if let Err(e) = store.send_email(&req.email, &sub.id).await {
-        tracing::error!("Email error: {}", e);
-        return Ok(http::internal_error(
-            "Trial created, but failed to send email.",
-        ));
-    }
+    store.send_email_background(req.email.clone(), sub.id).await;
 
     Ok(http::success_response(
         "Trial activated. Check email".into(),

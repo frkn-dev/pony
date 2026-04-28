@@ -260,8 +260,54 @@ impl<'de> Deserialize<'de> for IpAddrMask {
     where
         D: Deserializer<'de>,
     {
-        let s = <std::string::String as serde::Deserialize>::deserialize(deserializer)?;
-        s.parse().map_err(serde::de::Error::custom)
+        use serde::de::{self, MapAccess, Visitor};
+        use std::fmt;
+
+        struct IpAddrMaskVisitor;
+
+        impl<'de> Visitor<'de> for IpAddrMaskVisitor {
+            type Value = IpAddrMask;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("string like '10.0.0.1/24' or object with 'address' and 'cidr'")
+            }
+
+            fn visit_str<E>(self, s: &str) -> Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                s.parse().map_err(de::Error::custom)
+            }
+
+            fn visit_map<M>(self, mut map: M) -> Result<Self::Value, M::Error>
+            where
+                M: MapAccess<'de>,
+            {
+                let mut address = None;
+                let mut cidr = None;
+
+                while let Some(key) = map.next_key()? {
+                    match key {
+                        "address" => {
+                            address = Some(map.next_value()?);
+                        }
+                        "cidr" => {
+                            cidr = Some(map.next_value()?);
+                        }
+                        _ => {
+                            let _: de::IgnoredAny = map.next_value()?;
+                        }
+                    }
+                }
+
+                let address = address.ok_or_else(|| de::Error::missing_field("address"))?;
+                let cidr = cidr.ok_or_else(|| de::Error::missing_field("cidr"))?;
+
+                Ok(IpAddrMask { address, cidr })
+            }
+        }
+
+        deserializer.deserialize_any(IpAddrMaskVisitor)
     }
 }
 

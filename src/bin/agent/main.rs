@@ -54,6 +54,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     settings.validate().expect("Wrong settings file");
     println!(">>> Settings: {:?}", settings.clone());
+    println!(">>>>> VERSION: 0.4.5-dev");
 
     tracing_subscriber::fmt()
         .with_env_filter(level_from_settings(&settings.logging.level))

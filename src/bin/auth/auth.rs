@@ -82,11 +82,12 @@ where
 
         let cors = warp::cors()
             .allow_origin(self.email_store.web_host.as_str())
-            .allow_credentials(true)
-            .allow_methods(vec!["GET", "POST", "OPTIONS"])
-            .allow_headers(vec!["Content-Type"])
+            .allow_methods(vec!["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"])
+            .allow_headers(vec!["Authorization", "Content-Type"])
             .max_age(86400)
             .build();
+
+        tracing::debug!("CORS: {:?}", cors.clone());
 
         let email_store = self.email_store.clone();
         let memory = self.memory.clone();
@@ -125,10 +126,9 @@ where
             .or(auth_route)
             .or(trial_route)
             .or(tg_trial_route)
-            .or(activate_route)
-            .with(cors);
+            .or(activate_route);
 
-        warp::serve(routes)
+        warp::serve(routes.with(cors))
             .run(SocketAddr::new(IpAddr::V4(self.listen), self.port))
             .await;
     }

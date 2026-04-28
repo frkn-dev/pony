@@ -65,6 +65,7 @@ CREATE TABLE nodes (
     label TEXT NOT NULL,
     interface TEXT NOT NULL,
     cores INTEGER NOT NULL DEFAULT 1,
+    country TEXT NOT NULL,
     max_bandwidth_bps BIGINT NOT NULL DEFAULT 100000000,
     UNIQUE(uuid, env)
 );
@@ -109,28 +110,6 @@ CREATE TABLE keys (
 
 CREATE INDEX idx_keys_code ON keys(code);
 
-
-
-
-====
-
-
-DROP TABLE connections;
-DROP TABLE nodes;
-DROP TABLE inbounds;
-DROP TABLE subscriptions;
-DROP TABLE keys;
-
-
-DROP TYPE node_status;
-DROP TYPE proto;
-
-
-
-
-===
-ALTER TABLE nodes
-ALTER COLUMN country SET NOT NULL;
 
 
 CREATE TYPE node_type AS ENUM ('common', 'premium');

@@ -38,7 +38,7 @@ pub async fn activate_key_handler(
     let subscription_id = if let Some(subscription_id) = req.subscription_id {
         subscription_id
     } else {
-        let referred_by = "FRKN.ORG";
+        let referred_by = "WEB";
         let sub =
             match create_subscription(&http, &api.endpoint, &api.token, DEFAULT_DAYS, referred_by)
                 .await
@@ -95,10 +95,7 @@ pub async fn trial_handler(
         return Ok(http::bad_request("Trial already requested"));
     }
 
-    let ref_by = req
-        .referred_by
-        .clone()
-        .unwrap_or_else(|| "FRKN.ORG".to_string());
+    let ref_by = req.referred_by.clone().unwrap_or_else(|| "WEB".to_string());
     let sub =
         match create_subscription(&http, &api.endpoint, &api.token, DEFAULT_DAYS, &ref_by).await {
             Ok(s) => s,
@@ -193,7 +190,7 @@ async fn setup_connections(
     api: &ApiAccessConfig,
     sub_id: &uuid::Uuid,
 ) -> Result<(), String> {
-    let envs = [Env::Dev, Env::Ru, Env::Wl];
+    let envs = [Env::Production, Env::Ru, Env::Wl];
     let futures = envs.iter().flat_map(|env| {
         PROTOS.iter().map(move |proto| {
             create_connection(http, env, proto, sub_id, &api.endpoint, &api.token)

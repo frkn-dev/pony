@@ -15,7 +15,7 @@ use super::handlers::connection::*;
 use super::handlers::key::*;
 use super::handlers::metrics::*;
 use super::handlers::node::*;
-use super::handlers::sub::*;
+use super::handlers::subscription::*;
 use super::param::*;
 use super::rejection;
 use super::request::*;

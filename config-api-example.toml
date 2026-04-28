@@ -29,3 +29,6 @@ port = 5432
 db = "frkn_db"
 username = "postgres"
 password = "password"
+
+
+

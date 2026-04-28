@@ -2,7 +2,7 @@ pub mod connection;
 pub mod key;
 pub mod metrics;
 pub mod node;
-pub mod sub;
+pub mod subscription;
 
 use warp::http::StatusCode;
 

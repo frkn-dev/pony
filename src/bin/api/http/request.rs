@@ -3,15 +3,35 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::net::Ipv4Addr;
 
-use pony::{Env, Error, Inbound, Node, NodeStatus, NodeType, Result, Tag, WgParam};
+use std::collections::HashSet;
+
+use pony::{Env, Error, Inbound, Node, NodeStatus, NodeType, Tag};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "lowercase")]
 pub enum TagReq {
+    #[serde(alias = "xray", alias = "Xray")]
     Xray,
+
+    #[serde(alias = "wireguard", alias = "Wireguard")]
     Wireguard,
+
+    #[serde(alias = "hysteria2", alias = "Hysteria2")]
     Hysteria2,
+
+    #[serde(alias = "mtproto", alias = "Mtproto")]
     Mtproto,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Hash, Eq)]
+pub enum FormatReq {
+    #[serde(alias = "Base64", alias = "base64")]
+    Base64,
+
+    #[serde(alias = "Txt", alias = "txt")]
+    Txt,
+
+    #[serde(alias = "Clash", alias = "clash")]
+    Clash,
 }
 
 impl TagReq {
@@ -84,63 +104,13 @@ impl NodeRequest {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct ConnCreateRequest {
     pub env: Env,
-    pub token: Option<uuid::Uuid>,
-    pub password: Option<String>,
-    pub secret: Option<String>,
     pub subscription_id: Option<uuid::Uuid>,
     pub proto: Tag,
-    pub wg: Option<WgParam>,
-    pub node_id: Option<uuid::Uuid>,
     pub days: Option<u16>,
 }
 
 impl ConnCreateRequest {
-    pub fn validate(&self) -> Result<()> {
-        if self.password.is_some() && self.wg.is_some() {
-            return Err(Error::Custom("Cannot specify both password and wg".into()));
-        }
-        if self.token.is_some() && self.wg.is_some() {
-            return Err(Error::Custom("Cannot specify both token and wg".into()));
-        }
-
-        if self.secret.is_some() && self.wg.is_some() {
-            return Err(Error::Custom("Cannot specify both secret and wg".into()));
-        }
-
-        if self.token.is_some() && self.secret.is_some() {
-            return Err(Error::Custom("Cannot specify both token and secret".into()));
-        }
-
-        if self.secret.is_some() && self.password.is_some() {
-            return Err(Error::Custom(
-                "Cannot specify both secret and password".into(),
-            ));
-        }
-        if self.token.is_some() && self.password.is_some() {
-            return Err(Error::Custom(
-                "Cannot specify both token and password".into(),
-            ));
-        }
-        if !self.proto.is_wireguard() && self.wg.is_some() {
-            return Err(Error::Custom("Wg params only allowed for Wireguard".into()));
-        }
-
-        if !self.proto.is_wireguard() && self.node_id.is_some() {
-            return Err(Error::Custom("node_id only allowed for Wireguard".into()));
-        }
-        if !self.proto.is_shadowsocks() && self.password.is_some() {
-            return Err(Error::Custom(
-                "Password only allowed for Shadowsocks".into(),
-            ));
-        }
-        if !self.proto.is_hysteria2() && self.token.is_some() {
-            return Err(Error::Custom("Token only allowed for Hysteria2".into()));
-        }
-
-        if !self.proto.is_mtproto() && self.secret.is_some() {
-            return Err(Error::Custom("Secret only allowed for Mtproto".into()));
-        }
-
+    pub fn validate(&self) -> Result<(), Error> {
         Ok(())
     }
 }
@@ -155,4 +125,51 @@ pub struct KeyReq {
 pub struct ActivateKeyReq {
     pub code: String,
     pub subscription_id: uuid::Uuid,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SubscriptionInfoRequest {
+    pub id: uuid::Uuid,
+    pub format: FormatReq,
+    pub env: Env,
+    pub proto: TagReq,
+}
+
+impl SubscriptionInfoRequest {
+    fn allowed_formats(&self, proto: &TagReq) -> HashSet<FormatReq> {
+        use FormatReq::*;
+        use TagReq::*;
+
+        match proto {
+            Xray => [Txt, Base64, Clash].into(),
+            Wireguard => [].into(),
+            Hysteria2 => [Txt, Base64].into(),
+            Mtproto => [].into(),
+        }
+    }
+
+    pub fn validate(&self) -> Result<(), Error> {
+        let allowed = self.allowed_formats(&self.proto);
+
+        if !allowed.contains(&self.format) {
+            return Err(Error::Custom(format!(
+                "Format {:?} not allowed for proto {:?}",
+                self.format, self.proto
+            )));
+        }
+
+        Ok(())
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ConnectionInfoRequest {
+    pub id: uuid::Uuid,
+    pub env: Env,
+}
+
+impl ConnectionInfoRequest {
+    pub fn validate(&self) -> Result<(), Error> {
+        Ok(())
+    }
 }

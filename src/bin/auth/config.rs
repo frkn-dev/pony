@@ -14,32 +14,30 @@ pub struct SmtpConfig {
     pub from: String,
 }
 
-#[derive(Clone, Debug, Deserialize, Default)]
+fn default_listen_address() -> Ipv4Addr {
+    "127.0.0.1".parse().unwrap()
+}
+
+#[derive(Clone, Debug, Deserialize)]
 pub struct AuthServiceConfig {
     pub snapshot_interval: u64,
     pub snapshot_path: String,
     pub web_host: String,
-    pub listen: Option<Ipv4Addr>,
-    pub web_port: u16,
+    #[serde(default = "default_listen_address")]
+    pub listen: Ipv4Addr,
+    pub port: u16,
     pub email_file: String,
     pub email_sign_token: Vec<u8>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct AuthServiceSettings {
-    #[serde(default)]
     pub logging: LoggingConfig,
-    #[serde(default)]
     pub auth: AuthServiceConfig,
-    #[serde(default)]
     pub zmq: ZmqSubscriberConfig,
-    #[serde(default)]
     pub node: NodeConfigRaw,
-    #[serde(default)]
     pub api: ApiAccessConfig,
-    #[serde(default)]
     pub smtp: SmtpConfig,
-    #[serde(default)]
     pub metrics: MetricsTxConfig,
 }
 

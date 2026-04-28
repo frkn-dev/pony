@@ -1,40 +1,8 @@
-use chrono::{Duration, Local, NaiveTime};
-use chrono::{TimeZone, Utc};
-use defguard_wireguard_rs::net::IpAddrMask;
-use ipnet::Ipv4Net;
-use ipnet::Ipv6Net;
+use chrono::{Duration, Local, NaiveTime, Utc};
 use rand::{distributions::Alphanumeric, Rng};
-use std::net::IpAddr;
-use std::net::Ipv4Addr;
 use std::time::Instant;
 use tokio::time::{sleep, Duration as TokioDuration};
 use tracing_subscriber::EnvFilter;
-
-pub fn increment_ip(ip: Ipv4Addr) -> Option<Ipv4Addr> {
-    let ip_u32 = u32::from(ip);
-    let next = ip_u32.checked_add(1)?;
-    Some(Ipv4Addr::from(next))
-}
-
-pub fn ip_in_mask(mask: &IpAddrMask, addr: IpAddr) -> bool {
-    match (mask.ip, mask.cidr, addr) {
-        (IpAddr::V4(base), cidr, IpAddr::V4(addr)) => {
-            if let Ok(net) = Ipv4Net::new(base, cidr) {
-                net.contains(&addr)
-            } else {
-                false
-            }
-        }
-        (IpAddr::V6(base), cidr, IpAddr::V6(addr)) => {
-            if let Ok(net) = Ipv6Net::new(base, cidr) {
-                net.contains(&addr)
-            } else {
-                false
-            }
-        }
-        _ => false,
-    }
-}
 
 pub async fn run_daily<F, Fut>(task: F, target_time: NaiveTime)
 where
@@ -87,13 +55,6 @@ pub fn generate_random_password(length: usize) -> String {
         .collect()
 }
 
-pub fn to_ipv4(ip: IpAddr) -> Option<Ipv4Addr> {
-    match ip {
-        IpAddr::V4(ipv4) => Some(ipv4),
-        IpAddr::V6(_) => None,
-    }
-}
-
 pub async fn measure_time<T, F>(task: F, name: &str) -> T
 where
     F: std::future::Future<Output = T>,
@@ -107,13 +68,6 @@ where
 
 pub fn current_timestamp() -> i64 {
     Utc::now().timestamp()
-}
-
-pub fn human_readable_date(timestamp: u64) -> String {
-    match Utc.timestamp_opt(timestamp as i64, 0) {
-        chrono::LocalResult::Single(datetime) => datetime.format("%Y-%m-%d %H:%M:%S").to_string(),
-        _ => "Invalid timestamp".to_string(),
-    }
 }
 
 pub fn round_to_two_decimal_places(value: f32) -> f32 {

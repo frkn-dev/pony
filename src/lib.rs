@@ -10,13 +10,14 @@ pub mod zmq;
 pub use error::{Error, Result, SyncError};
 
 pub use config::{
+    clash::InboundClashConfig,
     h2::{H2Settings, HysteriaServerConfig},
     inbound::{Inbound, InboundConnLink, Settings as XraySettings},
     settings::{
-        ApiAccessConfig, H2Config, LoggingConfig, MetricsTxConfig, MtprotoConfig, NodeConfig,
-        NodeConfigRaw, Settings, WgConfig, XrayConfig, ZmqSubscriberConfig,
+        ApiAccessConfig, LoggingConfig, MetricsTxConfig, MtprotoConfig, NodeConfig, NodeConfigRaw,
+        Settings, ZmqSubscriberConfig,
     },
-    wireguard::WireguardSettings,
+    wireguard::{WireguardServerConfig, WireguardSettings},
 };
 
 pub use memory::{
@@ -29,7 +30,7 @@ pub use memory::{
         },
         proto::Proto,
         stat::Stat as ConnectionStat,
-        wireguard::{IpAddrMaskSerializable, Keys as WgKeys, Param as WgParam},
+        wireguard::{IpAddrMask, Keys as WgKeys, Param as WgParam},
         Connections,
     },
     env::Env,
@@ -58,7 +59,6 @@ pub use metrics::{
 pub use proto::{
     wireguard::WgApi,
     xray::{
-        clash::{generate_clash_config, generate_proxy_config},
         client::{
             ConnOp as XrayConnOperation, HandlerActions as XrayHandlerActions,
             HandlerClient as XrayHandlerClient, StatsClient as XrayStatsClient, XrayClient,

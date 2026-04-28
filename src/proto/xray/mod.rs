@@ -1,4 +1,3 @@
-pub(crate) mod clash;
 pub(crate) mod client;
 pub(crate) mod shadowsocks;
 pub(crate) mod stats;

@@ -158,11 +158,6 @@ pub async fn run(settings: AuthServiceSettings) -> Result<()> {
     email_store.load_trials().await?;
     let http_client = HttpClient::new();
 
-    let listen_addr = settings
-        .auth
-        .listen
-        .unwrap_or(Ipv4Addr::from_octets([127, 0, 0, 1]));
-
     let metric_publisher = Publisher::connect(&settings.metrics.publisher).await;
 
     let metrics = MetricBuffer {
@@ -177,7 +172,7 @@ pub async fn run(settings: AuthServiceSettings) -> Result<()> {
         email_store,
         http_client,
         settings.api.clone(),
-        (listen_addr, settings.auth.web_port),
+        (settings.auth.listen, settings.auth.port),
     ));
 
     let snapshot_manager =

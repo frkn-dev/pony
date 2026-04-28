@@ -1,5 +1,4 @@
 use async_trait::async_trait;
-use defguard_wireguard_rs::net::IpAddrMask;
 use futures::future::try_join_all;
 use rkyv::AlignedVec;
 use rkyv::Deserialize;
@@ -123,8 +122,7 @@ where
                             .clone()
                             .ok_or_else(|| Error::Custom("Missing WireGuard keys".into()))?;
 
-                        let node_id = self.node.uuid;
-                        let proto = Proto::new_wg(&wg, &node_id);
+                        let proto = Proto::new_wg(&wg);
 
                         let conn = Connection::new(
                             proto,
@@ -148,20 +146,19 @@ where
                             .as_ref()
                             .ok_or_else(|| Error::Custom("WireGuard API is unavailable".into()))?;
 
-                        let exist = wg_api.is_exist(wg.keys.pubkey.clone());
+                        if let Ok(pubkey) = wg.keys.pubkey() {
+                            let exist = wg_api.is_exist(pubkey.clone());
 
-                        if exist {
-                            return Err(Error::Custom("WG User already exist".into()));
+                            if exist {
+                                return Err(Error::Custom("WG User already exist".into()));
+                            }
+
+                            wg_api.create(&pubkey, wg.address).map_err(|e| {
+                                Error::Custom(format!("Failed to create WireGuard peer: {}", e))
+                            })?;
+
+                            tracing::debug!("Connection Created {}", conn);
                         }
-
-                        let wg_address: IpAddrMask = wg.address.into();
-
-                        wg_api.create(&wg.keys.pubkey, wg_address).map_err(|e| {
-                            Error::Custom(format!("Failed to create WireGuard peer: {}", e))
-                        })?;
-
-                        tracing::debug!("Connection Created {}", conn);
-
                         return Ok(());
                     }
 
@@ -256,7 +253,7 @@ where
                             Error::Custom("Missing WireGuard keys in message".into())
                         })?;
 
-                        wg_api.delete(&wg.keys.pubkey).map_err(|e| {
+                        wg_api.delete(&wg.keys.pubkey()?).map_err(|e| {
                             Error::Custom(format!("Failed to delete WireGuard peer: {}", e))
                         })?;
 

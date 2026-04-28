@@ -1,3 +1,4 @@
+use pony::WireguardServerConfig;
 use std::path::Path;
 use std::sync::Arc;
 use tokio::signal;
@@ -98,16 +99,17 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
 
     // Init Wireguard
     let (wg_client, wg_config) = if settings.wg.enabled {
-        let config = WireguardSettings::new(&settings.wg);
-        debug!("WG CONFIG {:?}", config);
-        let client = match WgApi::new(&settings.wg.interface) {
+        let row_config = WireguardServerConfig::from_file(&settings.wg.path)?;
+        let wg: WireguardSettings = row_config.try_into()?;
+        debug!("{:?}", wg);
+        let client = match WgApi::new(&wg.interface) {
             Ok(c) => c,
             Err(e) => panic!("Cannot create WG client: {}", e),
         };
         if let Err(e) = client.validate() {
             panic!("Cannot validate WG client: {}", e);
         }
-        (Some(client), Some(config))
+        (Some(client), Some(wg))
     } else {
         (None, None)
     };
@@ -146,6 +148,8 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
     };
 
     let node_config = NodeConfig::from_raw(settings.node.clone());
+
+    debug!("NODE {:?} ", node_config);
     let node = Node::new(
         node_config?,
         xray_config,

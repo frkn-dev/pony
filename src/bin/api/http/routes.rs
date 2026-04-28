@@ -91,9 +91,9 @@ where
         let get_subscription_route = warp::get()
             .and(warp::path("sub"))
             .and(warp::path::end())
-            .and(warp::query::<SubQueryParam>())
+            .and(warp::query::<SubscriptionInfoRequest>())
             .and(with_sync(self.sync.clone()))
-            .and_then(subscription_link_handler_new);
+            .and_then(subscription_link_handler);
 
         let get_subscription_info_route = warp::get()
             .and(warp::path!("subscription" / Uuid))
@@ -109,7 +109,7 @@ where
             .and(warp::body::json())
             .and(with_sync(self.sync.clone()))
             .and(with_i64(params.bonus_days))
-            .and(with_param_vec_string(params.promo_codes))
+            .and(with_param_vec_string(params.system_refer_codes))
             .and_then(post_subscription_handler);
 
         let put_subscription_route = warp::put()
@@ -122,6 +122,17 @@ where
             .and_then(put_subscription_handler);
 
         // Connections Routes
+        let get_wg_connections_info_route = warp::path!("info" / "connections" / "wireguard")
+            .and(warp::get())
+            .and(warp::query::<ConnectionInfoRequest>())
+            .and(with_sync(self.sync.clone()))
+            .and_then(wireguard_connections_handler);
+        let get_mtproto_connections_info_route = warp::path!("info" / "connections" / "mtproto")
+            .and(warp::get())
+            .and(warp::query::<ConnectionInfoRequest>())
+            .and(with_sync(self.sync.clone()))
+            .and_then(mtproto_connections_handler);
+
         let get_connection_route = warp::get()
             .and(warp::path("connection"))
             .and(warp::path::end())
@@ -144,6 +155,7 @@ where
             .and(auth.clone())
             .and(warp::body::json())
             .and(with_sync(self.sync.clone()))
+            .and(with_param_ipaddrmask(params.wireguard_network))
             .and_then(create_connection_handler);
 
         let delete_connection_route = warp::delete()
@@ -226,6 +238,8 @@ where
             .or(get_connections_route)
             .or(post_connection_route)
             .or(delete_connection_route)
+            .or(get_mtproto_connections_info_route)
+            .or(get_wg_connections_info_route)
             // Key
             .or(get_key_validation_route)
             .or(post_key_route)
@@ -236,11 +250,10 @@ where
             .recover(rejection)
             .with(cors);
 
-        if let Some(listen) = self.settings.api.listen {
-            warp::serve(routes)
-                .run((listen, self.settings.api.port))
-                .await;
-        }
+        warp::serve(routes)
+            .run((self.settings.api.listen, self.settings.api.port))
+            .await;
+
         Ok(())
     }
 }

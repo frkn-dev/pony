@@ -48,7 +48,7 @@ pub enum Error {
     #[error(transparent)]
     TomlDeError(#[from] toml::de::Error),
 
-    #[error("Custom error: {0}")]
+    #[error("Error: {0}")]
     Custom(String),
 
     #[error("SerializationError: {0}")]

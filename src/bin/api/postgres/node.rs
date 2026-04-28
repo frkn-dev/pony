@@ -1,6 +1,5 @@
 use chrono::DateTime;
 use chrono::Utc;
-use defguard_wireguard_rs::net::IpAddrMask;
 use std::collections::HashMap;
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
@@ -9,8 +8,9 @@ use tokio::sync::Mutex;
 
 use tracing::{debug, error, warn};
 
-use pony::utils::to_ipv4;
-use pony::{H2Settings, Inbound, Node, NodeStatus, NodeType, Result, WireguardSettings};
+use pony::{
+    H2Settings, Inbound, IpAddrMask, Node, NodeStatus, NodeType, Result, WgKeys, WireguardSettings,
+};
 
 use super::pg::PgClientManager;
 
@@ -76,12 +76,12 @@ impl PgNode {
         INSERT INTO inbounds (
             id, node_id, tag, port, stream_settings,
             uplink, downlink, conn_count,
-            wg_pubkey, wg_privkey, wg_interface, wg_network, wg_address, dns, h2, mtproto_secret
+            wg_privkey, wg_interface, wg_address, dns, h2, mtproto_secret
         )
         VALUES (
             $1, $2, $3, $4, $5,
             $6, $7, $8,
-            $9, $10, $11, $12, $13, $14, $15, $16
+            $9, $10, $11, $12, $13, $14
         )
         ON CONFLICT (node_id, tag) DO UPDATE SET
             port = EXCLUDED.port,
@@ -89,10 +89,8 @@ impl PgNode {
             uplink = EXCLUDED.uplink,
             downlink = EXCLUDED.downlink,
             conn_count = EXCLUDED.conn_count,
-            wg_pubkey = EXCLUDED.wg_pubkey,
             wg_privkey = EXCLUDED.wg_privkey,
             wg_interface = EXCLUDED.wg_interface,
-            wg_network = EXCLUDED.wg_network,
             wg_address = EXCLUDED.wg_address,
             dns = EXCLUDED.dns,
             h2 = EXCLUDED.h2,
@@ -104,15 +102,13 @@ impl PgNode {
             let stream_settings = serde_json::to_value(&inbound.stream_settings)?;
             let h2_settings = serde_json::to_value(&inbound.h2)?;
 
-            let (wg_pubkey, wg_privkey, wg_interface, wg_network, wg_address, dns) = inbound
+            let (wg_privkey, wg_interface, wg_address, dns) = inbound
                 .wg
                 .as_ref()
                 .map(|wg| {
                     (
-                        Some(&wg.pubkey),
-                        Some(&wg.privkey),
+                        Some(&wg.keys.privkey),
                         Some(&wg.interface),
-                        Some(wg.network.to_string()),
                         Some(wg.address.to_string()),
                         Some(
                             wg.dns
@@ -123,7 +119,7 @@ impl PgNode {
                         ),
                     )
                 })
-                .unwrap_or((None, None, None, None, None, None));
+                .unwrap_or((None, None, None, None));
 
             tx.execute(
                 inbound_query,
@@ -136,10 +132,8 @@ impl PgNode {
                     &inbound.uplink,
                     &inbound.downlink,
                     &inbound.conn_count,
-                    &wg_pubkey,
                     &wg_privkey,
                     &wg_interface,
-                    &wg_network,
                     &wg_address,
                     &dns,
                     &h2_settings,
@@ -165,7 +159,7 @@ impl PgNode {
                 n.cores, n.max_bandwidth_bps, n.country, n.node_type, i.id
 
              AS inbound_id, i.tag, i.port, i.stream_settings, i.uplink, i.downlink,
-                i.conn_count, i.wg_pubkey, i.wg_privkey, i.wg_interface, i.wg_network, i.wg_address, i.dns, i.h2, i.mtproto_secret
+                i.conn_count, i.wg_privkey, i.wg_interface, i.wg_address, i.dns, i.h2, i.mtproto_secret
              FROM nodes n
              LEFT JOIN inbounds i ON n.id = i.node_id",
                 &[],
@@ -190,11 +184,7 @@ impl PgNode {
             let max_bandwidth_bps: i64 = row.get("max_bandwidth_bps");
             let r#type: NodeType = row.get("node_type");
 
-            let wg_network: Option<IpAddrMask> = row
-                .get::<_, Option<String>>("wg_network")
-                .and_then(|s| s.parse().ok());
-
-            let wg_address: Option<Ipv4Addr> = row
+            let wg_address: Option<IpAddrMask> = row
                 .get::<_, Option<String>>("wg_address")
                 .and_then(|s| s.parse().ok());
 
@@ -212,12 +202,12 @@ impl PgNode {
                 .get::<_, Option<serde_json::Value>>("h2")
                 .and_then(|v| serde_json::from_value(v).ok());
 
-            if let Some(ipv4_addr) = to_ipv4(address) {
+            if let IpAddr::V4(ipv4) = address {
                 let node_entry = nodes_map.entry(node_id).or_insert_with(|| Node {
                     uuid,
                     env: env.into(),
                     hostname: hostname.clone(),
-                    address: ipv4_addr,
+                    address: ipv4,
                     interface: interface.clone(),
                     status,
                     created_at,
@@ -232,29 +222,20 @@ impl PgNode {
 
                 if let Some(_inbound_id) = inbound_id {
                     let wg = match (
-                        row.get::<_, Option<String>>("wg_pubkey"),
                         row.get::<_, Option<String>>("wg_privkey"),
                         row.get::<_, Option<String>>("wg_interface"),
-                        wg_network.clone(),
                         wg_address,
                         dns,
                     ) {
-                        (
-                            Some(pubkey),
-                            Some(privkey),
-                            Some(interface),
-                            Some(network),
-                            Some(address),
-                            Some(dns),
-                        ) => Some(WireguardSettings {
-                            pubkey,
-                            privkey,
-                            interface,
-                            network,
-                            address,
-                            port: row.get::<_, i32>("port") as u16,
-                            dns,
-                        }),
+                        (Some(privkey), Some(interface), Some(address), Some(dns)) => {
+                            Some(WireguardSettings {
+                                keys: WgKeys { privkey },
+                                interface,
+                                address,
+                                port: row.get::<_, i32>("port") as u16,
+                                dns,
+                            })
+                        }
                         _ => None,
                     };
 

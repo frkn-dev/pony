@@ -1,8 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use super::request::TagReq;
-
-use pony::{Code, Env, Tag};
+use pony::{Code, Tag};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct SubIdQueryParam {
@@ -11,15 +9,6 @@ pub struct SubIdQueryParam {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct SubQueryParam {
-    pub id: uuid::Uuid,
-    pub format: String,
-    pub env: Env,
-    pub proto: TagReq,
-}
-
-#[derive(Debug, Deserialize)]
-
 pub struct NodesQueryParams {
     pub env: Option<String>,
 }

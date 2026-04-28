@@ -7,9 +7,10 @@ use std::sync::Arc;
 
 use defguard_wireguard_rs::host::Peer;
 use defguard_wireguard_rs::key::Key;
-use defguard_wireguard_rs::net::IpAddrMask;
 use defguard_wireguard_rs::WGApi;
 use defguard_wireguard_rs::WireguardInterfaceApi;
+
+use crate::memory::connection::wireguard::IpAddrMask;
 
 #[cfg(target_os = "linux")]
 use defguard_wireguard_rs::Kernel;
@@ -64,6 +65,10 @@ impl WgApi {
     }
 
     pub fn create(&self, pubkey: &str, ip: IpAddrMask) -> Result<()> {
+        let ip = defguard_wireguard_rs::net::IpAddrMask {
+            ip: ip.address,
+            cidr: ip.cidr,
+        };
         let key = Self::decode_pubkey(pubkey)?;
         let mut peer = Peer::new(key);
         peer.set_allowed_ips(vec![ip]);
@@ -79,7 +84,7 @@ impl WgApi {
             .values()
             .flat_map(|peer| &peer.allowed_ips)
             .filter_map(|ip_mask| match ip_mask {
-                IpAddrMask {
+                defguard_wireguard_rs::net::IpAddrMask {
                     ip: IpAddr::V4(addr),
                     cidr: 32,
                 } => Some(*addr),
@@ -103,7 +108,7 @@ impl WgApi {
         address: &Ipv4Addr,
     ) -> Result<IpAddrMask> {
         let IpAddrMask {
-            ip: IpAddr::V4(base_ip),
+            address: IpAddr::V4(base_ip),
             cidr,
         } = network
         else {
@@ -122,7 +127,7 @@ impl WgApi {
             .values()
             .flat_map(|peer| &peer.allowed_ips)
             .filter_map(|ip_mask| match ip_mask {
-                IpAddrMask {
+                defguard_wireguard_rs::net::IpAddrMask {
                     ip: IpAddr::V4(addr),
                     cidr: 32,
                 } => Some(u32::from_be_bytes(addr.octets())),
@@ -136,7 +141,7 @@ impl WgApi {
             if !used.contains(&ip_u32) {
                 let next_ip = Ipv4Addr::from(ip_u32);
                 return Ok(IpAddrMask {
-                    ip: IpAddr::V4(next_ip),
+                    address: IpAddr::V4(next_ip),
                     cidr: 32,
                 });
             }

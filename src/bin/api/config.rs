@@ -1,7 +1,7 @@
 use serde::Deserialize;
 use std::net::Ipv4Addr;
 
-use pony::{Error, Result};
+use pony::{Error, IpAddrMask, Result};
 use pony::{LoggingConfig, Settings};
 
 #[derive(Clone, Debug, Deserialize, Default)]
@@ -39,9 +39,18 @@ fn default_base_url() -> String {
     "http://localhost:8000".to_string()
 }
 
-#[derive(Clone, Debug, Deserialize, Default)]
+fn default_wg_network() -> IpAddrMask {
+    "10.0.0.0/8".parse().unwrap()
+}
+
+fn default_listen_address() -> Ipv4Addr {
+    "127.0.0.1".parse().unwrap()
+}
+
+#[derive(Clone, Debug, Deserialize)]
 pub struct ApiServiceConfig {
-    pub listen: Option<Ipv4Addr>,
+    #[serde(default = "default_listen_address")]
+    pub listen: Ipv4Addr,
     pub port: u16,
     pub token: String,
     pub db_sync_interval_sec: u64,
@@ -49,24 +58,21 @@ pub struct ApiServiceConfig {
     pub subscription_expire_interval: u64,
     pub key_sign_token: Vec<u8>,
     pub bonus_days: i64,
-    pub promo_codes: Vec<String>,
+    pub system_refer_codes: Vec<String>,
     pub max_points: usize,
     pub retention_seconds: i64,
     #[serde(default = "default_base_url")]
     pub base_url: String,
+    #[serde(default = "default_wg_network")]
+    pub wireguard_network: IpAddrMask,
 }
 
-#[derive(Clone, Debug, Deserialize, Default)]
+#[derive(Clone, Debug, Deserialize)]
 pub struct ApiSettings {
-    #[serde(default)]
     pub api: ApiServiceConfig,
-    #[serde(default)]
     pub logging: LoggingConfig,
-    #[serde(default)]
     pub zmq: ZmqPublisherConfig,
-    #[serde(default)]
     pub pg: PostgresConfig,
-    #[serde(default)]
     pub metrics: MetricsRxConfig,
 }
 

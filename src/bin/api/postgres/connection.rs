@@ -1,12 +1,13 @@
 use chrono::DateTime;
 use chrono::Utc;
-use defguard_wireguard_rs::net::IpAddrMask;
 use serde::Deserialize;
 use serde::Serialize;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
-use pony::{Connection, ConnectionBaseOperations, Error, Proto, Result, Tag, WgKeys, WgParam};
+use pony::{
+    Connection, ConnectionBaseOperations, Error, IpAddrMask, Proto, Result, Tag, WgKeys, WgParam,
+};
 
 use super::pg::PgClientManager;
 
@@ -20,7 +21,6 @@ pub struct ConnRow {
     pub expires_at: Option<DateTime<Utc>>,
     pub subscription_id: Option<uuid::Uuid>,
     pub wg: Option<WgParam>,
-    pub node_id: Option<uuid::Uuid>,
     pub proto: Tag,
     pub token: Option<uuid::Uuid>,
     is_deleted: bool,
@@ -37,7 +37,6 @@ impl From<(uuid::Uuid, Connection)> for ConnRow {
             expires_at: conn.expires_at,
             subscription_id: conn.subscription_id,
             wg: conn.get_wireguard().cloned(),
-            node_id: conn.get_wireguard_node_id(),
             proto: conn.get_proto().proto(),
             token: conn.get_token(),
             is_deleted: conn.is_deleted,
@@ -55,11 +54,7 @@ impl TryFrom<ConnRow> for Connection {
                     .wg
                     .ok_or_else(|| Error::Custom("Missing Wireguard param".into()))?;
 
-                let node_id = row
-                    .node_id
-                    .ok_or_else(|| Error::Custom("Missing node_id".into()))?;
-
-                Proto::new_wg(&wg, &node_id)
+                Proto::new_wg(&wg)
             }
 
             Tag::Shadowsocks => {
@@ -116,9 +111,7 @@ impl PgConn {
             expires_at,
             subscription_id,
             proto,
-            node_id,
             wg_privkey,
-            wg_pubkey,
             wg_address,
             is_deleted
         FROM connections
@@ -141,17 +134,15 @@ impl PgConn {
                 let subscription_id: Option<uuid::Uuid> = row.get("subscription_id");
                 let token: Option<uuid::Uuid> = row.get("token");
                 let proto: Tag = row.get("proto");
-                let node_id: Option<uuid::Uuid> = row.get("node_id");
                 let wg_privkey: Option<String> = row.get("wg_privkey");
-                let wg_pubkey: Option<String> = row.get("wg_pubkey");
                 let wg_address: Option<String> = row.get("wg_address");
                 let is_deleted: bool = row.get("is_deleted");
 
-                let wg = match (wg_privkey, wg_pubkey, wg_address) {
-                    (Some(privkey), Some(pubkey), Some(address)) => {
+                let wg = match (wg_privkey, wg_address) {
+                    (Some(privkey), Some(address)) => {
                         address.parse::<IpAddrMask>().ok().map(|ip_mask| WgParam {
-                            keys: WgKeys { privkey, pubkey },
-                            address: ip_mask.into(),
+                            keys: WgKeys { privkey },
+                            address: ip_mask,
                         })
                     }
                     _ => None,
@@ -168,7 +159,6 @@ impl PgConn {
                     subscription_id,
                     proto,
                     wg,
-                    node_id,
                     is_deleted,
                 }
             })
@@ -213,14 +203,12 @@ impl PgConn {
             proto,
             is_deleted,
             wg_privkey,
-            wg_pubkey,
             wg_address,
-            node_id,
             token
         )
         VALUES (
             $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-            $11, $12, $13, $14
+            $11, $12
         )
     ";
 
@@ -238,9 +226,7 @@ impl PgConn {
                     &conn.proto,
                     &conn.is_deleted,
                     &conn.wg.as_ref().map(|w| &w.keys.privkey),
-                    &conn.wg.as_ref().map(|w| &w.keys.pubkey),
                     &conn.wg.as_ref().map(|w| w.address.to_string()),
-                    &conn.node_id,
                     &conn.token,
                 ],
             )

@@ -72,7 +72,7 @@ impl fmt::Display for Message {
             self.action,
             self.tag,
             match &self.wg {
-                Some(wg) => format!("{}", wg),
+                Some(wg) => format!("{} | {}", wg.address, wg.keys.privkey),
                 None => "-".to_string(),
             },
             match &self.password {

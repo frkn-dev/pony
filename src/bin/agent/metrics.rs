@@ -116,26 +116,26 @@ where
         let wg_conns = {
             let mem = self.memory.read().await;
             mem.iter()
-                .filter_map(|(id, conn)| {
-                    conn.get_wireguard().map(|wg| (*id, wg.keys.pubkey.clone()))
-                })
+                .filter_map(|(id, conn)| conn.get_wireguard().map(|wg| (*id, wg.keys.pubkey())))
                 .collect::<Vec<_>>()
         };
 
         for (conn_id, pubkey) in wg_conns {
-            if let Ok((uplink, downlink)) = wg_client.peer_stats(&pubkey) {
-                let mut metric_tags = base_tags.clone();
-                metric_tags.insert("user_id".to_string(), conn_id.to_string());
-                metric_tags.insert("proto".to_string(), "wireguard".to_string());
+            if let Ok(pubkey) = pubkey {
+                if let Ok((uplink, downlink)) = wg_client.peer_stats(&pubkey) {
+                    let mut metric_tags = base_tags.clone();
+                    metric_tags.insert("user_id".to_string(), conn_id.to_string());
+                    metric_tags.insert("proto".to_string(), "wireguard".to_string());
 
-                self.metrics.push(
-                    node_uuid,
-                    "user.traffic.downlink",
-                    downlink as f64,
-                    metric_tags.clone(),
-                );
-                self.metrics
-                    .push(node_uuid, "user.traffic.uplink", uplink as f64, metric_tags);
+                    self.metrics.push(
+                        node_uuid,
+                        "user.traffic.downlink",
+                        downlink as f64,
+                        metric_tags.clone(),
+                    );
+                    self.metrics
+                        .push(node_uuid, "user.traffic.uplink", uplink as f64, metric_tags);
+                }
             }
         }
     }

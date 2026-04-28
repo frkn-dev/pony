@@ -8,7 +8,7 @@ use super::client::ProtocolConn;
 
 #[derive(Clone, Debug)]
 pub struct ConnInfo {
-    pub uuid: uuid::Uuid,
+    pub _uuid: uuid::Uuid,
     pub cipher_type: String,
     pub in_tag: Tag,
     pub level: u32,
@@ -19,7 +19,7 @@ pub struct ConnInfo {
 impl ConnInfo {
     pub fn new(uuid: &uuid::Uuid, password: Option<String>) -> Self {
         Self {
-            uuid: *uuid,
+            _uuid: *uuid,
             in_tag: Tag::Shadowsocks,
             level: 0,
             email: format!("{}@{}", uuid, "pony"),

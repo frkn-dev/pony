@@ -1,19 +1,15 @@
-use crate::error::{Error, Result};
-use crate::memory::node::Type;
 use default_net::{get_default_interface, get_interfaces};
-use serde::de::DeserializeOwned;
-use serde::Deserialize;
-use serde::Serialize;
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::env;
 use std::fs;
 use std::net::Ipv4Addr;
 use uuid::Uuid;
 
+use crate::error::{Error, Result};
+use crate::memory::node::Type;
+
 fn default_disabled() -> bool {
     false
-}
-fn default_env() -> String {
-    "dev".to_string()
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]
@@ -49,7 +45,6 @@ pub struct NodeConfig {
 
 #[derive(Clone, Debug, Deserialize, Default)]
 pub struct NodeConfigRaw {
-    #[serde(default = "default_env")]
     pub env: String,
     pub hostname: Option<String>,
     pub default_interface: Option<String>,
@@ -153,41 +148,6 @@ impl NodeConfig {
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]
-pub struct XrayConfig {
-    #[serde(default = "default_disabled")]
-    pub enabled: bool,
-    pub xray_config_path: String,
-}
-
-#[derive(Clone, Default, Debug, Deserialize)]
-pub struct WgConfig {
-    #[serde(default = "default_disabled")]
-    pub enabled: bool,
-    pub port: u16,
-    pub interface: String,
-    pub network: Option<String>,
-    pub privkey: Option<String>,
-    pub pubkey: Option<String>,
-    pub address: Option<String>,
-    pub dns: Option<Vec<String>>,
-}
-
-#[derive(Clone, Default, Debug, Deserialize)]
-pub struct H2Config {
-    #[serde(default = "default_disabled")]
-    pub enabled: bool,
-    pub path: String,
-}
-
-#[derive(Clone, Default, Debug, Serialize, Deserialize, PartialEq)]
-pub struct MtprotoConfig {
-    #[serde(default = "default_disabled")]
-    pub enabled: bool,
-    pub port: u16,
-    pub secret: String,
-}
-
-#[derive(Clone, Debug, Deserialize, Default)]
 pub struct ZmqSubscriberConfig {
     pub endpoint: String,
 }
@@ -221,4 +181,12 @@ pub trait Settings: Sized {
     }
 
     fn validate(&self) -> Result<()>;
+}
+
+#[derive(Clone, Default, Debug, Serialize, Deserialize, PartialEq)]
+pub struct MtprotoConfig {
+    #[serde(default = "default_disabled")]
+    pub enabled: bool,
+    pub port: u16,
+    pub secret: String,
 }

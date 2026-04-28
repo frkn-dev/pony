@@ -2,20 +2,20 @@
 listen = "127.0.0.1"
 port = 3005
 token = "your-super-secret-api-token"
+metrics_interval = 60
 db_sync_interval_sec = 300
 subscription_restore_interval = 60
 subscription_expire_interval = 60
-max_points = 100000000
+max_points = 100000000     # max metrics points stored in Memory
 retention_seconds = 604800 # 7 days
+wg_network = "10.1.0.0/16" # IP address pool for Wireguard peers
+key_sign_token = [69,106,53,108,101,105,57]
+bonus_days = 7   # Days added by referal
+system_refer_codes = ["FRKN", "mobile-dev"]  # Refer codes used for tg-bot and website
 
 [metrics]
 reciever = "tcp://0.0.0.0:3001"
 topic = ["metrics"]
-
-[node]
-env = "experimental"
-label = "🏴‍☠️ DarkMachine"
-max_bandwidth_bps = 1000000000 #1gbps
 
 [logging]
 level = "debug"

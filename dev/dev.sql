@@ -141,3 +141,7 @@ ADD COLUMN node_type node_type NOT NULL DEFAULT 'common';
 
 ALTER TYPE node_type ADD VALUE 'service';
 ALTER TYPE node_type ADD VALUE 'agent';
+
+
+alter table connections drop column "node_id";
+alter table connections drop column "wg_pubkey";

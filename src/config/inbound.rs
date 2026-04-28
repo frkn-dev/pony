@@ -168,19 +168,45 @@ pub trait InboundConnLink {
         &self,
         conn_id: &uuid::Uuid,
         conn: &Connection,
+        hostname: &str,
         address: &Ipv4Addr,
         label: &str,
     ) -> Result<String>;
-    fn vless_xtls(&self, conn_id: &uuid::Uuid, address: &Ipv4Addr, label: &str) -> Result<String>;
-    fn vless_grpc(&self, conn_id: &uuid::Uuid, address: &Ipv4Addr, label: &str) -> Result<String>;
-    fn vless_xhttp(&self, conn_id: &uuid::Uuid, address: &Ipv4Addr, label: &str) -> Result<String>;
-    fn h2(&self, label: &str, conn: &Connection) -> Result<String>;
-    fn vmess(&self, conn_id: &uuid::Uuid, address: &Ipv4Addr, label: &str) -> Result<String>;
-    fn mtproto(&self, address: &Ipv4Addr, label: &str) -> Result<String>;
+    fn vless_xtls(
+        &self,
+        conn_id: &uuid::Uuid,
+        hostname: &str,
+        address: &Ipv4Addr,
+        label: &str,
+    ) -> Result<String>;
+    fn vless_grpc(
+        &self,
+        conn_id: &uuid::Uuid,
+        hostname: &str,
+        address: &Ipv4Addr,
+        label: &str,
+    ) -> Result<String>;
+    fn vless_xhttp(
+        &self,
+        conn_id: &uuid::Uuid,
+        hostname: &str,
+        address: &Ipv4Addr,
+        label: &str,
+    ) -> Result<String>;
+    fn h2(&self, hostname: &str, label: &str, conn: &Connection) -> Result<String>;
+    fn vmess(
+        &self,
+        conn_id: &uuid::Uuid,
+        hostname: &str,
+        address: &Ipv4Addr,
+        label: &str,
+    ) -> Result<String>;
+    fn mtproto(&self, hostname: &str, address: &Ipv4Addr, label: &str) -> Result<String>;
     fn wireguard(
         &self,
         conn_id: &uuid::Uuid,
         conn: &Connection,
+        hostname: &str,
         address: &Ipv4Addr,
         label: &str,
     ) -> Result<String>;
@@ -191,17 +217,18 @@ impl InboundConnLink for Inbound {
         &self,
         conn_id: &uuid::Uuid,
         conn: &Connection,
+        hostname: &str,
         address: &Ipv4Addr,
         label: &str,
     ) -> Result<String> {
         match self.tag {
-            Tag::VlessTcpReality => self.vless_xtls(conn_id, address, label),
-            Tag::VlessGrpcReality => self.vless_grpc(conn_id, address, label),
-            Tag::VlessXhttpReality => self.vless_xhttp(conn_id, address, label),
-            Tag::Hysteria2 => self.h2(label, conn),
-            Tag::Wireguard => self.wireguard(conn_id, conn, address, label),
-            Tag::Mtproto => self.mtproto(address, label),
-            Tag::Vmess => self.vmess(conn_id, address, label),
+            Tag::VlessTcpReality => self.vless_xtls(conn_id, hostname, address, label),
+            Tag::VlessGrpcReality => self.vless_grpc(conn_id, hostname, address, label),
+            Tag::VlessXhttpReality => self.vless_xhttp(conn_id, hostname, address, label),
+            Tag::Hysteria2 => self.h2(hostname, label, conn),
+            Tag::Wireguard => self.wireguard(conn_id, conn, hostname, address, label),
+            Tag::Mtproto => self.mtproto(hostname, address, label),
+            Tag::Vmess => self.vmess(conn_id, hostname, address, label),
             _ => Err(Error::Custom("Unsupported protocol tag".into())),
         }
     }
@@ -210,15 +237,17 @@ impl InboundConnLink for Inbound {
         &self,
         conn_id: &uuid::Uuid,
         conn: &Connection,
+        _hostname: &str,
         address: &Ipv4Addr,
         label: &str,
     ) -> Result<String> {
+        tracing::debug!("Trying to print WG conn");
         if let Some(wg_conn) = conn.get_wireguard() {
             let private_key = wg_conn.keys.privkey.clone();
             let client_ip = wg_conn.address.clone();
 
             if let Some(wg) = &self.wg {
-                let server_pubkey = wg.pubkey.clone();
+                let server_pubkey = wg.keys.pubkey()?;
                 let host = address;
                 let port = wg.port;
 
@@ -255,7 +284,13 @@ impl InboundConnLink for Inbound {
         }
     }
 
-    fn vmess(&self, conn_id: &uuid::Uuid, address: &Ipv4Addr, label: &str) -> Result<String> {
+    fn vmess(
+        &self,
+        conn_id: &uuid::Uuid,
+        _hostname: &str,
+        address: &Ipv4Addr,
+        label: &str,
+    ) -> Result<String> {
         let port = self.port;
         let stream_settings = self
             .stream_settings
@@ -323,7 +358,13 @@ impl InboundConnLink for Inbound {
         Ok(format!("vmess://{base64_str}#{label}"))
     }
 
-    fn vless_xtls(&self, conn_id: &uuid::Uuid, address: &Ipv4Addr, label: &str) -> Result<String> {
+    fn vless_xtls(
+        &self,
+        conn_id: &uuid::Uuid,
+        _hostname: &str,
+        address: &Ipv4Addr,
+        label: &str,
+    ) -> Result<String> {
         let s = self
             .stream_settings
             .as_ref()
@@ -361,7 +402,13 @@ impl InboundConnLink for Inbound {
         Ok(url.to_string())
     }
 
-    fn vless_grpc(&self, conn_id: &uuid::Uuid, address: &Ipv4Addr, label: &str) -> Result<String> {
+    fn vless_grpc(
+        &self,
+        conn_id: &uuid::Uuid,
+        _hostname: &str,
+        address: &Ipv4Addr,
+        label: &str,
+    ) -> Result<String> {
         let s = self
             .stream_settings
             .as_ref()
@@ -392,7 +439,13 @@ impl InboundConnLink for Inbound {
         Ok(url.to_string())
     }
 
-    fn vless_xhttp(&self, conn_id: &uuid::Uuid, address: &Ipv4Addr, label: &str) -> Result<String> {
+    fn vless_xhttp(
+        &self,
+        conn_id: &uuid::Uuid,
+        _hostname: &str,
+        address: &Ipv4Addr,
+        label: &str,
+    ) -> Result<String> {
         let s = self
             .stream_settings
             .as_ref()
@@ -421,7 +474,7 @@ impl InboundConnLink for Inbound {
         Ok(url.to_string())
     }
 
-    fn h2(&self, label: &str, conn: &Connection) -> Result<String> {
+    fn h2(&self, _hostname: &str, label: &str, conn: &Connection) -> Result<String> {
         let h2 = self
             .h2
             .as_ref()
@@ -444,7 +497,7 @@ impl InboundConnLink for Inbound {
         }
     }
 
-    fn mtproto(&self, address: &Ipv4Addr, label: &str) -> Result<String> {
+    fn mtproto(&self, _hostname: &str, address: &Ipv4Addr, label: &str) -> Result<String> {
         let port = self.port;
 
         let secret = self

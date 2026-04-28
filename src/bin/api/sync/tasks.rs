@@ -260,9 +260,7 @@ where
         debug!("Connection {} successfully removed from database", conn_id);
 
         let msg = vec![conn.as_delete_message(conn_id)];
-        let key = if let Some(node_id) = conn.get_wireguard_node_id() {
-            node_id.to_string()
-        } else if conn.get_token().is_some() {
+        let key = if conn.get_token().is_some() {
             "auth".to_string()
         } else {
             conn.get_env().to_string()
@@ -350,9 +348,7 @@ where
                     }
                 };
 
-                let key = if let Some(node_id) = conn.get_wireguard_node_id() {
-                    node_id.to_string()
-                } else if conn.get_token().is_some() {
+                let key = if conn.get_token().is_some() {
                     "auth".to_string()
                 } else {
                     conn.get_env().to_string()

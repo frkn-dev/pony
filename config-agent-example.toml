@@ -1,3 +1,14 @@
+[node]
+env = "experimental"
+uuid = "ab514c21-aaaa-bbbb-91f7-32f8cb1aaaaa"
+hostname = "darkmachine.frkn.local"
+address = "192.168.1.100"
+label = "🏴‍☠️ Darkmachine"
+max_bandwidth_bps = 1000000000
+country = "RU"
+type = "common"
+
+
 [agent]
 local = false
 snapshot_interval = 30

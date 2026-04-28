@@ -48,6 +48,7 @@ pub struct SubscriptionResponse {
 pub struct EnvInfo {
     pub env: Env,
     pub has_xray: bool,
-    pub has_hysteria: bool,
+    pub has_h2: bool,
     pub has_mtproto: bool,
+    pub has_wg: bool,
 }

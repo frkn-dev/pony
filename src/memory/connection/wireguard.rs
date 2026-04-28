@@ -1,11 +1,14 @@
-use base64::engine::general_purpose::STANDARD;
-use base64::Engine;
-use defguard_wireguard_rs::net::IpAddrMask;
+use base64::{engine::general_purpose, Engine};
+use serde::{Deserialize, Deserializer, Serialize};
+
+use std::{
+    error, fmt,
+    net::{IpAddr, Ipv4Addr, Ipv6Addr},
+    str::FromStr,
+};
+
 use rand::rngs::OsRng;
 use rkyv::{Archive, Deserialize as RkyvDeserialize, Serialize as RkyvSerialize};
-use serde::Deserialize;
-use serde::Serialize;
-use std::fmt;
 use x25519_dalek::{PublicKey, StaticSecret};
 
 #[derive(
@@ -14,53 +17,223 @@ use x25519_dalek::{PublicKey, StaticSecret};
 #[archive(check_bytes)]
 pub struct Keys {
     pub privkey: String,
-    pub pubkey: String,
 }
 
 impl Default for Keys {
     fn default() -> Self {
         let secret = StaticSecret::random_from_rng(OsRng);
-        let public = PublicKey::from(&secret);
-
         let privkey_bytes = secret.as_bytes();
-        let pubkey_bytes = public.as_bytes();
 
         Self {
-            privkey: STANDARD.encode(privkey_bytes),
-            pubkey: STANDARD.encode(pubkey_bytes),
+            privkey: general_purpose::STANDARD.encode(privkey_bytes),
         }
     }
 }
 
-#[derive(
-    Archive, Serialize, Deserialize, RkyvSerialize, RkyvDeserialize, Clone, Debug, PartialEq,
-)]
+use anyhow::{anyhow, Result};
+
+impl Keys {
+    pub fn pubkey(&self) -> Result<String> {
+        Self::derive_pubkey(&self.privkey)
+    }
+
+    fn derive_pubkey(private_key_b64: &str) -> Result<String> {
+        let private_bytes = general_purpose::STANDARD
+            .decode(private_key_b64)
+            .map_err(|e| anyhow!("invalid base64 private key: {}", e))?;
+
+        let private_bytes: [u8; 32] = private_bytes
+            .try_into()
+            .map_err(|_| anyhow!("invalid private key length (expected 32 bytes)"))?;
+
+        let secret = StaticSecret::from(private_bytes);
+        let public = PublicKey::from(&secret);
+
+        Ok(general_purpose::STANDARD.encode(public.as_bytes()))
+    }
+}
+
+#[derive(Clone, Copy)]
+pub enum IpVersion {
+    IPv4,
+    IPv6,
+}
+
+/// IP address with CIDR.
+
+#[derive(Archive, Clone, Debug, Serialize, RkyvDeserialize, RkyvSerialize, PartialEq, Eq, Hash)]
 #[archive(check_bytes)]
-pub struct IpAddrMaskSerializable {
-    pub addr: String,
+pub struct IpAddrMask {
+    // IP v4 or v6
+    pub address: IpAddr,
+    // Classless Inter-Domain Routing
     pub cidr: u8,
 }
 
-impl From<IpAddrMask> for IpAddrMaskSerializable {
-    fn from(ip_mask: IpAddrMask) -> Self {
-        IpAddrMaskSerializable {
-            addr: ip_mask.ip.to_string(),
-            cidr: ip_mask.cidr,
+impl IpAddrMask {
+    pub fn new(address: IpAddr, cidr: u8) -> Self {
+        Self { address, cidr }
+    }
+
+    pub fn host(address: IpAddr) -> Self {
+        let cidr = match address {
+            IpAddr::V4(_) => 32,
+            IpAddr::V6(_) => 128,
+        };
+        Self { address, cidr }
+    }
+
+    pub fn as_ipv4(&self) -> Option<Ipv4Addr> {
+        match self.address {
+            IpAddr::V4(ip) => Some(ip),
+            _ => None,
+        }
+    }
+
+    pub fn first_peer_ip(&self) -> Option<Ipv4Addr> {
+        let base = self.first_ipv4()?;
+        Self::increment_ipv4(base).and_then(|ip| {
+            if self.contains_ipv4(ip) {
+                Some(ip)
+            } else {
+                None
+            }
+        })
+    }
+
+    pub fn first_ipv4(&self) -> Option<Ipv4Addr> {
+        let base = self.as_ipv4()?;
+        Self::increment_ipv4(base)
+    }
+
+    pub fn increment_ipv4(ip: Ipv4Addr) -> Option<Ipv4Addr> {
+        let next = u32::from(ip).checked_add(1)?;
+        Some(Ipv4Addr::from(next))
+    }
+
+    pub fn last_ipv4(&self) -> Option<Ipv4Addr> {
+        self.as_ipv4()
+    }
+
+    pub fn contains_ipv4(&self, ip: Ipv4Addr) -> bool {
+        match self.address {
+            IpAddr::V4(base) => {
+                let mask = if self.cidr == 0 {
+                    0
+                } else {
+                    u32::MAX << (32 - self.cidr)
+                };
+
+                (u32::from(base) & mask) == (u32::from(ip) & mask)
+            }
+            _ => false,
+        }
+    }
+
+    /// Returns broadcast address as `IpAddr`.
+    /// Note: IPv6 does not really use broadcast.
+    pub fn broadcast(&self) -> IpAddr {
+        match self.address {
+            IpAddr::V4(ip) => {
+                let addr = u32::from(ip);
+                let bits = if self.cidr >= 32 {
+                    0
+                } else {
+                    u32::MAX >> self.cidr
+                };
+                IpAddr::V4(Ipv4Addr::from(addr | bits))
+            }
+            IpAddr::V6(ip) => {
+                let addr = u128::from(ip);
+                let bits = if self.cidr >= 128 {
+                    0
+                } else {
+                    u128::MAX >> self.cidr
+                };
+                IpAddr::V6(Ipv6Addr::from(addr | bits))
+            }
+        }
+    }
+
+    pub fn mask(&self) -> IpAddr {
+        match self.address {
+            IpAddr::V4(_) => {
+                let mask = if self.cidr == 0 {
+                    0
+                } else {
+                    u32::MAX << (32 - self.cidr)
+                };
+                IpAddr::V4(Ipv4Addr::from(mask))
+            }
+            IpAddr::V6(_) => {
+                let mask = if self.cidr == 0 {
+                    0
+                } else {
+                    u128::MAX << (128 - self.cidr)
+                };
+                IpAddr::V6(Ipv6Addr::from(mask))
+            }
+        }
+    }
+
+    /// Returns `true` if the address defines a host, `false` if it is a network.
+    pub fn is_host(&self) -> bool {
+        if self.address.is_ipv4() {
+            self.cidr == 32
+        } else {
+            self.cidr == 128
+        }
+    }
+
+    /// Returns `IpVersion` for this address.
+    pub fn ip_version(&self) -> IpVersion {
+        if self.address.is_ipv4() {
+            IpVersion::IPv4
+        } else {
+            IpVersion::IPv6
         }
     }
 }
 
-impl From<IpAddrMaskSerializable> for defguard_wireguard_rs::net::IpAddrMask {
-    fn from(val: IpAddrMaskSerializable) -> Self {
-        let addr = val.addr.parse().expect("Invalid IP address string");
-
-        defguard_wireguard_rs::net::IpAddrMask::new(addr, val.cidr)
+impl fmt::Display for IpAddrMask {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}/{}", self.address, self.cidr)
     }
 }
 
-impl fmt::Display for IpAddrMaskSerializable {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}/{}", self.addr, self.cidr)
+#[derive(Debug, PartialEq)]
+pub struct IpAddrParseError;
+
+impl error::Error for IpAddrParseError {}
+
+impl fmt::Display for IpAddrParseError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "IP address/mask parse error")
+    }
+}
+
+impl FromStr for IpAddrMask {
+    type Err = IpAddrParseError;
+
+    fn from_str(ip_str: &str) -> Result<Self, Self::Err> {
+        if let Some((left, right)) = ip_str.split_once('/') {
+            let ip = left.parse().map_err(|_| IpAddrParseError)?;
+            let cidr = right.parse().map_err(|_| IpAddrParseError)?;
+            let max_cidr = match ip {
+                IpAddr::V4(_) => 32,
+                IpAddr::V6(_) => 128,
+            };
+            if cidr > max_cidr {
+                return Err(IpAddrParseError);
+            }
+            Ok(IpAddrMask { address: ip, cidr })
+        } else {
+            let ip = ip_str.parse().map_err(|_| IpAddrParseError)?;
+            Ok(IpAddrMask {
+                address: ip,
+                cidr: if ip.is_ipv4() { 32 } else { 128 },
+            })
+        }
     }
 }
 
@@ -70,25 +243,30 @@ impl fmt::Display for IpAddrMaskSerializable {
 #[archive(check_bytes)]
 pub struct Param {
     pub keys: Keys,
-    pub address: IpAddrMaskSerializable,
+    pub address: IpAddrMask,
 }
 
 impl Param {
-    pub fn new(address: IpAddrMask) -> Self {
-        let keys = Keys::default();
+    pub fn new(ip: IpAddrMask) -> Self {
         Self {
-            keys,
-            address: address.into(),
+            keys: Keys::default(),
+            address: ip,
         }
     }
 }
 
-impl fmt::Display for Param {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "privkey: {} pubkey: {} address: {}",
-            self.keys.privkey, self.keys.pubkey, self.address
-        )
+impl<'de> Deserialize<'de> for IpAddrMask {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s = <std::string::String as serde::Deserialize>::deserialize(deserializer)?;
+        s.parse().map_err(serde::de::Error::custom)
+    }
+}
+
+impl Default for IpAddrMask {
+    fn default() -> Self {
+        "10.0.0.0/8".parse().expect("valid default network")
     }
 }

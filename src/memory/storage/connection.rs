@@ -5,6 +5,7 @@ use super::super::connection::conn::ConnPatch as ConnectionPatch;
 use super::super::connection::operation::api::Operations as ConnectionApiOp;
 use super::super::connection::operation::base::Operations as ConnectionBaseOp;
 use super::super::connection::proto::Proto;
+use super::super::connection::wireguard::IpAddrMask;
 use super::super::connection::Connections;
 use super::super::storage::Status as OperationStatus;
 use super::super::tag::ProtoTag as Tag;
@@ -16,6 +17,8 @@ where
 {
     fn add(&mut self, conn_id: &uuid::Uuid, new_conn: C) -> Result<OperationStatus>;
     fn get_by_subscription_id(&self, subscription_id: &uuid::Uuid) -> Option<Vec<(uuid::Uuid, C)>>;
+    fn get_by_proto(&self, proto: Tag) -> Option<Vec<(uuid::Uuid, C)>>;
+    fn get_last_wg_addr(&self) -> Option<IpAddrMask>;
     fn apply_update(conn: &mut Connection, patch: ConnectionPatch) -> Option<Connection>;
 }
 
@@ -161,5 +164,33 @@ where
         } else {
             Some(conns)
         }
+    }
+
+    fn get_by_proto(&self, proto: Tag) -> Option<Vec<(uuid::Uuid, C)>> {
+        let conns: Vec<(uuid::Uuid, C)> = self
+            .iter()
+            .filter(|(_, conn)| conn.get_proto().proto() == proto)
+            .map(|(conn_id, conn)| (*conn_id, conn.clone()))
+            .collect();
+
+        if conns.is_empty() {
+            None
+        } else {
+            Some(conns)
+        }
+    }
+
+    fn get_last_wg_addr(&self) -> Option<IpAddrMask> {
+        self.iter()
+            .filter(|(_, conn)| conn.get_proto().proto() == Tag::Wireguard)
+            .max_by_key(|(_, conn)| {
+                conn.get_wireguard()
+                    .and_then(|wg| match wg.address.address {
+                        std::net::IpAddr::V4(ip) => Some(u32::from(ip)),
+                        _ => None,
+                    })
+                    .unwrap_or(0)
+            })
+            .and_then(|(_, conn)| conn.get_wireguard().map(|wg| wg.address.clone()))
     }
 }

@@ -21,7 +21,6 @@ pub trait Operations {
     fn get_deleted(&self) -> bool;
 
     fn get_wireguard(&self) -> Option<&WgParam>;
-    fn get_wireguard_node_id(&self) -> Option<uuid::Uuid>;
     fn get_password(&self) -> Option<String>;
     fn get_token(&self) -> Option<uuid::Uuid>;
     fn set_password(&mut self, password: Option<String>) -> Result<()>;
@@ -55,13 +54,6 @@ impl Operations for Base {
     }
     fn get_deleted(&self) -> bool {
         self.is_deleted
-    }
-
-    fn get_wireguard_node_id(&self) -> Option<uuid::Uuid> {
-        match &self.proto {
-            Proto::Wireguard { node_id, .. } => Some(*node_id),
-            _ => None,
-        }
     }
 
     fn get_password(&self) -> Option<String> {
@@ -126,13 +118,6 @@ impl Operations for Conn {
     }
     fn get_deleted(&self) -> bool {
         self.is_deleted
-    }
-
-    fn get_wireguard_node_id(&self) -> Option<uuid::Uuid> {
-        match &self.proto {
-            Proto::Wireguard { node_id, .. } => Some(*node_id),
-            _ => None,
-        }
     }
 
     fn get_password(&self) -> Option<String> {

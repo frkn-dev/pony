@@ -1,24 +1,30 @@
 use base64::Engine;
 use chrono::DateTime;
 use chrono::Utc;
+use pony::InboundClashConfig;
 use std::collections::HashSet;
+use std::net::Ipv4Addr;
+use warp::http::Response;
+use warp::http::StatusCode;
 
 use pony::http::helpers as http;
 use pony::http::response::{EnvInfo, Instance, SubscriptionResponse};
 use pony::http::ResponseMessage;
-use warp::http::StatusCode;
 
 use pony::{
     get_uuid_last_octet_simple, Connection, ConnectionApiOperations, ConnectionBaseOperations,
-    ConnectionStorageApiOperations, Env, InboundConnLink, MetricStorage, NodeStorageOperations,
-    Status, Subscription, SubscriptionOperations, SubscriptionStorageOperations, Tag,
+    ConnectionStorageApiOperations, Env, Inbound, InboundConnLink, MetricStorage,
+    NodeStorageOperations, Status, Subscription, SubscriptionOperations,
+    SubscriptionStorageOperations, Tag,
 };
+
+use crate::http::request::FormatReq;
 
 use super::super::super::sync::tasks::SyncOp;
 use super::super::super::sync::MemSync;
 use super::super::param::SubIdQueryParam;
-use super::super::param::SubQueryParam;
 use super::super::request::Subscription as SubReq;
+use super::super::request::SubscriptionInfoRequest;
 
 /// Handler creates subscription
 // POST /subscription
@@ -26,7 +32,7 @@ pub async fn post_subscription_handler<N, C, S>(
     sub_req: SubReq,
     memory: MemSync<N, C, S>,
     bonus: i64,
-    promo_codes: Vec<String>,
+    system_refer_codes: Vec<String>,
 ) -> Result<impl warp::Reply, warp::Rejection>
 where
     N: NodeStorageOperations + Sync + Send + Clone + 'static,
@@ -50,11 +56,13 @@ where
 
     let sub_id_to_update = if let Some(ref_by) = sub_req.referred_by.clone() {
         let mem = memory.memory.read().await;
-        let is_promo = promo_codes.iter().any(|c| c == &ref_by);
+
+        let is_system_code = system_refer_codes.iter().any(|c| c == &ref_by);
+        let is_user_referral = !is_system_code;
 
         if let Some(sub) = mem.subscriptions.find_by_refer_code(&ref_by) {
-            if !is_promo {
-                bonus_days = 7;
+            if is_user_referral {
+                bonus_days = bonus;
             }
             Some(sub.id())
         } else {
@@ -190,8 +198,9 @@ where
 
         for env in active_envs {
             let mut has_xray = false;
-            let mut has_hysteria = false;
+            let mut has_h2 = false;
             let mut has_mtproto = false;
+            let mut has_wg = false;
 
             let nodes = mem.nodes.get_by_env(&env);
 
@@ -213,7 +222,13 @@ where
                     .any(|n| n.inbounds.values().any(|i| i.tag == Tag::Mtproto))
             });
 
-            let hyst_node_exists = nodes.is_some_and(|ns| {
+            let wg_nodes = nodes.clone();
+            let wg_node_exist = wg_nodes.is_some_and(|ns| {
+                ns.iter()
+                    .any(|n| n.inbounds.values().any(|i| i.tag == Tag::Wireguard))
+            });
+
+            let h2_node_exists = nodes.is_some_and(|ns| {
                 ns.iter()
                     .any(|n| n.inbounds.values().any(|i| i.tag == Tag::Hysteria2))
             });
@@ -224,8 +239,12 @@ where
                     if xray_node_exists && xray_tags.contains(&proto) {
                         has_xray = true;
                     }
-                    if hyst_node_exists && proto == Tag::Hysteria2 {
-                        has_hysteria = true;
+                    if h2_node_exists && proto == Tag::Hysteria2 {
+                        has_h2 = true;
+                    }
+
+                    if wg_node_exist && proto == Tag::Wireguard {
+                        has_wg = true;
                     }
 
                     if mtproto_node_exist && proto == Tag::Mtproto {
@@ -237,8 +256,9 @@ where
             locations.push(EnvInfo {
                 env,
                 has_xray,
-                has_hysteria,
+                has_h2,
                 has_mtproto,
+                has_wg,
             });
         }
     }
@@ -255,8 +275,8 @@ where
     Ok(Box::new(warp::reply::json(&sub_resp)))
 }
 
-pub async fn subscription_link_handler_new<N, C, S>(
-    sub_param: SubQueryParam,
+pub async fn subscription_link_handler<N, C, S>(
+    req: SubscriptionInfoRequest,
     memory: MemSync<N, C, S>,
 ) -> Result<Box<dyn warp::Reply + Send>, warp::Rejection>
 where
@@ -273,25 +293,30 @@ where
     S: SubscriptionOperations + Send + Sync + Clone + 'static + PartialEq,
     Connection: From<C>,
 {
+    if let Err(e) = req.validate() {
+        return Ok(Box::new(http::bad_request(&format!("Bad Request: {}", e))));
+    };
+
     let mem = memory.memory.read().await;
 
-    if let Some(sub) = mem.subscriptions.find_by_id(&sub_param.id) {
+    if let Some(sub) = mem.subscriptions.find_by_id(&req.id) {
         if !sub.is_active() {
             return Ok(Box::new(http::not_found(&format!(
                 "Subscription {} is expired",
-                sub_param.id
+                req.id
             ))));
         }
     }
 
-    let conns = mem.connections.get_by_subscription_id(&sub_param.id);
-    let mut links = vec![];
+    let conns = mem.connections.get_by_subscription_id(&req.id);
+    let mut inbounds_list: Vec<(Inbound, uuid::Uuid, Connection, String, Ipv4Addr, String)> =
+        vec![];
 
-    let tags = sub_param.proto.tags();
+    let tags = req.proto.tags();
 
     if let Some(conns) = conns {
         for (conn_id, conn) in conns {
-            if conn.get_deleted() || conn.get_env() != sub_param.env {
+            if conn.get_deleted() || conn.get_env() != req.env {
                 continue;
             }
             if !tags.contains(&conn.get_proto().proto()) {
@@ -300,46 +325,80 @@ where
 
             if let Some(nodes) = mem.nodes.get_by_env(&conn.get_env()) {
                 for node in nodes.iter() {
-                    if let Some(inbound) = node.inbounds.get(&conn.get_proto().proto().clone()) {
-                        if let Ok(link) = inbound.create_link(
-                            &conn_id,
-                            &conn.clone().into(),
-                            &node.address,
-                            &node.label,
-                        ) {
-                            links.push(link);
-                        }
+                    let conn_converted: Connection = conn.clone().into();
+
+                    let proto = conn.get_proto().proto();
+                    if let Some(inbound) = node.inbounds.get(&proto) {
+                        inbounds_list.push((
+                            inbound.clone(),
+                            conn_id,
+                            conn_converted,
+                            node.hostname.clone(),
+                            node.address,
+                            node.label.clone(),
+                        ))
                     }
                 }
             }
         }
     }
+    drop(mem);
 
-    if links.is_empty() {
+    if inbounds_list.clone().is_empty() {
         return Ok(Box::new(http::not_found(&format!(
             "Nodes for subscription {} not found",
-            sub_param.id
+            req.id
         ))));
     }
 
-    match sub_param.format.as_str() {
-        "txt" => {
-            let body = links.join("\n");
+    match req.format {
+        FormatReq::Txt => {
+            let links: Result<Vec<_>, _> = inbounds_list
+                .iter()
+                .map(|(inbound, conn_id, conn, hostname, address, label)| {
+                    inbound.create_link(conn_id, conn, hostname, address, label)
+                })
+                .collect();
+
+            let body = links?.join("\n");
             Ok(Box::new(warp::reply::with_status(
                 warp::reply::with_header(body, "Content-Type", "text/plain"),
                 StatusCode::OK,
             )))
         }
-        "base64" => {
-            let sub = base64::engine::general_purpose::STANDARD.encode(links.join("\n"));
+        FormatReq::Base64 => {
+            let links: Result<Vec<_>, _> = inbounds_list
+                .iter()
+                .map(|(inbound, conn_id, conn, hostname, address, label)| {
+                    inbound.create_link(conn_id, conn, hostname, address, label)
+                })
+                .collect();
+            let sub = base64::engine::general_purpose::STANDARD.encode(links?.join("\n"));
             Ok(Box::new(warp::reply::with_status(
-                warp::reply::with_header(format!("{}\n", sub), "Content-Type", "text/plain"),
+                warp::reply::with_header(format!("{}\n", sub), "Content-Type", "text/base64"),
                 StatusCode::OK,
             )))
         }
-        _ => Ok(Box::new(warp::reply::with_status(
-            warp::reply::with_header("BAD REQUEST", "Content-Type", "text/plain"),
-            StatusCode::BAD_REQUEST,
-        ))),
+
+        FormatReq::Clash => {
+            let proxies: Vec<_> = inbounds_list
+                .iter()
+                .filter_map(|(inbound, conn_id, _conn, hostname, address, label)| {
+                    inbound.proxy(conn_id, hostname, address, label)
+                })
+                .collect();
+
+            let clash_config = Inbound::clash(proxies);
+
+            let yaml = serde_yaml::to_string(&clash_config)
+                .unwrap_or_else(|_| "---\nerror: failed to serialize\n".into());
+
+            let response = Response::builder()
+                .header("Content-Type", "application/yaml")
+                .status(StatusCode::OK)
+                .body(yaml);
+
+            Ok(Box::new(response))
+        }
     }
 }

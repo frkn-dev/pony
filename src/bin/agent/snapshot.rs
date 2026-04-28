@@ -3,8 +3,8 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 
 use pony::{
-    ConnectionBaseOperations, Connections, Error, IpAddrMaskSerializable, Result, SnapshotManager,
-    Tag, WgApi, XrayHandlerActions, XrayHandlerClient,
+    ConnectionBaseOperations, Connections, Error, Result, SnapshotManager, Tag, WgApi,
+    XrayHandlerActions, XrayHandlerClient,
 };
 
 #[async_trait::async_trait]
@@ -46,15 +46,14 @@ where
                     Tag::Wireguard => {
                         if let Some(wg) = conn.get_wireguard() {
                             if let Some(api) = wg_client.as_ref() {
-                                if let Err(e) = api.create(
-                                    &wg.keys.pubkey,
-                                    <IpAddrMaskSerializable as Clone>::clone(&wg.address).into(),
-                                ) {
-                                    tracing::error!(
-                                        "Failed to restore WireGuard connection {}: {}",
-                                        conn_id,
-                                        e
-                                    );
+                                if let Ok(pubkey) = &wg.keys.pubkey() {
+                                    if let Err(e) = api.create(pubkey, wg.address.clone()) {
+                                        tracing::error!(
+                                            "Failed to restore WireGuard connection {}: {}",
+                                            conn_id,
+                                            e
+                                        );
+                                    }
                                 }
                             }
                         }

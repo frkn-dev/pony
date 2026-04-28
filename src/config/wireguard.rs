@@ -1,61 +1,131 @@
-use crate::config::settings::WgConfig;
-use crate::memory::connection::wireguard::Keys as WgKeys;
-use defguard_wireguard_rs::net::IpAddrMask;
-use serde::Deserialize;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::net::Ipv4Addr;
+
+use crate::memory::connection::wireguard::IpAddrMask;
+use crate::{error::Error, WgKeys};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WireguardServerConfig {
+    pub interface: String,
+    pub address: String,
+    pub port: u16,
+    pub private_key: String,
+    pub dns: Option<Vec<String>>,
+}
+
+impl WireguardServerConfig {
+    pub fn from_file(path: &str) -> anyhow::Result<Self> {
+        let contents = std::fs::read_to_string(path)?;
+
+        let mut private_key = None;
+        let mut address = None;
+        let mut dns = vec![];
+        let mut port = None;
+
+        let interface = path
+            .split('/')
+            .next_back()
+            .and_then(|f| f.split('.').next())
+            .ok_or_else(|| anyhow::anyhow!("no interface name"))?
+            .to_string();
+
+        for line in contents.lines() {
+            let line = line.trim();
+
+            if line.starts_with("PrivateKey") {
+                if let Some((_, value)) = line.split_once('=') {
+                    private_key = Some(value.trim().to_string());
+                } else {
+                    return Err(anyhow::anyhow!("Invalid PrivateKey line"));
+                }
+            }
+
+            if line.starts_with("Address") {
+                address = line.split('=').nth(1).map(|v| v.trim().to_string());
+            }
+
+            if line.starts_with("ListenPort") {
+                port = line
+                    .split('=')
+                    .nth(1)
+                    .and_then(|v| v.trim().parse::<u16>().ok());
+            }
+
+            if line.starts_with("DNS") {
+                dns = line
+                    .split('=')
+                    .nth(1)
+                    .unwrap_or("")
+                    .split(',')
+                    .filter_map(|v| v.trim().parse().ok())
+                    .collect();
+            }
+        }
+
+        Ok(Self {
+            interface,
+            port: port.ok_or_else(|| anyhow::anyhow!("no ListenPort"))?,
+            private_key: private_key.ok_or_else(|| anyhow::anyhow!("no PrivateKey"))?,
+            address: address.ok_or_else(|| anyhow::anyhow!("no Address"))?,
+            dns: Some(dns),
+        })
+    }
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct WireguardSettings {
-    pub pubkey: String,
-    pub privkey: String,
     pub interface: String,
-    pub network: IpAddrMask,
-    pub address: Ipv4Addr,
+    pub address: IpAddrMask,
     pub port: u16,
+    pub keys: WgKeys,
     pub dns: Vec<Ipv4Addr>,
 }
 
-impl WireguardSettings {
-    pub fn new(config: &WgConfig) -> Self {
-        let (privkey, pubkey) = match (config.privkey.clone(), config.pubkey.clone()) {
-            (Some(privkey), Some(pubkey)) => (privkey, pubkey),
-            _ => {
-                let keys = WgKeys::default();
-                (keys.privkey, keys.pubkey)
-            }
+impl std::fmt::Display for WireguardSettings {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}|{}|{}|{}|{}",
+            self.interface,
+            self.address,
+            self.keys.privkey,
+            self.port,
+            self.dns
+                .iter()
+                .map(|d| d.to_string())
+                .collect::<Vec<_>>()
+                .join(",")
+        )
+    }
+}
+
+impl TryFrom<WireguardServerConfig> for WireguardSettings {
+    type Error = Error;
+
+    fn try_from(cfg: WireguardServerConfig) -> Result<Self, Error> {
+        let keys = WgKeys {
+            privkey: cfg.private_key,
         };
 
-        let network = config
-            .network
-            .as_ref()
-            .expect("WG network not defined")
-            .parse::<IpAddrMask>()
-            .unwrap();
-
-        let address = config
+        let address = cfg
             .address
-            .as_ref()
-            .expect("WG interface address not defined")
-            .parse::<Ipv4Addr>()
-            .unwrap();
+            .parse::<IpAddrMask>()
+            .map_err(|_| Error::Custom("Invalid WG address".into()))?;
 
-        let dns: Vec<Ipv4Addr> = config
+        let dns = cfg
             .dns
-            .as_ref()
-            .expect("WG DNS servers are  not defined")
-            .iter()
-            .map(|addr| addr.parse::<Ipv4Addr>().unwrap())
-            .collect();
+            .unwrap_or_default()
+            .into_iter()
+            .map(|d| d.parse::<Ipv4Addr>())
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|_| Error::Custom("Invalid DNS".into()))?;
 
-        Self {
-            pubkey,
-            privkey,
-            interface: config.interface.clone(),
-            network,
-            port: config.port,
+        Ok(Self {
+            interface: cfg.interface,
+            keys,
             address,
+            port: cfg.port,
             dns,
-        }
+        })
     }
 }

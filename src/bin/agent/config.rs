@@ -2,11 +2,34 @@ use serde::Deserialize;
 
 use pony::Result;
 
-use pony::{ApiAccessConfig, LoggingConfig, MetricsTxConfig, Settings, ZmqSubscriberConfig};
-use pony::{H2Config, MtprotoConfig, NodeConfigRaw, WgConfig, XrayConfig};
+use pony::{
+    ApiAccessConfig, LoggingConfig, MetricsTxConfig, MtprotoConfig, NodeConfigRaw, Settings,
+    ZmqSubscriberConfig,
+};
 
 fn default_disabled() -> bool {
     false
+}
+
+#[derive(Clone, Default, Debug, Deserialize)]
+pub struct WgConfig {
+    #[serde(default = "default_disabled")]
+    pub enabled: bool,
+    pub path: String,
+}
+
+#[derive(Clone, Default, Debug, Deserialize)]
+pub struct H2Config {
+    #[serde(default = "default_disabled")]
+    pub enabled: bool,
+    pub path: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Default)]
+pub struct XrayConfig {
+    #[serde(default = "default_disabled")]
+    pub enabled: bool,
+    pub xray_config_path: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]

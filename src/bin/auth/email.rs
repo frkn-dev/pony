@@ -1,23 +1,26 @@
+use chrono::{DateTime, Utc};
 use hmac::{Hmac, Mac};
-use lettre::AsyncTransport;
 use sha2::Sha256;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::fs::File;
-use tokio::io::{AsyncBufReadExt, BufReader};
-
-use chrono::{DateTime, Utc};
 use tokio::fs::OpenOptions;
 use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::sync::RwLock;
 
 use super::config::SmtpConfig;
 
 type HmacSha256 = Hmac<Sha256>;
 
-use lettre::{
-    transport::smtp::authentication::Credentials, AsyncSmtpTransport, Message, Tokio1Executor,
+use lettre::transport::smtp::{
+    authentication::Credentials,
+    client::{Tls, TlsParameters},
+    AsyncSmtpTransport,
 };
+use lettre::AsyncTransport;
+use lettre::Message;
+use lettre::Tokio1Executor;
 
 #[derive(Clone)]
 pub struct EmailStore {
@@ -32,13 +35,7 @@ pub struct EmailStore {
 
 impl EmailStore {
     pub fn new(file: String, smtp: SmtpConfig, secret: Vec<u8>, web_host: String) -> Self {
-        let mailer = AsyncSmtpTransport::<Tokio1Executor>::relay(&smtp.server)
-            .expect("invalid smtp server")
-            .credentials(Credentials::new(
-                smtp.username.clone(),
-                smtp.password.clone(),
-            ))
-            .build();
+        let mailer = EmailStore::build_mailer(&smtp);
 
         Self {
             store: Arc::new(RwLock::new(HashMap::new())),
@@ -122,6 +119,19 @@ impl EmailStore {
         Ok(())
     }
 
+    fn build_mailer(smtp: &SmtpConfig) -> AsyncSmtpTransport<Tokio1Executor> {
+        let creds = Credentials::new(smtp.username.clone(), smtp.password.clone());
+
+        let tls = TlsParameters::new(smtp.server.clone()).expect("TLS params failed");
+
+        AsyncSmtpTransport::<Tokio1Executor>::relay(&smtp.server)
+            .unwrap()
+            .credentials(creds)
+            .port(smtp.port)
+            .tls(Tls::Required(tls))
+            .build()
+    }
+
     pub async fn send_email_background(&self, to: String, sub_id: uuid::Uuid) {
         let mailer = self.mailer.clone();
         let web_host = self.web_host.clone();
@@ -157,8 +167,14 @@ impl EmailStore {
                 }
             };
 
-            if let Err(e) = mailer.send(msg).await {
-                tracing::error!("Email send error: {}", e);
+            for i in 0..3 {
+                match mailer.send(msg.clone()).await {
+                    Ok(_) => return,
+                    Err(e) => {
+                        tracing::error!("SMTP attempt {i} failed: {e:?}");
+                        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                    }
+                }
             }
         });
     }

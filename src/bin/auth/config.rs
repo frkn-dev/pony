@@ -11,6 +11,7 @@ pub struct SmtpConfig {
     pub server: String,
     pub username: String,
     pub password: String,
+    pub port: u16,
     pub from: String,
 }
 

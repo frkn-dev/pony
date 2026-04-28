@@ -10,7 +10,7 @@ use rkyv::{Archive, Deserialize as RkyvDeserialize, Serialize as RkyvSerialize};
     Archive, Deserialize, Serialize, RkyvDeserialize, RkyvSerialize, Debug, Clone, PartialEq,
 )]
 pub enum Proto {
-    Wireguard { param: WgParam, node_id: uuid::Uuid },
+    Wireguard { param: WgParam },
     Shadowsocks { password: String },
     Xray(Tag),
     Hysteria2 { token: uuid::Uuid },
@@ -24,7 +24,7 @@ impl Proto {
             Proto::Shadowsocks { .. } => Tag::Shadowsocks,
             Proto::Hysteria2 { .. } => Tag::Hysteria2,
             Proto::Xray(tag) => *tag,
-            Proto::Mtproto { .. } => unreachable!(),
+            Proto::Mtproto { .. } => Tag::Mtproto,
         }
     }
 
@@ -35,10 +35,9 @@ impl Proto {
         }
     }
 
-    pub fn new_wg(param: &WgParam, node_id: &uuid::Uuid) -> Self {
+    pub fn new_wg(param: &WgParam) -> Self {
         Proto::Wireguard {
             param: param.clone(),
-            node_id: *node_id,
         }
     }
 
@@ -69,5 +68,9 @@ impl Proto {
 
     pub fn is_hysteria2(&self) -> bool {
         matches!(self, Proto::Hysteria2 { .. })
+    }
+
+    pub fn is_mtproto(&self) -> bool {
+        matches!(self, Proto::Mtproto { .. })
     }
 }

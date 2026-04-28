@@ -1,18 +1,18 @@
 use chrono::DateTime;
-use chrono::NaiveDateTime;
 use chrono::Utc;
 use std::fmt;
 
 use serde::Deserialize;
 use serde::Serialize;
 
-use super::op::api::Operations as ApiOps;
-use super::op::base::Operations as BasOps;
+use super::super::env::Env;
+use super::operation::api::Operations as ApiOps;
+use super::operation::base::Operations as BasOps;
 use super::proto::Proto;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Conn {
-    pub env: String,
+    pub env: Env,
     pub proto: Proto,
     pub subscription_id: Option<uuid::Uuid>,
     pub created_at: DateTime<Utc>,
@@ -52,7 +52,7 @@ impl PartialEq for Conn {
 
 impl Conn {
     pub fn new(
-        env: &str,
+        env: &Env,
         subscription_id: Option<uuid::Uuid>,
         proto: Proto,
         expires_at: Option<DateTime<Utc>>,
@@ -60,7 +60,7 @@ impl Conn {
         let now = Utc::now();
 
         Self {
-            env: env.to_string(),
+            env: env.clone(),
             created_at: now,
             modified_at: now,
             expires_at,
@@ -71,20 +71,13 @@ impl Conn {
     }
 }
 
-#[derive(Serialize)]
-pub struct ConnWithId {
-    pub id: uuid::Uuid,
-    #[serde(flatten)]
-    pub conn: Conn,
-}
-
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ConnPatch {
-    pub env: Option<String>,
+    pub env: Option<Env>,
     pub proto: Option<Proto>,
     pub subscription_id: Option<uuid::Uuid>,
-    pub created_at: Option<NaiveDateTime>,
-    pub modified_at: Option<NaiveDateTime>,
+    pub created_at: Option<DateTime<Utc>>,
+    pub modified_at: Option<DateTime<Utc>>,
     pub expires_at: Option<DateTime<Utc>>,
     pub is_deleted: Option<bool>,
 }

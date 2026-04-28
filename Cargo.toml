@@ -27,12 +27,9 @@ clap = { version = "4.4", features = ["derive"] }
 dashmap = "6.1.0"
 defguard_wireguard_rs = {version = "0.7.2", features=["serde"]}
 default-net = "0.22"
-fern = "0.7"
 futures = "0.3"
 hex = "0.4"
 hmac = "0.12"
-ipnet = { version = "2", features=["serde"] }
-log = "0.4"
 netstat2 = { version = "0.11.1" }
 openssl = { version = "0.10", features = ["vendored"] }
 percent-encoding = "2"
@@ -52,6 +49,8 @@ tonic = { version = "0.12" }
 toml = "0.8"
 tokio = { version = "1", features = ["full"] }
 tokio-postgres = { version="0.7", features=["with-uuid-1", "with-chrono-0_4", "with-serde_json-1"]}
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 postgres-types = { version = "0.2", features = ["derive"] }
 url = "2"
 uuid = { version = "1", features = ["serde", "v4"]  }

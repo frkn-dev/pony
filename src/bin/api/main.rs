@@ -1,26 +1,30 @@
-use fern::Dispatch;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio::time::Duration;
 
-use pony::config::settings::ApiSettings;
-use pony::config::settings::Settings;
-use pony::metrics::storage::MetricStorage;
-use pony::utils::*;
-use pony::zmq::publisher::Publisher as ZmqPublisher;
-use pony::Result;
-use pony::Subscriber;
+use pony::{
+    level_from_settings, measure_time, MetricStorage, Publisher, Result, Settings, Subscriber,
+};
 
-use crate::core::http::routes::Http;
-use crate::core::metrics::MetricWorker;
-use crate::core::postgres::PgContext;
-use crate::core::sync::MemSync;
-use crate::core::tasks::Tasks;
-use crate::core::Api;
-use crate::core::ApiState;
-use crate::core::Cache;
+use tracing::{debug, error, info};
 
-mod core;
+use crate::api::Api;
+use crate::api::ApiState;
+use crate::api::Cache;
+use crate::config::ApiSettings;
+use crate::http::routes::Http;
+use crate::metrics::MetricWorker;
+use crate::postgres::pg::PgContext;
+use crate::sync::MemSync;
+use crate::tasks::Tasks;
+
+mod api;
+mod config;
+mod http;
+mod metrics;
+mod postgres;
+mod sync;
+mod tasks;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -37,31 +41,19 @@ async fn main() -> Result<()> {
     settings.validate().expect("Wrong settings file");
     println!(">>> Settings: {:?}", settings.clone());
 
-    // Logs handler init
-    Dispatch::new()
-        .format(|out, message, record| {
-            out.finish(format_args!(
-                "[{}][{}][{}] {}",
-                record.level(),
-                human_readable_date(current_timestamp() as u64),
-                record.target(),
-                message
-            ))
-        })
-        .level(level_from_settings(&settings.logging.level))
-        .chain(std::io::stdout())
-        .apply()
-        .unwrap();
+    tracing_subscriber::fmt()
+        .with_env_filter(level_from_settings(&settings.logging.level))
+        .init();
 
     let db = match PgContext::init(&settings.pg).await {
         Ok(db) => db,
         Err(err) => {
-            log::error!("Failed to init DB: {}", err);
+            error!("Failed to init DB: {}", err);
             return Err(err);
         }
     };
 
-    let publisher = ZmqPublisher::new(&settings.zmq.endpoint).await;
+    let publisher = Publisher::new(&settings.zmq.endpoint).await;
 
     let mem: Arc<RwLock<ApiState>> = Arc::new(RwLock::new(Cache::new()));
     let mem_sync = MemSync::new(mem.clone(), db.clone(), publisher.clone());
@@ -72,7 +64,7 @@ async fn main() -> Result<()> {
 
     let api = Arc::new(Api::new(mem_sync.clone(), settings.clone(), metric_storage));
 
-    measure_time(api.get_state_from_db(), "Init PG DB").await?;
+    measure_time(api.get_state_from_db(), "Init PostgreSQL DB").await?;
 
     let api_clone = api.clone();
     tokio::spawn(async move {
@@ -81,12 +73,12 @@ async fn main() -> Result<()> {
             .await;
     });
 
-    log::debug!("Running metrics reciever task");
+    debug!("Running metrics reciever task");
     let subscriber = Subscriber::new_bound(&settings.metrics.reciever, settings.metrics.topic);
 
     MetricWorker::start(api.metrics.clone(), subscriber).await;
 
-    log::info!("Metrics system initialized via MetricWorker");
+    info!("Metrics system initialized via MetricWorker");
 
     let metrics_storage = api.metrics.clone();
     tokio::spawn(async move {
@@ -95,9 +87,9 @@ async fn main() -> Result<()> {
             interval.tick().await;
             let s = metrics_storage.clone();
             tokio::task::spawn_blocking(move || {
-                log::info!("Starting MetricStorage GC...");
+                debug!("Starting MetricStorage GC...");
                 s.perform_gc();
-                log::info!("MetricStorage GC finished.");
+                debug!("MetricStorage GC finished.");
             });
         }
     });
@@ -106,7 +98,7 @@ async fn main() -> Result<()> {
         let api = api.clone();
 
         let job_interval = Duration::from_secs(60);
-        log::info!("cleanup_expired_connections task started");
+        info!("cleanup_expired_connections task started");
 
         async move {
             api.cleanup_expired_connections(job_interval.as_secs())
@@ -117,7 +109,7 @@ async fn main() -> Result<()> {
     tokio::spawn({
         let api = api.clone();
         let job_interval = Duration::from_secs(settings.api.subscription_expire_interval);
-        log::info!("cleanup_expired_subscriptions task started");
+        info!("cleanup_expired_subscriptions task started");
 
         async move {
             api.cleanup_expired_subscriptions(job_interval.as_secs())
@@ -128,7 +120,7 @@ async fn main() -> Result<()> {
     tokio::spawn({
         let api = api.clone();
         let job_interval = Duration::from_secs(settings.api.subscription_restore_interval);
-        log::info!("restore_subscriptions task started");
+        info!("restore_subscriptions task started");
 
         async move {
             api.restore_subscriptions(job_interval.as_secs()).await;
@@ -139,7 +131,7 @@ async fn main() -> Result<()> {
     let api_settings = settings.api.clone();
     let api_handle = tokio::spawn(async move {
         if let Err(e) = api.run(api_settings).await {
-            eprintln!("API server exited with error: {}", e);
+            error!("API server exited with error: {}", e);
         }
     });
 

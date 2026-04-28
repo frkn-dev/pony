@@ -33,7 +33,7 @@ impl Publisher {
             match result {
                 Ok(_) => {
                     let mode = if is_bind { "Bound to" } else { "Connected to" };
-                    log::debug!("PUB: {} {}", mode, endpoint);
+                    tracing::debug!("PUB: {} {}", mode, endpoint);
                     break;
                 }
                 Err(err) => {
@@ -43,7 +43,7 @@ impl Publisher {
                             endpoint, err
                         );
                     }
-                    log::warn!("PUB: Setup attempt {} failed: {}", i + 1, err);
+                    tracing::warn!("PUB: Setup attempt {} failed: {}", i + 1, err);
                     i += 1;
                     sleep(Duration::from_secs(5)).await;
                 }
@@ -67,7 +67,7 @@ impl Publisher {
         socket.send(topic, zmq::SNDMORE)?;
         socket.send(payload, 0)?;
 
-        log::debug!("PUB: Message sent: {} | {} bytes", topic, payload.len());
+        tracing::debug!("PUB: Message sent: {} | {} bytes", topic, payload.len());
         Ok(())
     }
 }

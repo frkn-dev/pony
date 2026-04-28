@@ -2,9 +2,19 @@
 snapshot_interval = 30
 snapshot_path = "snapshots/auth_snapshot.bin"
 web_host = "https://auth.frkn.org"
-web_server = "0.0.0.0"
-web_port = 3005
+listen = "127.0.0.1"
+port = 3005
 email_file = "users_trials.csv"
+
+[node]
+env = "auth"
+uuid = "ab514c21-aaaa-bbbb-91f7-32f8cb1aaaaa"
+hostname = "darkmachine.frkn.local"
+address = "192.168.1.100"
+label = "🏴‍☠️ Darkmachine"
+max_bandwidth_bps = 1000000000
+country = "RU"
+type = "common"
 
 [api]
 endpoint = "http://localhost:3005"

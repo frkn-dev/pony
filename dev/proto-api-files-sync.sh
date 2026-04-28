@@ -1,6 +1,6 @@
 #!/bin/bash
 
-### The script syncs specific API .proto files from Xray-core repo to dst dir ./src/proto
+### The script syncs specific API .proto files from Xray-core repo to dst dir ./src/proto/xray/protobuf
 
 if [ "$#" -ne 1 ]; then
   echo "Usage: $0 <source_directory>"
@@ -8,7 +8,7 @@ if [ "$#" -ne 1 ]; then
 fi
 
 SOURCE_DIR="$1"
-DEST_DIR="./src/proto"
+DEST_DIR="./src/proto/xray/protobuf"
 
 if [ ! -d "$SOURCE_DIR" ]; then
   echo "Error: Source directory '$SOURCE_DIR' does not exist."

@@ -1,10 +1,19 @@
-use fern::Dispatch;
+mod auth;
+mod config;
+mod email;
+mod filters;
+mod handlers;
+mod helpers;
+mod http;
+mod metrics;
+mod request;
+mod response;
+mod tasks;
 
-use pony::config::settings::AuthServiceSettings;
-use pony::config::settings::Settings;
-use pony::utils::*;
+use config::AuthServiceSettings;
 
-mod core;
+use pony::level_from_settings;
+use pony::Settings;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("                                                                                                    ");
@@ -49,25 +58,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     settings.validate().expect("Wrong settings file");
     println!(">>> Settings: {:?}", settings.clone());
 
-    Dispatch::new()
-        .format(|out, message, record| {
-            out.finish(format_args!(
-                "[{}][{}][{}] {}",
-                record.level(),
-                human_readable_date(current_timestamp() as u64),
-                record.target(),
-                message
-            ))
-        })
-        .level(level_from_settings(&settings.logging.level))
-        .chain(std::io::stdout())
-        .apply()
-        .unwrap();
+    tracing_subscriber::fmt()
+        .with_env_filter(level_from_settings(&settings.logging.level))
+        .init();
 
     let num_cpus = std::thread::available_parallelism()?.get();
 
     let worker_threads = if num_cpus <= 1 { 1 } else { num_cpus * 2 };
-    log::info!(
+    tracing::info!(
         "🧠 CPU cores: {}, configured worker threads: {}",
         num_cpus,
         worker_threads
@@ -79,7 +77,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build()
         .unwrap();
 
-    runtime.block_on(core::service::run(settings))?;
+    runtime.block_on(auth::run(settings))?;
 
     Ok(())
 }

@@ -1,7 +1,7 @@
 use walkdir::WalkDir;
 
 fn main() {
-    let proto_dir = "src/xray_proto";
+    let proto_dir = "src/proto/xray/protobuf";
 
     let proto_files: Vec<String> = WalkDir::new(proto_dir)
         .into_iter()

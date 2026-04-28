@@ -1,14 +1,11 @@
-use rand::prelude::SliceRandom;
-use rand::thread_rng;
 use serde_json::json;
 use std::collections::HashMap;
 
-use super::super::connection::op::base::Operations as ConnectionBaseOp;
-use super::super::connection::Connections;
+use super::super::env::Env;
 use super::super::node::Node;
 use super::super::storage::Status as OperationStatus;
 use super::super::tag::ProtoTag as Tag;
-use crate::error::{PonyError, Result};
+use crate::error::{Error, Result};
 
 pub trait Operations {
     fn clear(&mut self) -> Result<()>;
@@ -16,42 +13,35 @@ pub trait Operations {
     fn add(&mut self, new_node: Node) -> Result<OperationStatus>;
     fn all(&self) -> Option<Vec<Node>>;
     fn all_json(&self) -> serde_json::Value;
-    fn get_by_env(&self, env: &str) -> Option<Vec<Node>>;
+    fn get_by_env(&self, env: &Env) -> Option<Vec<Node>>;
+    fn get_mut_by_env(&mut self, env: &Env) -> Option<&mut Vec<Node>>;
     fn get_by_id(&self, id: &uuid::Uuid) -> Option<Node>;
-    fn get(&self, env: &str, uuid: &uuid::Uuid) -> Option<&Node>;
-    fn get_mut(&mut self, env: &str, uuid: &uuid::Uuid) -> Option<&mut Node>;
+    fn get(&self, env: &Env, uuid: &uuid::Uuid) -> Option<&Node>;
+    fn get_mut(&mut self, env: &Env, uuid: &uuid::Uuid) -> Option<&mut Node>;
     fn update_node_uplink(
         &mut self,
         tag: &Tag,
         new_uplink: i64,
-        env: &str,
+        env: &Env,
         node_id: &uuid::Uuid,
     ) -> Result<()>;
     fn update_node_downlink(
         &mut self,
         tag: &Tag,
         new_uplink: i64,
-        env: &str,
+        env: &Env,
         node_id: &uuid::Uuid,
     ) -> Result<()>;
     fn update_node_conn_count(
         &mut self,
         tag: &Tag,
         node_count: i64,
-        env: &str,
+        env: &Env,
         node_id: &uuid::Uuid,
     ) -> Result<()>;
-    fn select_least_loaded_node<C>(
-        &self,
-        env: &str,
-        proto: &Tag,
-        connections: &Connections<C>,
-    ) -> Option<uuid::Uuid>
-    where
-        C: ConnectionBaseOp;
 }
 
-impl Operations for HashMap<String, Vec<Node>> {
+impl Operations for HashMap<Env, Vec<Node>> {
     fn clear(&mut self) -> Result<()> {
         self.clear();
         Ok(())
@@ -69,7 +59,7 @@ impl Operations for HashMap<String, Vec<Node>> {
         let env = new_node.env.clone();
         let uuid = new_node.uuid;
 
-        match self.get_mut(&env) {
+        match self.get_mut_by_env(&env) {
             Some(nodes) => {
                 for node in nodes.iter_mut() {
                     if node.uuid == uuid {
@@ -90,16 +80,17 @@ impl Operations for HashMap<String, Vec<Node>> {
 
         Ok(OperationStatus::Ok(uuid))
     }
-    fn get(&self, env: &str, uuid: &uuid::Uuid) -> Option<&Node> {
+    fn get(&self, env: &Env, uuid: &uuid::Uuid) -> Option<&Node> {
         self.get(env)?.iter().find(|n| &n.uuid == uuid)
     }
-    fn get_mut(&mut self, env: &str, uuid: &uuid::Uuid) -> Option<&mut Node> {
+    fn get_mut(&mut self, env: &Env, uuid: &uuid::Uuid) -> Option<&mut Node> {
         self.get_mut(env)?.iter_mut().find(|n| &n.uuid == uuid)
     }
-    fn get_by_env(&self, env: &str) -> Option<Vec<Node>> {
-        self.get(env)
-            .map(|nodes| nodes.to_vec())
-            .filter(|v| !v.is_empty())
+    fn get_by_env(&self, env: &Env) -> Option<Vec<Node>> {
+        self.get(env).cloned()
+    }
+    fn get_mut_by_env(&mut self, env: &Env) -> Option<&mut Vec<Node>> {
+        self.get_mut(env)
     }
     fn get_by_id(&self, node_id: &uuid::Uuid) -> Option<Node> {
         self.values()
@@ -120,7 +111,7 @@ impl Operations for HashMap<String, Vec<Node>> {
         &mut self,
         tag: &Tag,
         new_uplink: i64,
-        env: &str,
+        env: &Env,
         node_id: &uuid::Uuid,
     ) -> Result<()> {
         if let Some(nodes) = self.get_mut(env) {
@@ -129,7 +120,7 @@ impl Operations for HashMap<String, Vec<Node>> {
                 return Ok(());
             }
         }
-        Err(PonyError::Custom(format!(
+        Err(Error::Custom(format!(
             "Node not found in env {} with id {}",
             env, node_id
         )))
@@ -138,7 +129,7 @@ impl Operations for HashMap<String, Vec<Node>> {
         &mut self,
         tag: &Tag,
         new_downlink: i64,
-        env: &str,
+        env: &Env,
         node_id: &uuid::Uuid,
     ) -> Result<()> {
         if let Some(nodes) = self.get_mut(env) {
@@ -147,7 +138,7 @@ impl Operations for HashMap<String, Vec<Node>> {
                 return Ok(());
             }
         }
-        Err(PonyError::Custom(format!(
+        Err(Error::Custom(format!(
             "Node not found in env {} with id {}",
             env, node_id
         )))
@@ -156,7 +147,7 @@ impl Operations for HashMap<String, Vec<Node>> {
         &mut self,
         tag: &Tag,
         conn_count: i64,
-        env: &str,
+        env: &Env,
         node_id: &uuid::Uuid,
     ) -> Result<()> {
         if let Some(nodes) = self.get_mut(env) {
@@ -164,57 +155,9 @@ impl Operations for HashMap<String, Vec<Node>> {
                 node.update_conn_count(tag, conn_count)?;
                 return Ok(());
             } else {
-                return Err(PonyError::Custom(format!(
-                    "Node with ID {} not found",
-                    node_id
-                )));
+                return Err(Error::Custom(format!("Node with ID {} not found", node_id)));
             }
         }
-        Err(PonyError::Custom(format!(
-            "Environment '{}' not found",
-            env
-        )))
-    }
-
-    fn select_least_loaded_node<C>(
-        &self,
-        env: &str,
-        proto: &Tag,
-        connections: &Connections<C>,
-    ) -> Option<uuid::Uuid>
-    where
-        C: ConnectionBaseOp,
-    {
-        let candidates: Vec<_> = self
-            .iter_nodes()
-            .filter(|(_, node)| node.env == env && node.inbounds.contains_key(proto))
-            .collect();
-
-        if candidates.is_empty() {
-            return None;
-        }
-
-        let mut rng = thread_rng();
-
-        let counts: Vec<(usize, &uuid::Uuid)> = candidates
-            .iter()
-            .map(|(id, _)| {
-                let count = connections
-                    .values()
-                    .filter(|conn| conn.get_wireguard_node_id() == Some(**id))
-                    .count();
-                (count, *id)
-            })
-            .collect();
-
-        let min_count = counts.iter().map(|(count, _)| *count).min()?;
-
-        let least_loaded_ids: Vec<_> = counts
-            .into_iter()
-            .filter(|(count, _)| *count == min_count)
-            .map(|(_, id)| id)
-            .collect();
-
-        least_loaded_ids.choose(&mut rng).copied().copied()
+        Err(Error::Custom(format!("Environment '{}' not found", env)))
     }
 }

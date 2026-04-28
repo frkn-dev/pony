@@ -1,8 +1,9 @@
-pub mod connection;
-pub mod key;
-pub mod node;
-pub mod snapshot;
-pub mod stat;
-pub mod storage;
-pub mod subscription;
-pub mod tag;
+pub(crate) mod connection;
+pub(crate) mod env;
+pub(crate) mod key;
+pub(crate) mod node;
+pub(crate) mod snapshot;
+pub(crate) mod stat;
+pub(crate) mod storage;
+pub(crate) mod subscription;
+pub(crate) mod tag;

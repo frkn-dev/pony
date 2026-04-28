@@ -10,11 +10,12 @@ use chrono::Utc;
 use postgres_types::{FromSql, ToSql};
 use serde::{Deserialize, Serialize};
 
+use super::env::Env;
 use super::tag::ProtoTag as Tag;
 use crate::config::h2::H2Settings;
+use crate::config::inbound::{Inbound, Settings as XraySettings};
 use crate::config::settings::{MtprotoConfig, NodeConfig};
 use crate::config::wireguard::WireguardSettings;
-use crate::config::xray::{Config as XrayConfig, Inbound};
 
 #[derive(Clone, Debug, Deserialize, Serialize, Copy, ToSql, FromSql)]
 #[postgres(name = "node_status", rename_all = "snake_case")]
@@ -115,7 +116,7 @@ pub struct NodeMetricInfo {
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 pub struct Node {
     pub uuid: uuid::Uuid,
-    pub env: String,
+    pub env: Env,
     pub hostname: String,
     pub address: Ipv4Addr,
     pub status: Status,
@@ -133,7 +134,7 @@ pub struct Node {
 impl Node {
     pub fn new(
         settings: NodeConfig,
-        xray_config: Option<XrayConfig>,
+        xray_config: Option<XraySettings>,
         wg_config: Option<WireguardSettings>,
         h2_config: Option<H2Settings>,
         mtproto_config: Option<MtprotoConfig>,
@@ -203,10 +204,9 @@ impl Node {
                 );
             }
         };
-
         Self {
             uuid: settings.uuid,
-            env: settings.env,
+            env: settings.env.into(),
             hostname: settings.hostname,
             status: Status::Online,
             address: settings.address,
@@ -224,7 +224,7 @@ impl Node {
 
     pub fn get_base_tags(&self) -> BTreeMap<String, String> {
         let mut tags = BTreeMap::new();
-        tags.insert("env".to_string(), self.env.clone());
+        tags.insert("env".to_string(), self.env.to_string());
         tags.insert("hostname".to_string(), self.hostname.clone());
         tags.insert("label".to_string(), self.label.clone());
         tags.insert("address".to_string(), self.address.to_string());
@@ -243,7 +243,7 @@ impl Node {
         let tags: Vec<Tag> = self.inbounds.keys().cloned().collect();
 
         NodeResponse {
-            env: self.env.clone(),
+            env: self.env.to_string(),
             hostname: self.hostname.clone(),
             interface: self.interface.clone(),
             address: self.address,

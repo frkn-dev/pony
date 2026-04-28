@@ -1,6 +1,6 @@
-pub mod message;
-pub mod publisher;
-pub mod subscriber;
+pub(crate) mod message;
+pub(crate) mod publisher;
+pub(crate) mod subscriber;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Topic {

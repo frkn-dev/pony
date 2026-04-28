@@ -2,8 +2,8 @@ use rkyv::{Archive, Deserialize as RkyvDeserialize, Serialize as RkyvSerialize};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-pub mod impls;
-pub mod storage;
+pub(crate) mod impls;
+pub(crate) mod storage;
 
 #[derive(Archive, RkyvSerialize, RkyvDeserialize, Serialize, Deserialize, Clone, Debug)]
 pub struct MetricPoint {

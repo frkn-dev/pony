@@ -1,0 +1,171 @@
+{
+    "log": {
+        "loglevel": "debug"
+    },
+    "inbounds": [
+        {
+            "tag": "VlessTcpReality",
+            "listen": "0.0.0.0",
+            "port": 8443,
+            "protocol": "vless",
+            "settings": {
+                "clients": [],
+                "decryption": "none"
+            },
+            "streamSettings": {
+                "network": "tcp",
+                "security": "reality",
+                "realitySettings": {
+                    "serverNames": [
+                        "www.microsoft.com"
+                    ],
+                    "privateKey": "qEOAgNpzOcdoADTHPaJwHftXUOdLNtIjydz6xwZdbAw",
+                    "publicKey": "lRhDXLO5pDZKrJXr7abrUaHDNCHooV9t7EpvVLATfFQ",
+                    "shortIds": [
+                        "e2fdd2679c5f"
+                    ],
+                    "target": "www.microsoft.com:443"
+                }
+            }
+        },
+        {
+            "tag": "VlessXhttpReality",
+            "listen": "0.0.0.0",
+            "port": 443,
+            "protocol": "vless",
+            "settings": {
+                "clients": [],
+                "decryption": "none"
+            },
+            "streamSettings": {
+                "network": "xhttp",
+                "security": "reality",
+                "realitySettings": {
+                    "xver": 0,
+                    "target": "ya.ru:443",
+                    "serverNames": [
+                        "ya.ru"
+                    ],
+                    "privateKey": "qEOAgNpzOcdoADTHPaJwHftXUOdLNtIjydz6xwZdbAw",
+                    "publicKey": "4ixq5vbMnCueqtuWRs_rY04vNjVwJNicSw0vUsZsxlg",
+                    "shortIds": [
+                        "e2fdd2679c5f"
+                    ]
+                },
+                "xhttpSettings": {
+                    "path": "/cdn"
+                }
+            },
+            "sniffing": {
+                "enabled": true,
+                "destOverride": [
+                    "http",
+                    "tls",
+                    "quic"
+                ]
+            }
+        },
+        {
+            "tag": "VlessGrpcReality",
+            "listen": "0.0.0.0",
+            "port": 8444,
+            "protocol": "vless",
+            "settings": {
+                "clients": [],
+                "decryption": "none"
+            },
+            "streamSettings": {
+                "network": "grpc",
+                "security": "reality",
+                "realitySettings": {
+                    "xver": 0,
+                    "target": "ya.ru:443",
+                    "serverNames": [
+                        "ya.ru"
+                    ],
+                    "privateKey": "qEOAgNpzOcdoADTHPaJwHftXUOdLNtIjydz6xwZdbAw",
+                    "publicKey": "YicQTlYZLi376My9DWARw4KfzjodPzw2m8gDatw3Uj8",
+                    "shortIds": [
+                        "e2fdd2679c5f"
+                    ]
+                },
+                "grpcSettings": {
+                    "serviceName": "grpc"
+                }
+            },
+            "sniffing": {
+                "enabled": true,
+                "destOverride": [
+                    "http",
+                    "tls"
+                ]
+            }
+        }
+    ],
+    "outbounds": [
+        {
+            "protocol": "freedom",
+            "tag": "DIRECT"
+        },
+        {
+            "protocol": "blackhole",
+            "tag": "BLOCK"
+        }
+    ],
+    "routing": {
+        "rules": [
+            {
+                "ip": [
+                    "geoip:private"
+                ],
+                "outboundTag": "BLOCK",
+                "type": "field"
+            },
+            {
+                "domain": [
+                    "geosite:private"
+                ],
+                "outboundTag": "BLOCK",
+                "type": "field"
+            },
+            {
+                "protocol": [
+                    "bittorrent"
+                ],
+                "outboundTag": "BLOCK",
+                "type": "field"
+            },
+            {
+                "type": "field",
+                "network": "tcp,udp",
+                "outboundTag": "DIRECT"
+            }
+        ]
+    },
+    "api": {
+        "listen": "127.0.0.1:23456",
+        "services": [
+            "HandlerService",
+            "StatsService",
+            "LoggerService",
+            "ReflectionService"
+        ],
+        "tag": "API"
+    },
+    "stats": {},
+    "policy": {
+        "levels": {
+            "0": {
+                "statsUserUplink": true,
+                "statsUserDownlink": true,
+                "statsUserOnline": true
+            }
+        },
+        "system": {
+            "statsInboundDownlink": true,
+            "statsInboundUplink": true,
+            "statsOutboundDownlink": true,
+            "statsOutboundUplink": true
+        }
+    }
+}

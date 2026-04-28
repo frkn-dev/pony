@@ -1,35 +1,15 @@
-use crate::memory::node::Type;
-use crate::PonyError;
-use crate::Result;
 use default_net::{get_default_interface, get_interfaces};
-use serde::de::DeserializeOwned;
-use serde::Deserialize;
-use serde::Serialize;
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::env;
 use std::fs;
 use std::net::Ipv4Addr;
 use uuid::Uuid;
 
+use crate::error::{Error, Result};
+use crate::memory::node::Type;
+
 fn default_disabled() -> bool {
     false
-}
-fn default_env() -> String {
-    "dev".to_string()
-}
-
-#[derive(Clone, Debug, Deserialize, Default)]
-pub struct ApiServiceConfig {
-    pub address: Option<Ipv4Addr>,
-    pub port: u16,
-    pub token: String,
-    pub db_sync_interval_sec: u64,
-    pub subscription_restore_interval: u64,
-    pub subscription_expire_interval: u64,
-    pub key_sign_token: Vec<u8>,
-    pub bonus_days: i64,
-    pub promo_codes: Vec<String>,
-    pub max_points: usize,
-    pub retention_seconds: i64,
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]
@@ -38,44 +18,10 @@ pub struct ApiAccessConfig {
     pub token: String,
 }
 
-#[derive(Clone, Debug, Deserialize, Default)]
-pub struct AuthServiceConfig {
-    pub snapshot_interval: u64,
-    pub snapshot_path: String,
-    pub web_host: String,
-    pub web_server: Option<Ipv4Addr>,
-    pub web_port: u16,
-    pub email_file: String,
-    pub email_sign_token: Vec<u8>,
-}
-
-#[derive(Clone, Debug, Deserialize, Default)]
-pub struct SmtpConfig {
-    pub server: String,
-    pub port: u16,
-    pub username: String,
-    pub password: String,
-    pub from: String,
-}
-
-#[derive(Clone, Debug, Deserialize, Default)]
-pub struct AgentConfig {
-    #[serde(default = "default_disabled")]
-    pub local: bool,
-    pub snapshot_interval: u64,
-    pub snapshot_path: String,
-}
-
 #[derive(Clone, Default, Debug, Deserialize)]
 pub struct MetricsTxConfig {
     pub publisher: String,
     pub interval: u64,
-}
-
-#[derive(Clone, Default, Debug, Deserialize)]
-pub struct MetricsRxConfig {
-    pub reciever: String,
-    pub topic: Vec<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]
@@ -99,7 +45,6 @@ pub struct NodeConfig {
 
 #[derive(Clone, Debug, Deserialize, Default)]
 pub struct NodeConfigRaw {
-    #[serde(default = "default_env")]
     pub env: String,
     pub hostname: Option<String>,
     pub default_interface: Option<String>,
@@ -118,7 +63,7 @@ impl NodeConfig {
             match env::var("HOSTNAME") {
                 Ok(hostname) => hostname,
                 Err(_) => {
-                    return Err(PonyError::Custom("Validation error: missing hostname (set $HOSTNAME env or specify in config)".into()));
+                    return Err(Error::Custom("Validation error: missing hostname (set $HOSTNAME env or specify in config)".into()));
                 }
             }
         } else {
@@ -131,7 +76,7 @@ impl NodeConfig {
                 if let Some(_interface) = interfaces.iter().find(|i| &i.name == interface_name) {
                     interface_name.clone()
                 } else {
-                    return Err(PonyError::Custom(format!(
+                    return Err(Error::Custom(format!(
                         "Validation error: Interface {} not found",
                         interface_name
                     )));
@@ -156,14 +101,14 @@ impl NodeConfig {
                 match interface.ipv4.first() {
                     Some(network) => (network.addr, interface_name.to_string()),
                     None => {
-                        return Err(PonyError::Custom(
+                        return Err(Error::Custom(
                             "Validation error: Cannot get IPv4 address for the specified interface"
                                 .into(),
                         ));
                     }
                 }
             } else {
-                return Err(PonyError::Custom(format!(
+                return Err(Error::Custom(format!(
                     "Validation error: Interface {} not found",
                     interface_name
                 )));
@@ -172,7 +117,7 @@ impl NodeConfig {
             match get_default_interface() {
                 Ok(interface) => {
                     if interface.ipv4.is_empty() {
-                        return Err(PonyError::Custom(
+                        return Err(Error::Custom(
                             "Validation error: Cannot get IPv4 address of default interface".into(),
                         ));
                     } else {
@@ -203,50 +148,6 @@ impl NodeConfig {
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]
-pub struct PostgresConfig {
-    pub host: String,
-    pub port: u16,
-    pub db: String,
-    pub username: String,
-    pub password: String,
-}
-
-#[derive(Clone, Debug, Deserialize, Default)]
-pub struct XrayConfig {
-    #[serde(default = "default_disabled")]
-    pub enabled: bool,
-    pub xray_config_path: String,
-}
-
-#[derive(Clone, Default, Debug, Deserialize)]
-pub struct WgConfig {
-    #[serde(default = "default_disabled")]
-    pub enabled: bool,
-    pub port: u16,
-    pub interface: String,
-    pub network: Option<String>,
-    pub privkey: Option<String>,
-    pub pubkey: Option<String>,
-    pub address: Option<String>,
-    pub dns: Option<Vec<String>>,
-}
-
-#[derive(Clone, Default, Debug, Deserialize)]
-pub struct H2Config {
-    #[serde(default = "default_disabled")]
-    pub enabled: bool,
-    pub path: String,
-}
-
-#[derive(Clone, Default, Debug, Serialize, Deserialize, PartialEq)]
-pub struct MtprotoConfig {
-    #[serde(default = "default_disabled")]
-    pub enabled: bool,
-    pub port: u16,
-    pub secret: String,
-}
-
-#[derive(Clone, Debug, Deserialize, Default)]
 pub struct ZmqSubscriberConfig {
     pub endpoint: String,
 }
@@ -254,23 +155,7 @@ pub struct ZmqSubscriberConfig {
 impl ZmqSubscriberConfig {
     pub fn validate(self) -> Result<()> {
         if !self.endpoint.starts_with("tcp://") {
-            return Err(PonyError::Custom(
-                "ZMQ endpoint should start with tcp://".into(),
-            ));
-        }
-        Ok(())
-    }
-}
-
-#[derive(Clone, Debug, Deserialize, Default)]
-pub struct ZmqPublisherConfig {
-    pub endpoint: String,
-}
-
-impl ZmqPublisherConfig {
-    pub fn validate(self) -> Result<()> {
-        if !self.endpoint.starts_with("tcp://") {
-            return Err(PonyError::Custom(
+            return Err(Error::Custom(
                 "ZMQ endpoint should start with tcp://".into(),
             ));
         }
@@ -298,81 +183,10 @@ pub trait Settings: Sized {
     fn validate(&self) -> Result<()>;
 }
 
-#[derive(Clone, Debug, Deserialize, Default)]
-pub struct ApiSettings {
-    #[serde(default)]
-    pub api: ApiServiceConfig,
-    #[serde(default)]
-    pub node: NodeConfigRaw,
-    #[serde(default)]
-    pub logging: LoggingConfig,
-    #[serde(default)]
-    pub zmq: ZmqPublisherConfig,
-    #[serde(default)]
-    pub pg: PostgresConfig,
-    #[serde(default)]
-    pub metrics: MetricsRxConfig,
-}
-
-#[derive(Clone, Debug, Deserialize)]
-pub struct AuthServiceSettings {
-    #[serde(default)]
-    pub logging: LoggingConfig,
-    #[serde(default)]
-    pub auth: AuthServiceConfig,
-    #[serde(default)]
-    pub zmq: ZmqSubscriberConfig,
-    #[serde(default)]
-    pub node: NodeConfigRaw,
-    #[serde(default)]
-    pub api: ApiAccessConfig,
-    #[serde(default)]
-    pub smtp: SmtpConfig,
-    #[serde(default)]
-    pub metrics: MetricsTxConfig,
-}
-
-#[derive(Clone, Debug, Deserialize)]
-pub struct AgentSettings {
-    #[serde(default)]
-    pub logging: LoggingConfig,
-    #[serde(default)]
-    pub agent: AgentConfig,
-    #[serde(default)]
-    pub xray: XrayConfig,
-    #[serde(default)]
-    pub wg: WgConfig,
-    #[serde(default)]
-    pub h2: H2Config,
-    #[serde(default)]
-    pub mtproto: MtprotoConfig,
-    #[serde(default)]
-    pub zmq: ZmqSubscriberConfig,
-    #[serde(default)]
-    pub node: NodeConfigRaw,
-    #[serde(default)]
-    pub api: ApiAccessConfig,
-    #[serde(default)]
-    pub metrics: MetricsTxConfig,
-}
-
-impl Settings for AgentSettings {
-    fn validate(&self) -> Result<()> {
-        self.zmq.clone().validate()?;
-        Ok(())
-    }
-}
-
-impl Settings for ApiSettings {
-    fn validate(&self) -> Result<()> {
-        self.zmq.clone().validate()?;
-        Ok(())
-    }
-}
-
-impl Settings for AuthServiceSettings {
-    fn validate(&self) -> Result<()> {
-        self.zmq.clone().validate()?;
-        Ok(())
-    }
+#[derive(Clone, Default, Debug, Serialize, Deserialize, PartialEq)]
+pub struct MtprotoConfig {
+    #[serde(default = "default_disabled")]
+    pub enabled: bool,
+    pub port: u16,
+    pub secret: String,
 }

@@ -25,7 +25,7 @@ impl Subscriber {
             Topic::Updates(env.to_string()).as_zmq_topic(),
             Topic::All.as_zmq_topic(),
         ];
-        log::info!("Subscribed to topics: {:?}", Topic::all(uuid, env));
+        tracing::info!("Subscribed to topics: {:?}", Topic::all(uuid, env));
 
         for topic in &topics {
             socket
@@ -48,7 +48,7 @@ impl Subscriber {
             let topic = match socket.recv_bytes(0) {
                 Ok(t) => t,
                 Err(e) => {
-                    log::error!("ZMQ recv topic failed: {}", e);
+                    tracing::error!("ZMQ recv topic failed: {}", e);
                     return None;
                 }
             };
@@ -56,7 +56,7 @@ impl Subscriber {
             let payload = match socket.recv_bytes(0) {
                 Ok(p) => p,
                 Err(e) => {
-                    log::error!("ZMQ recv payload failed: {}", e);
+                    tracing::error!("ZMQ recv payload failed: {}", e);
                     return None;
                 }
             };
@@ -68,11 +68,11 @@ impl Subscriber {
         match result {
             Ok(Some(pair)) => Some(pair),
             Ok(None) => {
-                log::warn!("ZMQ multipart recv returned None");
+                tracing::warn!("ZMQ multipart recv returned None");
                 None
             }
             Err(e) => {
-                log::error!("ZMQ recv_multipart join error: {}", e);
+                tracing::error!("ZMQ recv_multipart join error: {}", e);
                 None
             }
         }
@@ -90,14 +90,14 @@ impl Subscriber {
             socket
                 .set_subscribe(b"")
                 .expect("Failed to subscribe to all");
-            log::info!("Subscribed to all topics (wildcard)");
+            tracing::info!("Subscribed to all topics (wildcard)");
         } else {
             for topic in &topics {
                 socket
                     .set_subscribe(topic.as_bytes())
                     .expect("Failed to subscribe to topic");
             }
-            log::info!("Subscribed to topics: {:?}", topics);
+            tracing::info!("Subscribed to topics: {:?}", topics);
         }
 
         Self {

@@ -99,8 +99,7 @@ where
             .and(filters::with_store(email_store.clone()))
             .and(my_filters::with_http_client(http_client.clone()))
             .and(filters::with_api_settings(api.clone()))
-            .and_then(trial_handler)
-            .with(&cors);
+            .and_then(trial_handler);
 
         let tg_trial_route = warp::post()
             .and(warp::path("tg-trial"))
@@ -120,14 +119,14 @@ where
             .and(warp::body::json::<request::ActivateKey>())
             .and(my_filters::with_http_client(http_client))
             .and(filters::with_api_settings(api))
-            .and_then(activate_key_handler)
-            .with(&cors);
+            .and_then(activate_key_handler);
 
         let routes = health_check
             .or(auth_route)
             .or(trial_route)
             .or(tg_trial_route)
-            .or(activate_route);
+            .or(activate_route)
+            .with(cors);
 
         warp::serve(routes)
             .run(SocketAddr::new(IpAddr::V4(self.listen), self.port))

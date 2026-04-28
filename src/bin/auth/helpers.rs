@@ -170,6 +170,8 @@ pub async fn create_connection(
     api_address: &str,
     api_token: &str,
 ) -> anyhow::Result<uuid::Uuid> {
+    tracing::debug!("POST /connection {}", env);
+
     let res = auth_headers(
         http.post(format!("{}/connection", api_address))
             .json(&serde_json::json!({

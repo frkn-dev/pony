@@ -189,7 +189,7 @@ async fn setup_connections(
     api: &ApiAccessConfig,
     sub_id: &uuid::Uuid,
 ) -> Result<(), String> {
-    let envs = [Env::Production, Env::Ru, Env::Wl];
+    let envs = [Env::Production, Env::Dev, Env::Ru, Env::Wl];
     let futures = envs.iter().flat_map(|env| {
         PROTOS.iter().map(move |proto| {
             create_connection(http, env, proto, sub_id, &api.endpoint, &api.token)

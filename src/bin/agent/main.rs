@@ -1,6 +1,6 @@
-use pony::level_from_settings;
-use pony::Settings;
 use tracing::info;
+
+use pony::{utils::level_from_settings, Settings, BANNER, VERSION};
 
 mod agent;
 mod config;
@@ -13,15 +13,8 @@ mod tasks;
 use crate::config::AgentSettings;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    println!("                                                                                                    ");
-    println!("░▒▓████████▓▒░▒▓███████▓▒░░▒▓█▓▒░░▒▓█▓▒░▒▓███████▓▒░                                                ");
-    println!("░▒▓█▓▒░      ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░                                               ");
-    println!("░▒▓█▓▒░      ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░                                               ");
-    println!("░▒▓██████▓▒░ ░▒▓███████▓▒░░▒▓███████▓▒░░▒▓█▓▒░░▒▓█▓▒░                                               ");
-    println!("░▒▓█▓▒░      ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░                                               ");
-    println!("░▒▓█▓▒░      ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░                                               ");
-    println!("░▒▓█▓▒░      ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░                                               ");
-    println!("                                                                                                    ");
+    println!("{}", BANNER);
+    println!(">>> {}", VERSION);
 
     #[cfg(feature = "debug")]
     console_subscriber::init();
@@ -34,8 +27,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let settings = AgentSettings::new(config_path);
 
     settings.validate().expect("Wrong settings file");
-    println!(">>> Settings: {:?}", settings.clone());
-    println!(">>> Version: 0.4.10-dev");
 
     tracing_subscriber::fmt()
         .with_env_filter(level_from_settings(&settings.logging.level))

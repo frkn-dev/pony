@@ -9,6 +9,27 @@ pub mod zmq;
 
 pub use error::{Error, Result, SyncError};
 
+pub const BANNER: &str = r#"
+                         __      _
+                        / _|    | |
+                       | |_ _ __| | ___ __
+      _____      _     |  _| '__| |/ / '_ \
+     |  __ \    (_)    | | | |  |   <| | | |
+     | |__) | __ ___   |_|_|_| _|_|\_\_| |_|
+     |  ___/ '__| \ \ / / _` |/ __| | | |
+     | |   | |  | |\ V / (_| | (__| |_| |
+     |_|___|_|  |_| \_/ \__,_|\___|\__, |
+      / ____|                        __/ |
+     | |     ___  _ __ ___  _ __   |___/_ __  _   _
+     | |    / _ \| '_ ` _ \| '_ \ / _` | '_ \| | | |
+     | |___| (_) | | | | | | |_) | (_| | | | | |_| |
+      \_____\___/|_| |_| |_| .__/ \__,_|_| |_|\__, |
+                           | |                 __/ |
+                           |_|                |___/
+"#;
+
+pub const VERSION: &str = "0.4.11-dev";
+
 pub use config::{
     clash::InboundClashConfig,
     h2::{H2Settings, HysteriaServerConfig},
@@ -67,9 +88,7 @@ pub use proto::{
     },
 };
 
-pub use utils::{
-    generate_random_password, get_uuid_last_octet_simple, level_from_settings, measure_time,
-};
+pub use utils::*;
 
 pub use zmq::{
     message::{Action, Message},

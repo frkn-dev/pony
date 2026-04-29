@@ -3,7 +3,8 @@ use tokio::sync::RwLock;
 use tokio::time::Duration;
 
 use pony::{
-    level_from_settings, measure_time, MetricStorage, Publisher, Result, Settings, Subscriber,
+    measure_time, utils::level_from_settings, MetricStorage, Publisher, Result, Settings,
+    Subscriber, BANNER, VERSION,
 };
 
 use tracing::{debug, error, info};
@@ -28,6 +29,9 @@ mod tasks;
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    println!("{}", BANNER);
+    println!(">>> {}", VERSION);
+
     #[cfg(feature = "debug")]
     console_subscriber::init();
 
@@ -40,7 +44,6 @@ async fn main() -> Result<()> {
 
     settings.validate().expect("Wrong settings file");
     println!(">>> Settings: {:?}", settings.clone());
-    println!(">>> Version: 0.4.10-dev");
 
     tracing_subscriber::fmt()
         .with_env_filter(level_from_settings(&settings.logging.level))

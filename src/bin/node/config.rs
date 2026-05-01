@@ -43,7 +43,7 @@ pub struct ServiceConfig {
     pub log_level: String,
     pub snapshot_interval: u64,
     pub snapshot_path: String,
-    pub zmq_update_endpoint: String,
+    pub updates_endpoint_zmq: String,
 }
 
 #[cfg(feature = "xray")]

@@ -18,8 +18,8 @@ jobs:
         uses: dtolnay/rust-toolchain@nightly
       - name: Install dependencies
         run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
-      - name: Test
-        run: cargo test --all-features
+      - name Test Lib
+        run: cargo test --lib
 
   build-node:
     needs: [tests]

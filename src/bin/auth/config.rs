@@ -47,7 +47,7 @@ pub struct ServiceConfig {
     pub snapshot_path: String,
     #[serde(default = "default_cors_origin")]
     pub origin: String,
-    pub zmq_updates_endpoint: String,
+    pub updates_endpoint_zmq: String,
 }
 
 #[cfg(feature = "email")]

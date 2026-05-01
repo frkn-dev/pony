@@ -1,5 +1,3 @@
-use fcore::{utils::level_from_settings, Settings, BANNER, VERSION};
-
 mod config;
 mod http;
 mod metrics;
@@ -9,7 +7,8 @@ mod snapshot;
 mod stats;
 mod tasks;
 
-use crate::config::ServiceSettings;
+use config::ServiceSettings;
+use fcore::{utils::level_from_settings, Settings, BANNER, VERSION};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!(">>> Node {}", VERSION);
@@ -26,6 +25,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let settings = ServiceSettings::from_file(config_path);
 
     settings.validate().expect("Wrong settings file");
+    println!(">>> Settings: {:?}", settings.clone());
 
     tracing_subscriber::fmt()
         .with_env_filter(level_from_settings(&settings.service.log_level))

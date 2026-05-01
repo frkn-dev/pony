@@ -1,5 +1,7 @@
 
-requests.get('http://localhost:5005/healthcheck')
+requests.get('http://localhost:3000/healthcheck')
+requests.get('http://localhost:3000/nodes')
+
 
 requests.post(
     'http://localhost:5005/subscription',
@@ -15,14 +17,27 @@ requests.post(
 
 
 requests.post(
-    'http://localhost:5005/connection',
+    'http://localhost:3000/connection',
     headers={
         'Authorization': 'Bearer supetsecrettoken',
         'Content-Type': 'application/json'
     },
     json={
-        "env": "TEST",
+        "env": "dev",
         "proto": "Hysteria2",
+        "subscription_id": "ac01dba1-1190-4cc6-905b-f4a35f82cfee"
+    }
+)
+
+requests.post(
+    'http://localhost:3000/connection',
+    headers={
+        'Authorization': 'Bearer supetsecrettoken',
+        'Content-Type': 'application/json'
+    },
+    json={
+        "env": "premium12345",
+        "proto": "VlessTcpReality",
         "subscription_id": "ac01dba1-1190-4cc6-905b-f4a35f82cfee"
     }
 )

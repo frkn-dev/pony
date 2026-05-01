@@ -1,9 +1,9 @@
 use std::sync::Arc;
 use tokio::sync::Mutex;
+use zmq::Error;
 use zmq::Socket as ZmqSocket;
 
 use super::topic::Topic;
-use crate::error::Error;
 
 pub struct Subscriber {
     socket: Arc<Mutex<ZmqSocket>>,
@@ -17,6 +17,7 @@ impl Subscriber {
             .socket(zmq::SUB)
             .expect("Failed to create SUB socket");
 
+        tracing::debug!("Connecting SUB {} {:?}", endpoint, topics);
         socket
             .connect(endpoint)
             .expect("Failed to connect SUB socket");

@@ -173,24 +173,23 @@ pub async fn run(settings: ServiceSettings) -> Result<()> {
         mtproto_config,
     );
 
-    let zmq_endpoint = settings.service.zmq_update_endpoint.clone();
-
     let topic_init: Topic = settings.node.env.clone().into();
     let topic_updates: Topic = settings.node.uuid.into();
 
     let topics = vec![topic_updates, topic_init];
-    let subscriber = Subscriber::new(&zmq_endpoint, topics);
 
-    let metric_publisher = Publisher::connect(&settings.metrics.publisher).await;
+    tracing::debug!("Topics to connect {:?}", topics);
+    let subscriber = Subscriber::new(&settings.service.updates_endpoint_zmq, topics)?;
+    let metric_publisher = Publisher::connect(&settings.metrics.publisher).await?;
 
     let metrics = MetricBuffer {
         batch: parking_lot::Mutex::new(Vec::new()),
-        publisher: metric_publisher?,
+        publisher: metric_publisher,
     };
 
     let node = Arc::new(Node::<Connection>::new(
         node.clone(),
-        subscriber?,
+        subscriber,
         Arc::new(metrics),
         #[cfg(feature = "xray")]
         stats_client.clone(),

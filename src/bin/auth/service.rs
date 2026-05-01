@@ -155,7 +155,7 @@ pub async fn run(settings: ServiceSettings) -> Result<()> {
     let topic_init: Topic = settings.node.uuid.into();
 
     let subscriber = Subscriber::new(
-        &settings.service.zmq_updates_endpoint,
+        &settings.service.updates_endpoint_zmq,
         vec![topic_init, Topic::Auth],
     );
 

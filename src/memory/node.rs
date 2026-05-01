@@ -190,7 +190,7 @@ impl Node {
                         conn_count: None,
                         wg: None,
                         h2: None,
-                        mtproto_secret: Some(config.secret.clone()),
+                        mtproto_secret: Some(config.secret[0].key.clone()),
                     },
                 );
             }

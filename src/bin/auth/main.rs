@@ -12,7 +12,6 @@ mod service;
 mod tasks;
 
 use config::ServiceSettings;
-
 use fcore::{utils::level_from_settings, Settings, BANNER, VERSION};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {

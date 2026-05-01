@@ -6,18 +6,18 @@ use tokio_postgres::NoTls;
 
 use tracing::{debug, error, trace, warn};
 
-use pony::{
+use fcore::{
     Connection, ConnectionStorageApiOperations, Env, Node, NodeStorageOperations, Result, Status,
     Subscription, SubscriptionStorageOperations,
 };
 
-use super::super::api::Cache;
-use super::super::config::PostgresConfig;
-use super::connection::ConnRow;
-use super::connection::PgConn;
-use super::keys::PgKey;
-use super::node::PgNode;
-use super::subscription::PgSubscription;
+use super::{
+    super::{config::PostgresConfig, service::Cache},
+    connection::{ConnRow, PgConn},
+    keys::PgKey,
+    node::PgNode,
+    subscription::PgSubscription,
+};
 
 pub struct PgClientManager {
     config: PostgresConfig,

@@ -1,8 +1,8 @@
-use pony::WireguardServerConfig;
 use std::path::Path;
 use std::sync::Arc;
 use tokio::signal;
 use tokio::sync::broadcast;
+#[cfg(feature = "xray")]
 use tokio::sync::Mutex;
 use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
@@ -11,43 +11,52 @@ use tokio::time::Duration;
 
 use tracing::{debug, error, info, warn};
 
-use pony::{
-    measure_time, BaseConnection as Connection, ConnectionBaseOperations, Connections,
-    MetricBuffer, Node, Publisher, Result, SnapshotManager, Subscriber, Tag, WgApi, XrayClient,
-    XrayHandlerClient, XrayStatsClient,
+#[cfg(feature = "xray")]
+use fcore::{XrayClient, XrayHandlerClient, XraySettings, XrayStatsClient};
+
+#[cfg(feature = "wireguard")]
+use fcore::{WgApi, WireguardServerConfig, WireguardSettings};
+
+use fcore::{
+    utils::measure_time, BaseConnection as Connection, ConnectionBaseOperations, Connections,
+    MetricBuffer, Node as MemNode, Publisher, Result, SnapshotManager, Subscriber, Tag, Topic,
 };
 
-use pony::{H2Settings, HysteriaServerConfig, NodeConfig, WireguardSettings, XraySettings};
+use fcore::{H2Settings, Hysteria2Settings, MtprotoSettings, NodeConfig, Settings};
 
-use super::config::AgentSettings;
+use super::config::ServiceSettings;
 use super::http::ApiRequests;
+#[cfg(any(feature = "xray", feature = "wireguard"))]
 use super::snapshot::SnapshotRestore;
 use super::tasks::Tasks;
 
-pub struct Agent<C>
+pub struct Node<C>
 where
     C: ConnectionBaseOperations + Send + Sync + Clone + 'static,
 {
     pub memory: Arc<RwLock<Connections<C>>>,
-    pub node: Node,
+    pub node: MemNode,
     pub metrics: Arc<MetricBuffer>,
     pub subscriber: Subscriber,
-    pub xray_stats_client: Option<Arc<Mutex<XrayStatsClient>>>,
-    pub xray_handler_client: Option<Arc<Mutex<XrayHandlerClient>>>,
+    #[cfg(feature = "xray")]
+    pub stats_client: Option<Arc<Mutex<XrayStatsClient>>>,
+    #[cfg(feature = "xray")]
+    pub handler_client: Option<Arc<Mutex<XrayHandlerClient>>>,
+    #[cfg(feature = "wireguard")]
     pub wg_client: Option<WgApi>,
 }
 
-impl<C> Agent<C>
+impl<C> Node<C>
 where
     C: ConnectionBaseOperations + Send + Sync + Clone + 'static,
 {
     pub fn new(
-        node: Node,
+        node: MemNode,
         subscriber: Subscriber,
         metrics: Arc<MetricBuffer>,
-        xray_stats_client: Option<Arc<Mutex<XrayStatsClient>>>,
-        xray_handler_client: Option<Arc<Mutex<XrayHandlerClient>>>,
-        wg_client: Option<WgApi>,
+        #[cfg(feature = "xray")] stats_client: Option<Arc<Mutex<XrayStatsClient>>>,
+        #[cfg(feature = "xray")] handler_client: Option<Arc<Mutex<XrayHandlerClient>>>,
+        #[cfg(feature = "wireguard")] wg_client: Option<WgApi>,
     ) -> Self {
         let memory = Arc::new(RwLock::new(Connections::default()));
         Self {
@@ -55,20 +64,24 @@ where
             node,
             metrics,
             subscriber,
-            xray_stats_client,
-            xray_handler_client,
+            #[cfg(feature = "xray")]
+            stats_client,
+            #[cfg(feature = "xray")]
+            handler_client,
+            #[cfg(feature = "wireguard")]
             wg_client,
         }
     }
 }
 
-pub async fn run(settings: AgentSettings) -> Result<()> {
+pub async fn run(settings: ServiceSettings) -> Result<()> {
     let mut tasks: Vec<JoinHandle<()>> = vec![];
     let (shutdown_tx, _) = broadcast::channel::<()>(1);
 
     // Init Xray
-    let (xray_config, xray_stats_client, xray_handler_client) = if settings.xray.enabled {
-        let config = match XraySettings::new(&settings.xray.xray_config_path) {
+    #[cfg(feature = "xray")]
+    let (xray_config, stats_client, handler_client) = if settings.xray.enabled {
+        let config = match XraySettings::from_file(&settings.xray.path) {
             Ok(config) => {
                 info!(
                     "Xray Config: Successfully read Xray config file: {:?}",
@@ -98,6 +111,7 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
     };
 
     // Init Wireguard
+    #[cfg(feature = "wireguard")]
     let (wg_client, wg_config) = if settings.wg.enabled {
         let row_config = WireguardServerConfig::from_file(&settings.wg.path)?;
         let wg: WireguardSettings = row_config.try_into()?;
@@ -116,7 +130,7 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
 
     // Init Hysteria2
     let h2_config = if settings.h2.enabled {
-        match HysteriaServerConfig::from_file(&settings.h2.path) {
+        match Hysteria2Settings::from_file(&settings.h2.path) {
             Ok(cfg) => {
                 if let Err(e) = cfg.validate() {
                     error!("Hysteria2 config validation failed: {}", e);
@@ -142,53 +156,68 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
 
     // Init Mtproto
     let mtproto_config = if settings.mtproto.enabled {
-        Some(settings.mtproto.clone())
+        Some(MtprotoSettings::from_file(&settings.mtproto.path))
     } else {
         None
     };
 
     let node_config = NodeConfig::from_raw(settings.node.clone());
 
-    debug!("NODE {:?} ", node_config);
-    let node = Node::new(
+    let node = MemNode::new(
         node_config?,
+        #[cfg(feature = "xray")]
         xray_config,
-        wg_config.clone(),
+        #[cfg(feature = "wireguard")]
+        wg_config,
         h2_config,
         mtproto_config,
     );
 
-    let zmq_endpoint = settings.zmq.endpoint.clone();
-    let subscriber = Subscriber::new(&zmq_endpoint, &node.uuid, &node.env.to_string());
+    let topic_init: Topic = settings.node.env.clone().into();
+    let topic_updates: Topic = settings.node.uuid.into();
 
-    let metric_publisher = Publisher::connect(&settings.metrics.publisher).await;
+    let topics = vec![topic_updates, topic_init];
+
+    tracing::debug!("Topics to connect {:?}", topics);
+    let subscriber = Subscriber::new(&settings.service.updates_endpoint_zmq, topics)?;
+    let metric_publisher = Publisher::connect(&settings.metrics.publisher).await?;
 
     let metrics = MetricBuffer {
         batch: parking_lot::Mutex::new(Vec::new()),
         publisher: metric_publisher,
     };
 
-    let agent = Arc::new(Agent::<Connection>::new(
+    let node = Arc::new(Node::<Connection>::new(
         node.clone(),
         subscriber,
         Arc::new(metrics),
-        xray_stats_client.clone(),
-        xray_handler_client.clone(),
+        #[cfg(feature = "xray")]
+        stats_client.clone(),
+        #[cfg(feature = "xray")]
+        handler_client.clone(),
+        #[cfg(feature = "wireguard")]
         wg_client.clone(),
     ));
 
-    let snapshot_path = settings.agent.snapshot_path.clone();
-    let snapshot_manager = SnapshotManager::new(snapshot_path, agent.memory.clone());
+    let snapshot_path = settings.service.snapshot_path.clone();
+    let snapshot_manager = SnapshotManager::new(snapshot_path, node.memory.clone());
 
     let snapshot_timestamp = if Path::new(&snapshot_manager.snapshot_path).exists() {
         match snapshot_manager.load_snapshot().await {
             Ok(Some(timestamp)) => {
+                #[cfg(feature = "wireguard")]
+                if let Err(e) = snapshot_manager.restore_wg_connections(wg_client).await {
+                    error!("Couldn't restore connections from memory, {}", e);
+                }
+
+                #[cfg(feature = "xray")]
                 if let Err(e) = snapshot_manager
-                    .restore_connections(agent.xray_handler_client.clone(), wg_client)
+                    .restore_xray_connections(handler_client)
                     .await
                 {
                     error!("Couldn't restore connections from memory, {}", e);
                 }
+
                 let count = snapshot_manager.len().await;
                 info!(
                     "Loaded {} connections from snapshot with ts  {}",
@@ -210,59 +239,59 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
         warn!("No snapshot found, starting fresh");
         None
     };
-
-    tokio::spawn(async move {
-        info!(
-            "Running snapshot task, interval {}",
-            settings.agent.snapshot_interval
-        );
-
-        let mut interval = tokio::time::interval(std::time::Duration::from_secs(
-            settings.agent.snapshot_interval,
-        ));
-
-        loop {
-            interval.tick().await;
-            if let Err(e) = measure_time(snapshot_manager.create_snapshot(), "Snapshot").await {
-                error!("Failed to create snapshot: {}", e);
-            } else {
-                let count = snapshot_manager.len().await;
-                debug!(
-                    "Connections snapshot saved successfully; {} Connections",
-                    count
-                );
-            }
-        }
-    });
-
     {
-        info!("ZMQ listener starting...");
-        let zmq_task = tokio::spawn({
-            let agent = agent.clone();
-            let mut shutdown = shutdown_tx.subscribe();
-            async move {
-                tokio::select! {
-                    _ = agent.run_subscriber() => {},
-                    _ = shutdown.recv() => {},
+        tokio::spawn(async move {
+            info!(
+                "Running snapshot task, interval {}",
+                settings.service.snapshot_interval
+            );
+
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(
+                settings.service.snapshot_interval,
+            ));
+
+            loop {
+                interval.tick().await;
+                if let Err(e) = measure_time(snapshot_manager.create_snapshot(), "Snapshot").await {
+                    error!("Failed to create snapshot: {}", e);
+                } else {
+                    let count = snapshot_manager.len().await;
+                    debug!(
+                        "Connections snapshot saved successfully; {} Connections",
+                        count
+                    );
                 }
             }
         });
-        tasks.push(zmq_task);
 
-        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        {
+            info!("ZMQ listener starting...");
+            let zmq_task = tokio::spawn({
+                let node = node.clone();
+                let mut shutdown = shutdown_tx.subscribe();
+                async move {
+                    tokio::select! {
+                        _ = node.run_subscriber() => {},
+                        _ = shutdown.recv() => {},
+                    }
+                }
+            });
+            tasks.push(zmq_task);
 
-        if !settings.agent.local {
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
             {
                 let settings = settings.clone();
                 let node = node.clone();
 
                 loop {
-                    match agent
+                    match node
                         .register_node(settings.api.endpoint.clone(), settings.api.token.clone())
                         .await
                     {
                         Ok(_) => {
                             let tags: Vec<_> = node
+                                .node
                                 .inbounds
                                 .keys()
                                 .filter(|k| !matches!(k, Tag::Hysteria2)) // Hysteria2 uses external auth provider
@@ -270,14 +299,13 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
                                 .collect();
 
                             for tag in tags {
-                                agent
-                                    .get_connections(
-                                        settings.api.endpoint.clone(),
-                                        settings.api.token.clone(),
-                                        *tag,
-                                        snapshot_timestamp,
-                                    )
-                                    .await?
+                                node.sync_connections(
+                                    settings.api.endpoint.clone(),
+                                    settings.api.token.clone(),
+                                    *tag,
+                                    snapshot_timestamp,
+                                )
+                                .await?
                             }
                             break;
                         }
@@ -288,19 +316,19 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
                     }
                 }
             };
-        }
-    };
+        };
+    }
 
     info!("Running metrics task");
 
     let metrics_handle: JoinHandle<()> = tokio::spawn({
-        let agent = agent.clone();
+        let node = node.clone();
         let mut shutdown = shutdown_tx.subscribe();
         async move {
             loop {
                 tokio::select! {
                     _ = sleep(Duration::from_secs(settings.metrics.interval)) => {
-                         agent.collect_metrics().await;
+                         node.collect_metrics().await;
 
                     },
                     _ = shutdown.recv() => {
@@ -314,13 +342,13 @@ pub async fn run(settings: AgentSettings) -> Result<()> {
 
     info!("Running flush metrics task");
     let metrics_flush_handle: JoinHandle<()> = tokio::spawn({
-        let agent = agent.clone();
+        let node = node.clone();
         let mut shutdown = shutdown_tx.subscribe();
         async move {
             loop {
                 tokio::select! {
                     _ = sleep(Duration::from_secs(settings.metrics.interval+3)) => {
-                         agent.metrics.flush_to_zmq().await;
+                         node.metrics.flush_to_zmq().await;
 
                     },
                     _ = shutdown.recv() => {

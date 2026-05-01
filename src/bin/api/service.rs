@@ -2,17 +2,16 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use pony::{
+use fcore::{
     Connection, ConnectionApiOperations, ConnectionBaseOperations, Connections, Env, MetricStorage,
     Node, NodeStorageOperations, Subscription, SubscriptionOperations, Subscriptions,
 };
 
-use super::config::ApiSettings;
-use super::sync::MemSync;
+use super::{config::ServiceSettings, sync::MemSync};
 
-pub type ApiState = Cache<HashMap<Env, Vec<Node>>, Connection, Subscription>;
+pub type State = Cache<HashMap<Env, Vec<Node>>, Connection, Subscription>;
 
-pub struct Api<N, C, S>
+pub struct Service<N, C, S>
 where
     N: NodeStorageOperations + Send + Sync + Clone + 'static,
     C: ConnectionBaseOperations
@@ -25,11 +24,11 @@ where
     S: SubscriptionOperations + Send + Sync + Clone + 'static,
 {
     pub sync: MemSync<N, C, S>,
-    pub settings: ApiSettings,
+    pub settings: ServiceSettings,
     pub metrics: Arc<MetricStorage>,
 }
 
-impl<N, C, S> Api<N, C, S>
+impl<N, C, S> Service<N, C, S>
 where
     N: NodeStorageOperations + Send + Sync + Clone + 'static,
     C: ConnectionBaseOperations
@@ -41,7 +40,11 @@ where
         + PartialEq,
     S: SubscriptionOperations + Send + Sync + Clone + 'static,
 {
-    pub fn new(sync: MemSync<N, C, S>, settings: ApiSettings, metrics: Arc<MetricStorage>) -> Self {
+    pub fn new(
+        sync: MemSync<N, C, S>,
+        settings: ServiceSettings,
+        metrics: Arc<MetricStorage>,
+    ) -> Self {
         Self {
             sync,
             settings,

@@ -1,0 +1,50 @@
+{
+	"folders": [{ "path": "." }],
+	"debugger_configurations": [
+		{
+			"name": "Debug: Node",
+			"type": "lldb",
+			"request": "launch",
+			"cargo": {
+				"args": ["build", "--bin", "node", "--features", "debug", ],
+				"env": { "RUSTFLAGS": "--cfg tokio_unstable" },
+			},
+			"executable": "${folder}/target/debug/node",
+			"program": "${folder}/target/debug/node",
+			"executable": "${folder}/target/debug/node",
+			"cwd": "${folder}",
+			"args": ["${folder}/experimental/config-node.toml"],
+			"env": {
+				"RUST_BACKTRACE": "full",
+				"RUST_LOG": "debug"
+			}
+		},
+		{
+			"name": "Debug: API",
+			"type": "lldb",
+			"request": "launch",
+			"cargo": {
+				"args": ["build", "--bin", "agent", "--features", "debug"],
+				"env": { "RUSTFLAGS": "--cfg tokio_unstable" },
+			},
+			"executable": "${folder}/target/debug/api",
+			"program": "${folder}/target/debug/api",
+			"cwd": "${folder}",
+			"terminal": "integrated",
+			"args": ["${folder}/experimental/config-api.toml"],
+			"env": {
+				"RUST_BACKTRACE": "full",
+				"RUST_LOG": "debug"
+			}
+		},
+		{
+			"name": "Debug: Auth",
+			"type": "lldb",
+			"request": "launch",
+			"cargo": { "args": ["build", "--bin", "auth"] },
+			"executable": "${folder}/target/debug/auth",
+			"cwd": "${folder}",
+			"terminal": "integrated",
+		},
+	],
+}

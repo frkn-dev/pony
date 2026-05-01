@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use pony::{Code, Tag};
+use fcore::Code;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct SubIdQueryParam {
@@ -20,14 +20,6 @@ pub struct NodeIdParam {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct ConnQueryParam {
     pub id: uuid::Uuid,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct ConnTypeParam {
-    pub proto: Tag,
-    pub last_update: Option<u64>,
-    pub env: Option<String>,
-    pub topic: String,
 }
 
 #[derive(Serialize, Deserialize)]

@@ -5,7 +5,7 @@ use tokio::sync::Mutex;
 
 use super::pg::PgClientManager;
 
-use pony::{Key, Result};
+use fcore::{Key, Result};
 
 pub struct PgKey {
     pub manager: Arc<Mutex<PgClientManager>>,

@@ -2,35 +2,35 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio::time::Duration;
 
-use pony::{
-    measure_time, utils::level_from_settings, MetricStorage, Publisher, Result, Settings,
-    Subscriber, BANNER, VERSION,
+use fcore::{
+    utils::level_from_settings, utils::measure_time, MetricStorage, Publisher, Result, Settings,
+    Subscriber, Topic, BANNER, VERSION,
 };
 
 use tracing::{debug, error, info};
 
-use crate::api::Api;
-use crate::api::ApiState;
-use crate::api::Cache;
-use crate::config::ApiSettings;
-use crate::http::routes::Http;
-use crate::metrics::MetricWorker;
-use crate::postgres::pg::PgContext;
-use crate::sync::MemSync;
-use crate::tasks::Tasks;
+use crate::{
+    config::ServiceSettings,
+    http::routes::Http,
+    metrics::MetricWorker,
+    postgres::pg::PgContext,
+    service::{Cache, Service, State},
+    sync::MemSync,
+    tasks::Tasks,
+};
 
-mod api;
 mod config;
 mod http;
 mod metrics;
 mod postgres;
+mod service;
 mod sync;
 mod tasks;
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    println!(">>> API Service {}", VERSION);
     println!("{}", BANNER);
-    println!(">>> {}", VERSION);
 
     #[cfg(feature = "debug")]
     console_subscriber::init();
@@ -40,13 +40,13 @@ async fn main() -> Result<()> {
         .expect("required config path as an argument");
     println!("Config file {:?}", config_path);
 
-    let settings = ApiSettings::new(config_path);
+    let settings = ServiceSettings::from_file(config_path);
 
     settings.validate().expect("Wrong settings file");
     println!(">>> Settings: {:?}", settings.clone());
 
     tracing_subscriber::fmt()
-        .with_env_filter(level_from_settings(&settings.logging.level))
+        .with_env_filter(level_from_settings(&settings.service.log_level))
         .init();
 
     let db = match PgContext::init(&settings.pg).await {
@@ -57,34 +57,38 @@ async fn main() -> Result<()> {
         }
     };
 
-    let publisher = Publisher::new(&settings.zmq.endpoint).await;
-
-    let mem: Arc<RwLock<ApiState>> = Arc::new(RwLock::new(Cache::new()));
-    let mem_sync = MemSync::new(mem.clone(), db.clone(), publisher.clone());
+    let mem: Arc<RwLock<State>> = Arc::new(RwLock::new(Cache::new()));
+    let publisher: Publisher = Publisher::new(&settings.service.updates_endpoint_zmq).await?;
+    let mem_sync = MemSync::new(mem.clone(), db.clone(), publisher);
     let metric_storage = Arc::new(MetricStorage::new(
-        settings.api.max_points,
-        settings.api.retention_seconds,
+        settings.metrics.max_points,
+        settings.metrics.retention_seconds,
+    ));
+    let api_service = Arc::new(Service::new(
+        mem_sync.clone(),
+        settings.clone(),
+        metric_storage,
     ));
 
-    let api = Arc::new(Api::new(mem_sync.clone(), settings.clone(), metric_storage));
+    measure_time(api_service.get_state_from_db(), "Init PostgreSQL DB").await?;
 
-    measure_time(api.get_state_from_db(), "Init PostgreSQL DB").await?;
-
-    let api_clone = api.clone();
+    let api_service_clone = api_service.clone();
     tokio::spawn(async move {
-        api_clone
-            .periodic_db_sync(settings.api.db_sync_interval_sec)
+        api_service_clone
+            .periodic_db_sync(settings.tasks.db_sync_interval_sec)
             .await;
     });
 
     debug!("Running metrics reciever task");
-    let subscriber = Subscriber::new_bound(&settings.metrics.reciever, settings.metrics.topic);
 
-    MetricWorker::start(api.metrics.clone(), subscriber).await;
+    let subscriber: Subscriber =
+        Subscriber::new_bound(&settings.metrics.reciever, vec![Topic::Metrics])?;
+
+    MetricWorker::start(api_service.metrics.clone(), subscriber).await;
 
     info!("Metrics system initialized via MetricWorker");
 
-    let metrics_storage = api.metrics.clone();
+    let metrics_storage = api_service.metrics.clone();
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
         loop {
@@ -99,48 +103,52 @@ async fn main() -> Result<()> {
     });
 
     tokio::spawn({
-        let api = api.clone();
+        let api_service = api_service.clone();
 
         let job_interval = Duration::from_secs(60);
         info!("cleanup_expired_connections task started");
 
         async move {
-            api.cleanup_expired_connections(job_interval.as_secs())
+            api_service
+                .cleanup_expired_connections(job_interval.as_secs())
                 .await;
         }
     });
 
     tokio::spawn({
-        let api = api.clone();
-        let job_interval = Duration::from_secs(settings.api.subscription_expire_interval);
+        let api_service = api_service.clone();
+        let job_interval = Duration::from_secs(settings.tasks.subscription_expire_interval);
         info!("cleanup_expired_subscriptions task started");
 
         async move {
-            api.cleanup_expired_subscriptions(job_interval.as_secs())
+            api_service
+                .cleanup_expired_subscriptions(job_interval.as_secs())
                 .await;
         }
     });
 
     tokio::spawn({
-        let api = api.clone();
-        let job_interval = Duration::from_secs(settings.api.subscription_restore_interval);
+        let api_service = api_service.clone();
+        let job_interval = Duration::from_secs(settings.tasks.subscription_restore_interval);
         info!("restore_subscriptions task started");
 
         async move {
-            api.restore_subscriptions(job_interval.as_secs()).await;
+            api_service
+                .restore_subscriptions(job_interval.as_secs())
+                .await;
         }
     });
 
-    let api = api.clone();
-    let api_settings = settings.api.clone();
-    let api_handle = tokio::spawn(async move {
-        if let Err(e) = api.run(api_settings).await {
+    let api_service = api_service.clone();
+    let service_settings = settings.service.clone();
+    let service_handle = tokio::spawn(async move {
+        if let Err(e) = api_service.run(service_settings).await {
             error!("API server exited with error: {}", e);
         }
     });
 
     let res: Result<()> = tokio::select! {
-        _ = api_handle => {
+        _ = service_handle => {
             println!("API server finished");
             Ok(())
         }

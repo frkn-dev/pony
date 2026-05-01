@@ -1,16 +1,16 @@
 use tonic::{Code, Request, Status};
 
-use pony::proto::xray::api::app::stats::command::{GetStatsRequest, GetStatsResponse};
+use fcore::proto::xray::api::app::stats::command::{GetStatsRequest, GetStatsResponse};
 
-use pony::{
+use fcore::{
     ConnectionBaseOperations, ConnectionStat, InboundStat, Prefix, Stat, StatKind, StatsOp, Tag,
     XrayConnOperation,
 };
 
-use super::agent::Agent;
+use super::node::Node;
 
 #[async_trait::async_trait]
-impl<C> StatsOp for Agent<C>
+impl<C> StatsOp for Node<C>
 where
     C: ConnectionBaseOperations + Send + Sync + Clone + 'static,
 {
@@ -20,7 +20,7 @@ where
         stat_type: Stat,
         reset: bool,
     ) -> Result<GetStatsResponse, Status> {
-        if let Some(client) = &self.xray_stats_client {
+        if let Some(client) = &self.stats_client {
             let mut stats_client = client.lock().await;
 
             let base_name = match prefix {
@@ -127,7 +127,7 @@ where
     }
 
     async fn conn_count(&self, inbound: Tag) -> Result<Option<i64>, Status> {
-        if let Some(client) = &self.xray_handler_client {
+        if let Some(client) = &self.handler_client {
             let mut handler_client = client.lock().await;
             handler_client
                 .conn_count_op(inbound)

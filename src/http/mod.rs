@@ -4,6 +4,7 @@ use warp::reject::Reject;
 
 pub mod filters;
 pub mod helpers;
+pub mod request;
 pub mod response;
 
 #[derive(Debug)]

@@ -1,20 +1,18 @@
-use tracing::info;
-
-use pony::{utils::level_from_settings, Settings, BANNER, VERSION};
-
-mod agent;
 mod config;
 mod http;
-pub(crate) mod metrics;
+mod metrics;
+mod node;
 mod snapshot;
+#[cfg(feature = "xray")]
 mod stats;
 mod tasks;
 
-use crate::config::AgentSettings;
+use config::ServiceSettings;
+use fcore::{utils::level_from_settings, Settings, BANNER, VERSION};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    println!(">>> Node {}", VERSION);
     println!("{}", BANNER);
-    println!(">>> {}", VERSION);
 
     #[cfg(feature = "debug")]
     console_subscriber::init();
@@ -24,20 +22,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .expect("required config path as an argument");
     println!("Config file {}", config_path);
 
-    let settings = AgentSettings::new(config_path);
+    let settings = ServiceSettings::from_file(config_path);
 
     settings.validate().expect("Wrong settings file");
+    println!(">>> Settings: {:?}", settings.clone());
 
     tracing_subscriber::fmt()
-        .with_env_filter(level_from_settings(&settings.logging.level))
+        .with_env_filter(level_from_settings(&settings.service.log_level))
         .init();
 
     let num_cpus = std::thread::available_parallelism()?.get();
 
     let worker_threads = if num_cpus <= 1 { 1 } else { num_cpus * 2 };
-    info!(
+    tracing::info!(
         "🧠 CPU cores: {}, configured worker threads: {}",
-        num_cpus, worker_threads
+        num_cpus,
+        worker_threads
     );
 
     let runtime = tokio::runtime::Builder::new_multi_thread()
@@ -46,7 +46,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build()
         .unwrap();
 
-    runtime.block_on(agent::run(settings))?;
+    runtime.block_on(node::run(settings))?;
 
     Ok(())
 }

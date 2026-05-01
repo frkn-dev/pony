@@ -2,35 +2,28 @@ use async_trait::async_trait;
 use std::sync::Arc;
 use warp::Filter;
 
-use pony::http::filters::{auth, with_i64};
-
-use pony::{
+use fcore::{
+    http::filters::{auth, with_i64},
     Connection, ConnectionApiOperations, ConnectionBaseOperations, NodeStorageOperations, Result,
     Subscription, SubscriptionOperations,
 };
 
-use super::super::api::Api;
-use super::filters::*;
-use super::handlers::connection::*;
-use super::handlers::key::*;
-use super::handlers::metrics::*;
-use super::handlers::node::*;
-use super::handlers::subscription::*;
-use super::param::*;
-use super::rejection;
-use super::request::*;
-
-use super::super::config::ApiServiceConfig;
-
-use super::handlers::healthcheck_handler;
+use super::{
+    super::{config::ServiceConfig, service::Service},
+    filters::*,
+    handlers::{connection::*, healthcheck_handler, key::*, metrics::*, node::*, subscription::*},
+    param::*,
+    rejection,
+    request::*,
+};
 
 #[async_trait]
 pub trait Http {
-    async fn run(&self, params: ApiServiceConfig) -> Result<()>;
+    async fn run(&self, params: ServiceConfig) -> Result<()>;
 }
 
 #[async_trait]
-impl<N, C, S> Http for Api<N, C, S>
+impl<N, C, S> Http for Service<N, C, S>
 where
     C: ConnectionBaseOperations
         + ConnectionApiOperations
@@ -47,8 +40,8 @@ where
 
     S: SubscriptionOperations + Send + Sync + Clone + 'static + PartialEq + From<Subscription>,
 {
-    async fn run(&self, params: ApiServiceConfig) -> Result<()> {
-        let auth = auth(Arc::new(self.settings.api.token.clone()));
+    async fn run(&self, params: ServiceConfig) -> Result<()> {
+        let auth = auth(Arc::new(self.settings.service.token.clone()));
 
         let cors = warp::cors()
             .allow_origin(params.base_url.as_str())
@@ -122,30 +115,30 @@ where
             .and_then(put_subscription_handler);
 
         // Connections Routes
+        let get_a_connection_route = warp::path!("connection")
+            .and(warp::get())
+            .and(auth.clone())
+            .and(warp::query::<ConnQueryParam>())
+            .and(with_sync(self.sync.clone()))
+            .and_then(get_connection_handler);
+
         let get_wg_connections_info_route = warp::path!("info" / "connections" / "wireguard")
             .and(warp::get())
             .and(warp::query::<ConnectionInfoRequest>())
             .and(with_sync(self.sync.clone()))
             .and_then(wireguard_connections_handler);
+
         let get_mtproto_connections_info_route = warp::path!("info" / "connections" / "mtproto")
             .and(warp::get())
             .and(warp::query::<ConnectionInfoRequest>())
             .and(with_sync(self.sync.clone()))
             .and_then(mtproto_connections_handler);
 
-        let get_connection_route = warp::get()
-            .and(warp::path("connection"))
-            .and(warp::path::end())
+        let post_connections_sync_route = warp::path("connections")
+            .and(warp::path("sync"))
+            .and(warp::post())
             .and(auth.clone())
-            .and(warp::query::<ConnQueryParam>())
-            .and(with_sync(self.sync.clone()))
-            .and_then(get_connection_handler);
-
-        let get_connections_route = warp::get()
-            .and(warp::path("connections"))
-            .and(warp::path::end())
-            .and(auth.clone())
-            .and(warp::query::<ConnTypeParam>())
+            .and(warp::body::json())
             .and(with_sync(self.sync.clone()))
             .and_then(get_connections_handler);
 
@@ -234,12 +227,12 @@ where
             .or(get_node_route)
             .or(post_node_register_route)
             // Connection
-            .or(get_connection_route)
-            .or(get_connections_route)
             .or(post_connection_route)
+            .or(post_connections_sync_route)
             .or(delete_connection_route)
             .or(get_mtproto_connections_info_route)
             .or(get_wg_connections_info_route)
+            .or(get_a_connection_route)
             // Key
             .or(get_key_validation_route)
             .or(post_key_route)
@@ -251,7 +244,7 @@ where
             .with(cors);
 
         warp::serve(routes)
-            .run((self.settings.api.listen, self.settings.api.port))
+            .run((self.settings.service.listen, self.settings.service.port))
             .await;
 
         Ok(())

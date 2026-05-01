@@ -10,34 +10,32 @@ pub mod zmq;
 pub use error::{Error, Result, SyncError};
 
 pub const BANNER: &str = r#"
-                         __      _
-                        / _|    | |
-                       | |_ _ __| | ___ __
-      _____      _     |  _| '__| |/ / '_ \
-     |  __ \    (_)    | | | |  |   <| | | |
-     | |__) | __ ___   |_|_|_| _|_|\_\_| |_|
-     |  ___/ '__| \ \ / / _` |/ __| | | |
-     | |   | |  | |\ V / (_| | (__| |_| |
-     |_|___|_|  |_| \_/ \__,_|\___|\__, |
-      / ____|                        __/ |
-     | |     ___  _ __ ___  _ __   |___/_ __  _   _
-     | |    / _ \| '_ ` _ \| '_ \ / _` | '_ \| | | |
-     | |___| (_) | | | | | | |_) | (_| | | | | |_| |
-      \_____\___/|_| |_| |_| .__/ \__,_|_| |_|\__, |
-                           | |                 __/ |
-                           |_|                |___/
+//                       __      _
+//                      / _|    | |
+//                     | |_ _ __| | ___ __
+//       _____      _  |  _| '__| |/ / '_ \
+//      |  __ \    (_) | | | |  |   <| | | |
+//      | |__) | __ ___|_|_|_| _|_|\_\_| |_|
+//      |  ___/ '__| \ \ / / _` |/ __| | | |
+//      | |   | |  | |\ V / (_| | (__| |_| |
+//      |_|___|_|  |_| \_/ \__,_|\___|\__, |
+//       / ____|                      __/  /
+//      | |     ___  _ __ ___  _ __  | ___/_ __  _   _
+//      | |    / _ \| '_ ` _ \| '_ \ / _` | '_ \| | | |
+//      | |___| (_) | | | | | | |_) | (_| | | | | |_| |
+//       \_____\___/|_| |_| |_| .__/ \__,_|_| |_|\__, |
+//                            | |                 __/ /
+//                            |_|                |___/
 "#;
 
-pub const VERSION: &str = "0.4.11-dev";
+pub const VERSION: &str = "0.5.0-dev";
 
 pub use config::{
     clash::InboundClashConfig,
-    h2::{H2Settings, HysteriaServerConfig},
+    h2::{H2Settings, Hysteria2Settings},
     inbound::{Inbound, InboundConnLink, Settings as XraySettings},
-    settings::{
-        ApiAccessConfig, LoggingConfig, MetricsTxConfig, MtprotoConfig, NodeConfig, NodeConfigRaw,
-        Settings, ZmqSubscriberConfig,
-    },
+    mtproto::MtprotoSettings,
+    settings::{ApiAccessConfig, MetricsTxConfig, NodeConfig, NodeConfigRaw, Settings},
     wireguard::{WireguardServerConfig, WireguardSettings},
 };
 
@@ -76,16 +74,15 @@ pub use metrics::{
     storage::{HasMetrics, MetricBuffer, MetricStorage},
     MetricEnvelope, Metrics,
 };
-
-pub use proto::{
-    wireguard::WgApi,
-    xray::{
-        client::{
-            ConnOp as XrayConnOperation, HandlerActions as XrayHandlerActions,
-            HandlerClient as XrayHandlerClient, StatsClient as XrayStatsClient, XrayClient,
-        },
-        stats::{Prefix, StatsOp},
+#[cfg(feature = "wireguard")]
+pub use proto::wireguard::WgApi;
+#[cfg(feature = "xray")]
+pub use proto::xray::{
+    client::{
+        ConnOp as XrayConnOperation, HandlerActions as XrayHandlerActions,
+        HandlerClient as XrayHandlerClient, StatsClient as XrayStatsClient, XrayClient,
     },
+    stats::{Prefix, StatsOp},
 };
 
 pub use utils::*;
@@ -94,5 +91,5 @@ pub use zmq::{
     message::{Action, Message},
     publisher::Publisher,
     subscriber::Subscriber,
-    Topic,
+    topic::Topic,
 };

@@ -1,28 +1,26 @@
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-use pony::http::helpers as http;
-use pony::http::response::Instance;
-
-use pony::{
+use fcore::{
+    http::{helpers as http, response::Instance},
     ApiAccessConfig, ConnectionBaseOperations, ConnectionStorageBaseOperations, Connections, Env,
 };
 
-use super::auth::DEFAULT_DAYS;
-use super::auth::PROTOS;
+#[cfg(feature = "email")]
 use super::email::EmailStore;
 use super::helpers::{activate_key, validate_key};
 use super::helpers::{create_connection, create_subscription, get_subscription};
 use super::http::HttpClient;
 use super::request;
 use super::response;
+use super::service::DEFAULT_DAYS;
+use super::service::PROTOS;
 
 pub async fn activate_key_handler(
     req: request::ActivateKey,
     http: HttpClient,
     api: ApiAccessConfig,
 ) -> Result<impl warp::Reply, warp::Rejection> {
-    // 1. Validate Key
     let key = match validate_key(&http, &api.endpoint, &api.token, &req.code).await {
         Ok(k) => k,
         Err(e) => {
@@ -85,6 +83,7 @@ pub async fn activate_key_handler(
     ))
 }
 
+#[cfg(feature = "email")]
 pub async fn trial_handler(
     req: request::Trial,
     store: EmailStore,

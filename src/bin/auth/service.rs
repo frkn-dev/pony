@@ -1,26 +1,27 @@
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::Path;
 use std::sync::Arc;
-use tokio::signal;
-use tokio::sync::broadcast;
-use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
-use tokio::time::sleep;
-use tokio::time::Duration;
+use tokio::time::{sleep, Duration};
+use tokio::{
+    signal,
+    sync::{broadcast, RwLock},
+};
 use warp::Filter;
 
-use pony::http::filters as my_filters;
-use pony::{ApiAccessConfig, NodeConfig};
-use pony::{
-    BaseConnection as Connection, ConnectionBaseOperations, Connections, MetricBuffer, Node,
-    Publisher, Result, SnapshotManager, Subscriber,
+use fcore::{
+    http::filters as my_filters, ApiAccessConfig, BaseConnection as Connection,
+    ConnectionBaseOperations, Connections, MetricBuffer, Node, NodeConfig, Publisher, Result,
+    SnapshotManager, Subscriber, Tag, Topic,
 };
 
-use super::config::AuthServiceSettings;
+use super::config::ServiceSettings;
+#[cfg(feature = "email")]
 use super::email::EmailStore;
 use super::filters;
-use super::handlers::{activate_key_handler, auth_handler};
-use super::handlers::{tg_trial_handler, trial_handler};
+#[cfg(feature = "email")]
+use super::handlers::trial_handler;
+use super::handlers::{activate_key_handler, auth_handler, tg_trial_handler};
 use super::http::{ApiRequests, HttpClient};
 use super::request;
 use super::tasks::Tasks;
@@ -35,7 +36,7 @@ pub const PROTOS: [&str; 5] = [
 
 pub const DEFAULT_DAYS: i64 = 1;
 
-pub struct AuthService<C>
+pub struct Service<C>
 where
     C: ConnectionBaseOperations + Send + Sync + Clone + 'static,
 {
@@ -43,14 +44,16 @@ where
     pub metrics: Arc<MetricBuffer>,
     pub node: Node,
     pub subscriber: Subscriber,
+    #[cfg(feature = "email")]
     pub email_store: EmailStore,
     pub http_client: HttpClient,
     pub api: ApiAccessConfig,
     pub listen: Ipv4Addr,
     pub port: u16,
+    pub origin: String,
 }
 
-impl<C> AuthService<C>
+impl<C> Service<C>
 where
     C: ConnectionBaseOperations + Send + Sync + Clone + 'static + std::fmt::Display,
 {
@@ -58,10 +61,11 @@ where
         metrics: Arc<MetricBuffer>,
         node: Node,
         subscriber: Subscriber,
-        email_store: EmailStore,
+        #[cfg(feature = "email")] email_store: EmailStore,
         http_client: HttpClient,
         api: ApiAccessConfig,
         listen: (Ipv4Addr, u16),
+        origin: String,
     ) -> Self {
         let memory = Arc::new(RwLock::new(Connections::default()));
         Self {
@@ -69,19 +73,21 @@ where
             metrics,
             node,
             subscriber,
+            #[cfg(feature = "email")]
             email_store,
             http_client,
             api,
             listen: listen.0,
             port: listen.1,
+            origin,
         }
     }
 
-    pub async fn start_auth_server(&self) {
+    pub async fn start_server(&self) {
         let health_check = warp::path("health-check").map(|| "Server OK");
 
         let cors = warp::cors()
-            .allow_origin(self.email_store.web_host.as_str())
+            .allow_origin(self.origin.as_str())
             .allow_methods(vec!["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"])
             .allow_headers(vec!["Authorization", "Content-Type"])
             .max_age(86400)
@@ -89,11 +95,14 @@ where
 
         tracing::debug!("CORS: {:?}", cors.clone());
 
+        #[cfg(feature = "email")]
         let email_store = self.email_store.clone();
+
         let memory = self.memory.clone();
         let http_client = self.http_client.clone();
         let api = self.api.clone();
 
+        #[cfg(feature = "email")]
         let trial_route = warp::post()
             .and(warp::path("trial"))
             .and(warp::body::json::<request::Trial>())
@@ -124,9 +133,11 @@ where
 
         let routes = health_check
             .or(auth_route)
-            .or(trial_route)
             .or(tg_trial_route)
             .or(activate_route);
+
+        #[cfg(feature = "email")]
+        let routes = routes.or(trial_route);
 
         warp::serve(routes.with(cors))
             .run(SocketAddr::new(IpAddr::V4(self.listen), self.port))
@@ -134,48 +145,48 @@ where
     }
 }
 
-pub async fn run(settings: AuthServiceSettings) -> Result<()> {
+pub async fn run(settings: ServiceSettings) -> Result<()> {
     let mut tasks: Vec<JoinHandle<()>> = vec![];
     let (shutdown_tx, _) = broadcast::channel::<()>(1);
 
     let node_config = NodeConfig::from_raw(settings.node.clone());
-    let node = Node::new(node_config?, None, None, None, None);
+    let node = Node::new(node_config?, None, None);
+
+    let topic_init: Topic = settings.node.uuid.into();
 
     let subscriber = Subscriber::new(
-        &settings.zmq.endpoint,
-        &settings.node.uuid,
-        &settings.node.env,
+        &settings.service.updates_endpoint_zmq,
+        vec![topic_init, Topic::Auth],
     );
 
-    let email_store = EmailStore::new(
-        settings.auth.email_file.clone(),
-        settings.smtp.clone(),
-        settings.auth.email_sign_token.clone(),
-        settings.auth.web_host.clone(),
-    );
-
+    #[cfg(feature = "email")]
+    let email_store = EmailStore::new(settings.smtp.clone());
+    #[cfg(feature = "email")]
     email_store.load_trials().await?;
-    let http_client = HttpClient::new();
 
-    let metric_publisher = Publisher::connect(&settings.metrics.publisher).await;
+    let http_client = HttpClient::new();
 
     let metrics = MetricBuffer {
         batch: parking_lot::Mutex::new(Vec::new()),
-        publisher: metric_publisher,
+        publisher: Publisher::connect(&settings.metrics.publisher).await?,
     };
 
-    let auth = Arc::new(AuthService::<Connection>::new(
+    let auth_service = Arc::new(Service::<Connection>::new(
         Arc::new(metrics),
         node,
-        subscriber,
+        subscriber?,
+        #[cfg(feature = "email")]
         email_store,
         http_client,
         settings.api.clone(),
-        (settings.auth.listen, settings.auth.port),
+        (settings.service.listen, settings.service.port),
+        settings.service.origin.clone(),
     ));
 
-    let snapshot_manager =
-        SnapshotManager::new(settings.clone().auth.snapshot_path, auth.memory.clone());
+    let snapshot_manager = SnapshotManager::new(
+        settings.clone().service.snapshot_path,
+        auth_service.memory.clone(),
+    );
 
     let snapshot_timestamp = if Path::new(&snapshot_manager.snapshot_path).exists() {
         match snapshot_manager.load_snapshot().await {
@@ -207,11 +218,11 @@ pub async fn run(settings: AuthServiceSettings) -> Result<()> {
     let snapshot_handle = tokio::spawn(async move {
         tracing::info!(
             "Running snapshot task, interval {}",
-            settings.auth.snapshot_interval
+            settings.service.snapshot_interval
         );
 
         let mut interval = tokio::time::interval(std::time::Duration::from_secs(
-            settings.auth.snapshot_interval,
+            settings.service.snapshot_interval,
         ));
         loop {
             interval.tick().await;
@@ -230,11 +241,11 @@ pub async fn run(settings: AuthServiceSettings) -> Result<()> {
         tracing::info!("ZMQ listener starting...");
 
         let zmq_task = tokio::spawn({
-            let auth = auth.clone();
+            let auth_service = auth_service.clone();
             let mut shutdown = shutdown_tx.subscribe();
             async move {
                 tokio::select! {
-                    _ = auth.run_subscriber() => {},
+                    _ = auth_service.run_subscriber() => {},
                     _ = shutdown.recv() => {},
                 }
             }
@@ -246,15 +257,15 @@ pub async fn run(settings: AuthServiceSettings) -> Result<()> {
 
     {
         let settings = settings.clone();
-        let auth = auth.clone();
+        let auth_service = auth_service.clone();
 
         loop {
             let api_token = settings.api.token.clone();
-            match auth
+            match auth_service
                 .get_connections(
                     settings.api.endpoint.clone(),
                     api_token,
-                    pony::Tag::Hysteria2,
+                    Tag::Hysteria2,
                     snapshot_timestamp,
                 )
                 .await
@@ -272,27 +283,27 @@ pub async fn run(settings: AuthServiceSettings) -> Result<()> {
 
     {
         let mut shutdown = shutdown_tx.subscribe();
-        let auth = auth.clone();
+        let auth_service = auth_service.clone();
 
-        let auth_handle = tokio::spawn(async move {
+        let service_handle = tokio::spawn(async move {
             tokio::select! {
-                _ = auth.start_auth_server() => {},
+                _ = auth_service.start_server() => {},
                 _ = shutdown.recv() => {},
             }
         });
-        tasks.push(auth_handle);
+        tasks.push(service_handle);
     };
 
     tracing::info!("Running metrics task");
 
-    let auth_for_collect = auth.clone();
+    let service_to = auth_service.clone();
     let metrics_handle = tokio::spawn({
         let mut shutdown = shutdown_tx.subscribe();
         async move {
             loop {
                 tokio::select! {
                     _ = sleep(Duration::from_secs(settings.metrics.interval)) => {
-                        auth_for_collect.collect_metrics().await;
+                        service_to.collect_metrics().await;
                     },
                     _ = shutdown.recv() => break,
                 }
@@ -300,7 +311,7 @@ pub async fn run(settings: AuthServiceSettings) -> Result<()> {
         }
     });
 
-    let auth_for_flush = auth.clone();
+    let service_to = auth_service.clone();
     tracing::info!("Running flush metrics task");
     let metrics_flush_handle = tokio::spawn({
         let mut shutdown = shutdown_tx.subscribe();
@@ -308,7 +319,7 @@ pub async fn run(settings: AuthServiceSettings) -> Result<()> {
             loop {
                 tokio::select! {
                     _ = sleep(Duration::from_secs(settings.metrics.interval + 2)) => {
-                        auth_for_flush.metrics.flush_to_zmq().await;
+                        service_to.metrics.flush_to_zmq().await;
                     },
                     _ = shutdown.recv() => break,
                 }

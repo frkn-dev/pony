@@ -1,3 +1,4 @@
+#[cfg(feature = "wireguard")]
 use defguard_wireguard_rs::{error::WireguardInterfaceError, net::IpAddrParseError};
 use thiserror::Error as ThisError;
 
@@ -22,14 +23,20 @@ pub enum Error {
     Json(#[from] serde_json::Error),
 
     #[error(transparent)]
+    Yaml(#[from] serde_yaml::Error),
+
+    #[error(transparent)]
     Join(#[from] tokio::task::JoinError),
 
+    #[cfg(feature = "xray")]
     #[error(transparent)]
     XrayUri(#[from] tonic::codegen::http::uri::InvalidUri),
 
+    #[cfg(feature = "xray")]
     #[error(transparent)]
     XrayTransport(#[from] tonic::transport::Error),
 
+    #[cfg(feature = "xray")]
     #[error(transparent)]
     Grpc(#[from] Box<tonic::Status>),
 
@@ -39,9 +46,11 @@ pub enum Error {
     #[error(transparent)]
     Zmq(#[from] zmq::Error),
 
+    #[cfg(feature = "wireguard")]
     #[error(transparent)]
     Wireguard(#[from] WireguardInterfaceError),
 
+    #[cfg(feature = "wireguard")]
     #[error(transparent)]
     IpParseError(#[from] IpAddrParseError),
 
@@ -110,18 +119,13 @@ impl From<String> for Error {
     }
 }
 
-impl From<anyhow::Error> for Error {
-    fn from(err: anyhow::Error) -> Self {
-        Error::Custom(err.to_string())
-    }
-}
-
 impl<T: std::fmt::Debug> From<tokio::sync::mpsc::error::SendError<T>> for Error {
     fn from(err: tokio::sync::mpsc::error::SendError<T>) -> Self {
         Error::Custom(format!("SendError: {:?}", err))
     }
 }
 
+#[cfg(feature = "xray")]
 impl From<tonic::Status> for Error {
     fn from(status: tonic::Status) -> Self {
         Error::Grpc(Box::new(status))

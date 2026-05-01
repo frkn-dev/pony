@@ -4,23 +4,27 @@ use tokio::time::{sleep, Duration};
 use zmq;
 use zmq::Socket;
 
+use crate::{Error, Topic};
+
 #[derive(Clone)]
 pub struct Publisher {
     socket: Arc<Mutex<Socket>>,
 }
 
 impl Publisher {
-    pub async fn bind(endpoint: &str) -> Self {
+    pub async fn bind(endpoint: &str) -> Result<Self, Error> {
         Self::init(endpoint, true).await
     }
 
-    pub async fn connect(endpoint: &str) -> Self {
+    pub async fn connect(endpoint: &str) -> Result<Self, Error> {
         Self::init(endpoint, false).await
     }
 
-    async fn init(endpoint: &str, is_bind: bool) -> Self {
+    async fn init(endpoint: &str, is_bind: bool) -> Result<Self, Error> {
         let context = zmq::Context::new();
         let publisher = context.socket(zmq::PUB).expect("Failed to create socket");
+
+        publisher.set_sndhwm(1000)?;
 
         let mut i = 0;
         loop {
@@ -52,19 +56,19 @@ impl Publisher {
 
         sleep(Duration::from_millis(1000)).await;
 
-        Self {
+        Ok(Self {
             socket: Arc::new(Mutex::new(publisher)),
-        }
+        })
     }
 
-    pub async fn new(endpoint: &str) -> Self {
+    pub async fn new(endpoint: &str) -> Result<Self, Error> {
         Self::bind(endpoint).await
     }
 
-    pub async fn send_binary(&self, topic: &str, payload: &[u8]) -> zmq::Result<()> {
+    pub async fn send_binary(&self, topic: &Topic, payload: &[u8]) -> zmq::Result<()> {
         let socket = self.socket.lock().await;
 
-        socket.send(topic, zmq::SNDMORE)?;
+        socket.send(topic.as_str().as_ref(), zmq::SNDMORE)?;
         socket.send(payload, 0)?;
 
         tracing::debug!("PUB: Message sent: {} | {} bytes", topic, payload.len());

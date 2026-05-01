@@ -1,5 +1,5 @@
-mod auth;
 mod config;
+#[cfg(feature = "email")]
 mod email;
 mod filters;
 mod handlers;
@@ -8,17 +8,16 @@ mod http;
 mod metrics;
 mod request;
 mod response;
+mod service;
 mod tasks;
 
-use config::AuthServiceSettings;
-
-use pony::Settings;
-
-use pony::{utils::level_from_settings, BANNER, VERSION};
+use config::ServiceSettings;
+use fcore::{utils::level_from_settings, Settings, BANNER, VERSION};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    println!(">>> Auth Service {}", VERSION);
+
     println!("{}", BANNER);
-    println!(">>> {}", VERSION);
 
     #[cfg(feature = "debug")]
     console_subscriber::init();
@@ -28,14 +27,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .expect("required config path as an argument");
     println!("Config file {}", config_path);
 
-    let settings = AuthServiceSettings::new(config_path);
+    let settings = ServiceSettings::from_file(config_path);
 
     settings.validate().expect("Wrong settings file");
     println!(">>> Settings: {:?}", settings.clone());
-    println!(">>> Version: 0.4.10-dev");
 
     tracing_subscriber::fmt()
-        .with_env_filter(level_from_settings(&settings.logging.level))
+        .with_env_filter(level_from_settings(&settings.service.log_level))
         .init();
 
     let num_cpus = std::thread::available_parallelism()?.get();
@@ -53,7 +51,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build()
         .unwrap();
 
-    runtime.block_on(auth::run(settings))?;
+    runtime.block_on(service::run(settings))?;
 
     Ok(())
 }

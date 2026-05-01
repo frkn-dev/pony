@@ -5,15 +5,16 @@ use std::time::Duration;
 
 use tracing::{debug, error, info, warn};
 
-use pony::{
+use fcore::{
     measure_time, Connection, ConnectionBaseOperations, ConnectionStorageApiOperations, Env, Node,
     Result, Status, Subscription, SubscriptionOperations,
 };
 
-use super::api::Api;
-use super::api::Cache;
-use super::postgres::pg::Tasks as MemoryCacheTasks;
-use super::sync::tasks::SyncOp;
+use super::{
+    postgres::pg::Tasks as MemoryCacheTasks,
+    service::{Cache, Service},
+    sync::tasks::SyncOp,
+};
 
 #[async_trait::async_trait]
 pub trait Tasks {
@@ -25,7 +26,7 @@ pub trait Tasks {
 }
 
 #[async_trait::async_trait]
-impl Tasks for Api<HashMap<Env, Vec<Node>>, Connection, Subscription> {
+impl Tasks for Service<HashMap<Env, Vec<Node>>, Connection, Subscription> {
     async fn cleanup_expired_connections(&self, interval_sec: u64) {
         let mut interval = tokio::time::interval(Duration::from_secs(interval_sec));
 

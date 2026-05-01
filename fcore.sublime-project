@@ -6,7 +6,7 @@
 			"type": "lldb",
 			"request": "launch",
 			"cargo": {
-				"args": ["build", "--bin", "node", "--features", "debug", ],
+				"args": ["build", "--bin", "node", "--features", "debug,xray,wireguard", ],
 				"env": { "RUSTFLAGS": "--cfg tokio_unstable" },
 			},
 			"executable": "${folder}/target/debug/node",
@@ -24,7 +24,7 @@
 			"type": "lldb",
 			"request": "launch",
 			"cargo": {
-				"args": ["build", "--bin", "agent", "--features", "debug"],
+				"args": ["build", "--bin", "api", "--features", "debug"],
 				"env": { "RUSTFLAGS": "--cfg tokio_unstable" },
 			},
 			"executable": "${folder}/target/debug/api",
@@ -41,7 +41,7 @@
 			"name": "Debug: Auth",
 			"type": "lldb",
 			"request": "launch",
-			"cargo": { "args": ["build", "--bin", "auth"] },
+			"cargo": { "args": ["build", "--bin", "auth", "--features", "debug,email"] },
 			"executable": "${folder}/target/debug/auth",
 			"cwd": "${folder}",
 			"terminal": "integrated",

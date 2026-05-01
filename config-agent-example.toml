@@ -1,48 +1,40 @@
+[service]
+snapshot_interval = 60
+snapshot_path = "snapshots/snapshot-agent.bin"
+log_velel = "debug"
+updates_endpoint_zmq = "tcp://localhost:3001"
+
+[metrics]
+interval = 100
+publisher = "tcp://localhost:3002"
+
+[xray]
+enabled = true
+path = "dev/xray-config.json"
+
+[h2]
+enabled = true
+path = "dev/h2.yaml"
+
+[wg]
+enabled =  false
+path = "dev/utun7.conf"
+
+[mtproto]
+enabled = true
+path = "dev/teleproxy.toml"
+
 [node]
 env = "experimental"
-uuid = "ab514c21-aaaa-bbbb-91f7-32f8cb1aaaaa"
-hostname = "darkmachine.frkn.local"
+uuid = "ab514c21-aaaa-bbbb-cccc-32f8cb1ada40"
+hostname = "darkmachine2.frkn.local"
+default_interface = "ens0"
 address = "192.168.1.100"
-label = "🏴‍☠️ Darkmachine"
+label = "Darkmachine 🏴‍☠️ "
 max_bandwidth_bps = 1000000000
 country = "RU"
 type = "common"
 
-
-[agent]
-local = false
-snapshot_interval = 30
-snapshot_path = "snapshots/agent_snapshot.bin"
-
-[xray]
-enabled = true
-xray_config_path = "/etc/xray/config.json"
-
-[wg]
-enabled = true
-port = 51820
-interface = "wg0"
-
-[h2]
-enabled = false
-path = "etc/frkn/h2.yaml"
-
-[mtproto]
-enabled = true
-port = 8443
-secret = "dd00112233445566778899aabbccddeeff"
-
-[metrics]
-enabled = true
-publisher = "tcp://api-server-ip:5555"
-interval = 10
-
 [api]
-endpoint = "https://api.frkn.org"
-token = "your-super-secret-api-token"
-
-[logging]
-level = "warn"
-
-[zmq]
-endpoint = "tcp://api-server-ip:3000"
+endpoint = "http://127.0.0.1:3000"
+token = "supetsecrettoken"

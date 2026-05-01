@@ -150,7 +150,7 @@ pub async fn run(settings: ServiceSettings) -> Result<()> {
     let (shutdown_tx, _) = broadcast::channel::<()>(1);
 
     let node_config = NodeConfig::from_raw(settings.node.clone());
-    let node = Node::new(node_config?, None, None, None, None);
+    let node = Node::new(node_config?, None, None);
 
     let topic_init: Topic = settings.node.uuid.into();
 

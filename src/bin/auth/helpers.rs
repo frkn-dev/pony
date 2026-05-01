@@ -1,12 +1,9 @@
-use pony::http::response::ResponseMessage;
-use pony::http::response::SubscriptionResponse;
-use pony::http::response::{Instance, InstanceWithId};
-
-use pony::Subscription;
-
 use serde::Deserialize;
 
-use pony::{Code, Env, Key};
+use fcore::{
+    http::response::{Instance, InstanceWithId, ResponseMessage, SubscriptionResponse},
+    Code, Env, Error, Key, Result, Subscription,
+};
 
 use super::http::HttpClient;
 
@@ -21,7 +18,7 @@ pub async fn validate_key(
     api_address: &str,
     api_token: &str,
     key: &Code,
-) -> anyhow::Result<Key> {
+) -> Result<Key> {
     let url = format!("{}/key/validate?key={}", api_address, key);
     tracing::debug!("URL = {}", url);
 
@@ -36,7 +33,7 @@ pub async fn validate_key(
 
         match parsed.response.instance {
             Instance::Key(key) => Ok(key),
-            _ => anyhow::bail!("Unexpected instance type"),
+            _ => Err(Error::Custom("Unexpected instance type".into())),
         }
     } else {
         #[derive(Deserialize)]
@@ -44,7 +41,9 @@ pub async fn validate_key(
             message: Option<String>,
         }
         let err: ErrResp = serde_json::from_str(&text).unwrap_or(ErrResp { message: None });
-        anyhow::bail!(err.message.unwrap_or_else(|| "Unknown error".to_string()))
+        Err(Error::Custom(
+            err.message.unwrap_or_else(|| "Unknown error".to_string()),
+        ))
     }
 }
 
@@ -53,7 +52,7 @@ pub async fn get_subscription(
     api_address: &str,
     api_token: &str,
     subscription_id: &uuid::Uuid,
-) -> anyhow::Result<SubscriptionResponse> {
+) -> Result<SubscriptionResponse> {
     let url = format!("{}/subscription/{}", api_address, subscription_id);
     tracing::debug!("URL = {}", url);
 
@@ -77,7 +76,9 @@ pub async fn get_subscription(
             message: Option<String>,
         }
         let err: ErrResp = serde_json::from_str(&text).unwrap_or(ErrResp { message: None });
-        anyhow::bail!(err.message.unwrap_or_else(|| "Unknown error".to_string()))
+        Err(Error::Custom(
+            err.message.unwrap_or_else(|| "Unknown error".to_string()),
+        ))
     }
 }
 
@@ -87,7 +88,7 @@ pub async fn activate_key(
     api_token: &str,
     key: &Code,
     sub_id: &uuid::Uuid,
-) -> anyhow::Result<Key> {
+) -> Result<Key> {
     let url = format!("{}/key/activate?", api_address);
     tracing::debug!("URL = {}", url);
 
@@ -110,7 +111,7 @@ pub async fn activate_key(
 
         match parsed.response.instance {
             Instance::Key(key) => Ok(key),
-            _ => anyhow::bail!("Unexpected instance type"),
+            _ => Err(Error::Custom("Unexpected instance type".into())),
         }
     } else {
         #[derive(Deserialize)]
@@ -118,7 +119,9 @@ pub async fn activate_key(
             message: Option<String>,
         }
         let err: ErrResp = serde_json::from_str(&text).unwrap_or(ErrResp { message: None });
-        anyhow::bail!(err.message.unwrap_or_else(|| "Unknown error".to_string()))
+        Err(Error::Custom(
+            err.message.unwrap_or_else(|| "Unknown error".to_string()),
+        ))
     }
 }
 
@@ -128,7 +131,7 @@ pub async fn create_subscription(
     api_token: &str,
     days: i64,
     referred_by: &str,
-) -> anyhow::Result<Subscription> {
+) -> Result<Subscription> {
     let url = format!("{}/subscription", api_address);
     tracing::debug!("URL = {}", url);
 
@@ -150,7 +153,7 @@ pub async fn create_subscription(
 
         match parsed.response.instance {
             Instance::Subscription(sub) => Ok(sub),
-            _ => anyhow::bail!("Unexpected instance type"),
+            _ => Err(Error::Custom("Unexpected instance type".into())),
         }
     } else {
         #[derive(Deserialize)]
@@ -158,7 +161,9 @@ pub async fn create_subscription(
             message: Option<String>,
         }
         let err: ErrResp = serde_json::from_str(&text).unwrap_or(ErrResp { message: None });
-        anyhow::bail!(err.message.unwrap_or_else(|| "Unknown error".to_string()))
+        Err(Error::Custom(
+            err.message.unwrap_or_else(|| "Unknown error".to_string()),
+        ))
     }
 }
 
@@ -169,7 +174,7 @@ pub async fn create_connection(
     sub_id: &uuid::Uuid,
     api_address: &str,
     api_token: &str,
-) -> anyhow::Result<uuid::Uuid> {
+) -> Result<uuid::Uuid> {
     tracing::debug!("POST /connection {}", env);
 
     let res = auth_headers(
@@ -190,7 +195,7 @@ pub async fn create_connection(
     tracing::debug!("Connection resp: {}", text);
 
     if text.is_empty() {
-        anyhow::bail!("empty connection response, status = {}", status);
+        Error::Custom(format!("empty connection response, status = {}", status));
     }
 
     let parsed: ResponseMessage<InstanceWithId<Instance>> = serde_json::from_str(&text)?;

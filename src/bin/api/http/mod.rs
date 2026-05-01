@@ -1,7 +1,7 @@
-use pony::http::AuthError;
-use pony::http::MethodError;
 use warp::reject;
 use warp::{http::StatusCode, Rejection, Reply};
+
+use fcore::http::{AuthError, MethodError};
 
 mod filters;
 pub(crate) mod handlers;

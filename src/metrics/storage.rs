@@ -1,10 +1,9 @@
 use dashmap::DashMap;
 use std::collections::{BTreeMap, HashSet, VecDeque};
 
-use super::MetricEnvelope;
-use super::MetricPoint;
+use super::{MetricEnvelope, MetricPoint};
 use crate::memory::node::Node;
-use crate::zmq::publisher::Publisher;
+use crate::zmq::{publisher::Publisher, topic::Topic};
 
 pub trait HasMetrics {
     fn metrics(&self) -> &MetricBuffer;
@@ -70,7 +69,7 @@ impl MetricBuffer {
 
         if let Err(e) = &self
             .publisher
-            .send_binary("metrics", bytes.as_slice())
+            .send_binary(&Topic::Metrics, bytes.as_slice())
             .await
         {
             tracing::error!("Batch publish failed: {}", e);

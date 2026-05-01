@@ -1,23 +1,18 @@
 use async_trait::async_trait;
-use reqwest::Client as HttpClient;
-use reqwest::StatusCode;
-use reqwest::Url;
+use reqwest::{Client as HttpClient, StatusCode, Url};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::net::Ipv4Addr;
 
-use super::agent::Agent;
+use fcore::{
+    http::{
+        request::ConnType,
+        response::{Instance, InstanceWithId, ResponseMessage},
+    },
+    ConnectionBaseOperations, Env, Error, Inbound, NodeType, Result, Tag, Topic,
+};
 
-use pony::http::response::{Instance, InstanceWithId, ResponseMessage};
-use pony::{ConnectionBaseOperations, Env, Error, Inbound, NodeType, Result, Tag};
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct ConnTypeParam {
-    pub proto: Tag,
-    pub last_update: Option<u64>,
-    pub env: Option<Env>,
-    pub topic: uuid::Uuid,
-}
+use crate::node::Node;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct NodeRequest {
@@ -37,7 +32,7 @@ pub struct NodeRequest {
 #[async_trait]
 pub trait ApiRequests {
     async fn register_node(&self, _endpoint: String, _token: String) -> Result<()>;
-    async fn get_connections(
+    async fn sync_connections(
         &self,
         endpoint: String,
         token: String,
@@ -47,43 +42,52 @@ pub trait ApiRequests {
 }
 
 #[async_trait]
-impl<C> ApiRequests for Agent<C>
+impl<C> ApiRequests for Node<C>
 where
     C: ConnectionBaseOperations + Send + Sync + Clone + 'static,
 {
-    async fn get_connections(
+    async fn sync_connections(
         &self,
         endpoint: String,
         token: String,
         proto: Tag,
         last_update: Option<u64>,
     ) -> Result<()> {
-        let node = self.node.clone();
+        let topic = Topic::Init(self.node.uuid);
+        let env = self.node.env.clone();
 
-        let id = node.uuid;
-        let env = node.env;
-
-        let conn_type_param = ConnTypeParam {
+        let req = ConnType {
             proto,
             last_update,
-            env: Some(env),
-            topic: id,
+            env: env.clone(),
+            topic: topic.clone(),
         };
 
-        let mut endpoint_url = Url::parse(&endpoint)?;
+        let mut endpoint_url = Url::parse(&endpoint).map_err(|e| {
+            tracing::error!("Failed to parse endpoint URL '{}': {}", endpoint, e);
+            Error::Custom("Invalid API endpoint".to_string())
+        })?;
+
         endpoint_url
             .path_segments_mut()
             .map_err(|_| Error::Custom("Invalid API endpoint".to_string()))?
-            .push("connections");
+            .push("connections")
+            .push("sync");
+
         let endpoint_str = endpoint_url.to_string();
 
+        tracing::debug!("POST /connections/sync Body: {:?}", req);
+
         let res = HttpClient::new()
-            .get(&endpoint_str)
-            .query(&conn_type_param)
-            .header("Content-Type", "application/json")
-            .header("Authorization", format!("Bearer {}", token))
+            .post(&endpoint_str)
+            .header("Authorization", format!("Bearer {}", token.trim()))
+            .json(&req)
             .send()
-            .await?;
+            .await
+            .map_err(|e| {
+                tracing::error!("CRITICAL: reqwest send error: {:?}", e);
+                Error::Custom(format!("HTTP Send Error: {}", e))
+            })?;
 
         let status = res.status();
         let body = res.text().await?;
@@ -92,32 +96,22 @@ where
             let result: ResponseMessage<InstanceWithId<Instance>> = serde_json::from_str(&body)?;
             let count = match result.response.instance {
                 Instance::Count(count) => count,
-                _ => {
-                    return Err(Error::Custom("Unexpected instance type".into()));
-                }
+                _ => return Err(Error::Custom("Unexpected instance type".into())),
             };
             tracing::debug!(
-                "Message: {}. Connections Request Accepted for {}: {} Count: {} ",
-                result.message,
-                proto,
-                result.status,
+                "Success: {} connections synced for {} - {} - {}",
                 count,
+                topic,
+                env,
+                proto
             );
             Ok(())
         } else if status == StatusCode::NOT_MODIFIED {
-            tracing::debug!("Connections Request Accepted for {}: {} ", proto, status,);
+            tracing::debug!("No updates (304) for {} {} {}", topic.clone(), env, proto);
             Ok(())
         } else {
-            tracing::error!(
-                "Connections Request failed for {}: {} - {}",
-                proto,
-                status,
-                body
-            );
-            Err(Error::Custom(format!(
-                "Connections Request failed for {}: {} - {}",
-                proto, status, body
-            )))
+            tracing::error!("Request failed: {} - {}", status, body);
+            Err(Error::Custom(format!("Status {}: {}", status, body)))
         }
     }
 

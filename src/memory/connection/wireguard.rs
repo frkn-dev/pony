@@ -1,6 +1,5 @@
 use base64::{engine::general_purpose, Engine};
 use serde::{Deserialize, Deserializer, Serialize};
-
 use std::{
     error, fmt,
     net::{IpAddr, Ipv4Addr, Ipv6Addr},
@@ -10,6 +9,8 @@ use std::{
 use rand::rngs::OsRng;
 use rkyv::{Archive, Deserialize as RkyvDeserialize, Serialize as RkyvSerialize};
 use x25519_dalek::{PublicKey, StaticSecret};
+
+use crate::error::Error;
 
 #[derive(
     Archive, Clone, Debug, Serialize, Deserialize, PartialEq, RkyvDeserialize, RkyvSerialize,
@@ -30,21 +31,19 @@ impl Default for Keys {
     }
 }
 
-use anyhow::{anyhow, Result};
-
 impl Keys {
-    pub fn pubkey(&self) -> Result<String> {
+    pub fn pubkey(&self) -> Result<String, Error> {
         Self::derive_pubkey(&self.privkey)
     }
 
-    fn derive_pubkey(private_key_b64: &str) -> Result<String> {
-        let private_bytes = general_purpose::STANDARD
+    fn derive_pubkey(private_key_b64: &str) -> Result<String, Error> {
+        let private_vec = general_purpose::STANDARD
             .decode(private_key_b64)
-            .map_err(|e| anyhow!("invalid base64 private key: {}", e))?;
+            .map_err(|e| Error::Custom(format!("invalid base64 private key: {}", e)))?;
 
-        let private_bytes: [u8; 32] = private_bytes
+        let private_bytes: [u8; 32] = private_vec
             .try_into()
-            .map_err(|_| anyhow!("invalid private key length (expected 32 bytes)"))?;
+            .map_err(|_| Error::Custom("Private key must be exactly 32 bytes".to_string()))?;
 
         let secret = StaticSecret::from(private_bytes);
         let public = PublicKey::from(&secret);
@@ -58,8 +57,6 @@ pub enum IpVersion {
     IPv4,
     IPv6,
 }
-
-/// IP address with CIDR.
 
 #[derive(Archive, Clone, Debug, Serialize, RkyvDeserialize, RkyvSerialize, PartialEq, Eq, Hash)]
 #[archive(check_bytes)]
@@ -224,7 +221,7 @@ impl FromStr for IpAddrMask {
                 IpAddr::V6(_) => 128,
             };
             if cidr > max_cidr {
-                return Err(IpAddrParseError);
+                return Err(IpAddrParseError).into();
             }
             Ok(IpAddrMask { address: ip, cidr })
         } else {

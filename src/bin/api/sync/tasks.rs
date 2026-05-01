@@ -2,10 +2,10 @@ use chrono::{Duration, Utc};
 use futures::future::join_all;
 use tracing::{debug, error, info, warn};
 
-use pony::{
+use fcore::{
     Connection, ConnectionApiOperations, ConnectionBaseOperations, ConnectionStorageApiOperations,
     Env, Node, NodeStatus, NodeStorageOperations, Status, Subscription, SubscriptionOperations,
-    SubscriptionStorageOperations, SyncError,
+    SubscriptionStorageOperations, SyncError, Topic,
 };
 
 use super::super::{http::request::Subscription as SubReq, postgres::connection::ConnRow};
@@ -260,16 +260,16 @@ where
         debug!("Connection {} successfully removed from database", conn_id);
 
         let msg = vec![conn.as_delete_message(conn_id)];
-        let key = if conn.get_token().is_some() {
-            "auth".to_string()
+        let topic = if conn.get_token().is_some() {
+            Topic::Auth
         } else {
-            conn.get_env().to_string()
+            conn.get_env().into()
         };
 
         match rkyv::to_bytes::<_, 1024>(&msg) {
             Ok(bytes) => {
-                info!("Publishing delete command to agent/node: {}", key);
-                if let Err(e) = self.publisher.send_binary(&key, bytes.as_ref()).await {
+                info!("Publishing delete command to topic: {}", topic);
+                if let Err(e) = self.publisher.send_binary(&topic, bytes.as_ref()).await {
                     error!(
                         "NETWORK ERROR: Failed to send delete signal for {} to bus: {:?}",
                         conn_id, e
@@ -348,16 +348,16 @@ where
                     }
                 };
 
-                let key = if conn.get_token().is_some() {
-                    "auth".to_string()
+                let topic = if conn.get_token().is_some() {
+                    Topic::Auth
                 } else {
-                    conn.get_env().to_string()
+                    conn.get_env().into()
                 };
 
-                if let Err(e) = this.publisher.send_binary(&key, bytes.as_ref()).await {
+                if let Err(e) = this.publisher.send_binary(&topic, bytes.as_ref()).await {
                     error!(
                         "Failed to send restore message for {} to {}: {:?}",
-                        conn_id, key, e
+                        conn_id, topic, e
                     );
                     return None;
                 }

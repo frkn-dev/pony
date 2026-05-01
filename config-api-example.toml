@@ -1,31 +1,29 @@
-[api]
+[service]
+log_level = "debug"
 listen = "127.0.0.1"
-port = 3005
-token = "your-super-secret-api-token"
-metrics_interval = 60
-db_sync_interval_sec = 300
-subscription_restore_interval = 60
-subscription_expire_interval = 60
-max_points = 100000000     # max metrics points stored in Memory
-retention_seconds = 604800 # 7 days
-wiregaurd_network = "10.1.0.0/16" # IP address pool for Wireguard peers
+port = 3000
+token = "supetsecrettoken"
+
 key_sign_token = [69,106,53,108,101,105,57]
-bonus_days = 7   # Days added by referal
-system_refer_codes = ["FRKN", "mobile-dev"]  # Refer codes used for tg-bot and website
+bonus_days = 7
+system_refer_codes = ["WEB", "TG", "MOBILE"]
+wireguard_network = "10.1.0.0/16"
+updates_endpoint_zmq = "tcp://*:3001"
 
 [metrics]
-reciever = "tcp://0.0.0.0:3001"
-topic = ["metrics"]
+reciever = "tcp://0.0.0.0:3002"
+max_points = 10000
+retention_seconds = 604800 # 7 days
 
-[logging]
-level = "debug"
+[tasks]
+db_sync_interval_sec = 1000
+subscription_restore_interval = 600
+subscription_expire_interval = 600
 
-[zmq]
-endpoint = "tcp://*:3000"
 
 [pg]
 host = "localhost"
 port = 5432
-db = "frkn_db"
+db = "api"
 username = "postgres"
 password = "password"

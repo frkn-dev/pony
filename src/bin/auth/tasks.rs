@@ -1,16 +1,13 @@
 use async_trait::async_trait;
-use rkyv::AlignedVec;
-use rkyv::Infallible;
+use rkyv::{AlignedVec, Deserialize, Infallible};
 use tokio::time::Duration;
 
-use pony::{
+use fcore::{
     Action, BaseConnection as Connection, ConnectionBaseOperations,
     ConnectionStorageBaseOperations, Error, Message, Metrics, Proto, Result, Topic,
 };
 
-use rkyv::Deserialize;
-
-use super::auth::AuthService;
+use super::service::Service;
 
 #[async_trait]
 pub trait Tasks {
@@ -20,13 +17,13 @@ pub trait Tasks {
 }
 
 #[async_trait]
-impl<C> Tasks for AuthService<C>
+impl<C> Tasks for Service<C>
 where
     C: ConnectionBaseOperations + Send + Sync + Clone + 'static + From<Connection>,
 {
     async fn run_subscriber(&self) -> Result<()> {
         let sub = self.subscriber.clone();
-        assert!(self.subscriber.topics.contains(&"all".to_string()));
+        let node_uuid = self.node.uuid;
 
         loop {
             let Some((topic_bytes, payload_bytes)) = sub.recv().await else {
@@ -34,64 +31,69 @@ where
                 continue;
             };
 
-            let topic_str = std::str::from_utf8(&topic_bytes).unwrap_or("<invalid utf8>");
-            tracing::debug!("SUB: Topic string: {:?}", topic_str);
-            tracing::debug!("SUB: Payload {} bytes", payload_bytes.len());
+            let topic_str = std::str::from_utf8(&topic_bytes)
+                .map_err(|_| Error::Custom("Invalid UTF8 topic".into()))?;
 
-            match Topic::from_raw(topic_str) {
-                Topic::Init(uuid) if uuid != self.subscriber.topics[0] => {
-                    tracing::warn!("SUB: Skipping init for another node: {}", uuid);
-                    continue;
-                }
-                Topic::Updates(env) if env != self.subscriber.topics[1] => {
-                    tracing::warn!("SUB: Skipping update for another env: {}", env);
-                    continue;
-                }
-                Topic::Unknown(raw) => {
-                    tracing::warn!("SUB: Unknown topic: {}", raw);
-                    continue;
-                }
-                Topic::All => {
-                    tracing::debug!("SUB: Message for 'All' topic received");
-                }
-                topic => {
-                    tracing::debug!("SUB: Accepted topic: {:?}", topic);
-                }
-            }
-
-            if payload_bytes.is_empty() {
-                tracing::warn!("SUB: Empty payload, skipping");
-                continue;
-            }
-
-            let mut aligned = AlignedVec::new();
-            aligned.extend_from_slice(&payload_bytes);
-
-            let archived = match rkyv::check_archived_root::<Vec<Message>>(&aligned) {
-                Ok(a) => a,
+            let topic = match topic_str.parse::<Topic>() {
+                Ok(t) => t,
                 Err(e) => {
-                    tracing::error!("SUB: Invalid rkyv root: {:?}", e);
-                    tracing::error!("SUB: Payload bytes (hex) = {}", hex::encode(payload_bytes));
+                    tracing::error!("SUB: Failed to parse topic '{}': {}", topic_str, e);
                     continue;
                 }
             };
 
-            match archived.deserialize(&mut Infallible) {
-                Ok(messages) => {
-                    if let Err(err) = self.handle_messages_batch(messages).await {
-                        tracing::error!("SUB: Failed to handle messages: {}", err);
-                    }
+            tracing::debug!("SUB: Received topic: {:?}", topic);
+
+            match &topic {
+                Topic::Auth => {
+                    tracing::debug!("SUB: Processing Auth message");
                 }
-                Err(err) => {
-                    tracing::error!("SUB: Failed to deserialize messages: {}", err);
-                    tracing::error!("SUB: Payload bytes (hex) = {}", hex::encode(payload_bytes));
+
+                Topic::Metrics => {
+                    tracing::trace!("SUB: Ignoring Metrics topic");
+                    continue;
+                }
+
+                Topic::Updates(env) => {
+                    tracing::trace!("SUB: Ignoring update for env: {}", env);
+                    continue;
+                }
+
+                Topic::Init(uuid) if uuid != &node_uuid => {
+                    tracing::trace!("SUB: Skipping init for another node: {}", uuid);
+                    continue;
+                }
+                _ => {
+                    tracing::debug!("SUB: Accepted for processing: {:?}", topic);
                 }
             }
 
-            tokio::time::sleep(Duration::from_millis(10)).await;
+            if payload_bytes.is_empty() {
+                continue;
+            }
+
+            let messages: Option<Vec<Message>> = {
+                let mut aligned = AlignedVec::new();
+                aligned.extend_from_slice(&payload_bytes);
+
+                match rkyv::check_archived_root::<Vec<Message>>(&aligned) {
+                    Ok(archived) => archived.deserialize(&mut Infallible).ok(),
+                    Err(e) => {
+                        tracing::error!("SUB: Invalid rkyv root: {:?}", e);
+                        None
+                    }
+                }
+            };
+
+            if let Some(msgs) = messages {
+                if let Err(err) = self.handle_messages_batch(msgs).await {
+                    tracing::error!("SUB: Failed to handle messages: {}", err);
+                }
+            }
+
+            tokio::time::sleep(Duration::from_millis(1)).await;
         }
     }
-
     async fn handle_messages_batch(&self, messages: Vec<Message>) -> Result<()> {
         let mut mem = self.memory.write().await;
 

@@ -7,11 +7,11 @@ on:
 env:
   CARGO_TERM_COLOR: always
   REGISTRY: frknorg
-  API_IMAGE_NAME: pony-api
+  API_IMAGE_NAME: fcore-api
   DOCKER_TAG: latest
 
 jobs:
-  build-agent:
+  build-node:
     runs-on: ubuntu-22.04
     strategy:
       matrix:
@@ -47,13 +47,13 @@ jobs:
         run: rustup target add ${{ matrix.target }}
 
       - name: Build for ${{ matrix.target }}
-        run: cargo zigbuild --release --target ${{ matrix.target }} --bin agent --no-default-features
+        run: cargo zigbuild --release --target ${{ matrix.target }} --bin node --no-default-features
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: agent-${{ matrix.target }}
-          path: target/${{ matrix.target }}/release/agent
+          name: node-${{ matrix.target }}
+          path: target/${{ matrix.target }}/release/node
 
   build-api:
     runs-on: ubuntu-latest
@@ -115,18 +115,18 @@ jobs:
 
   release:
     name: Release
-    needs: [build-api, build-agent, build-auth]
+    needs: [build-api, build-auth, build-node]
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Download all agent artifacts
+      - name: Download all node artifacts
         uses: actions/download-artifact@v4
         with:
           path: artifacts
-          pattern: agent-*
+          pattern: node-*
           merge-multiple: false
 
       - name: Download API artifact
@@ -144,9 +144,9 @@ jobs:
       - name: Prepare release files
         run: |
           mkdir -p release
-          cp artifacts/agent-x86_64-unknown-linux-gnu/agent release/agent-x86_64
-          cp artifacts/agent-aarch64-unknown-linux-gnu/agent release/agent-aarch64
-          cp artifacts/agent-armv7-unknown-linux-gnueabihf/agent release/agent-armv7
+          cp artifacts/node-x86_64-unknown-linux-gnu/node release/node-x86_64
+          cp artifacts/node-aarch64-unknown-linux-gnu/node release/node-aarch64
+          cp artifacts/node-armv7-unknown-linux-gnueabihf/node release/node-armv7
           cp artifacts/api/api release/api-x86_64
           cp artifacts/auth/auth release/auth-x86_64
           chmod +x release/*
@@ -158,12 +158,12 @@ jobs:
           files: |
             release/api-x86_64
             release/auth-x86_64
-            release/agent-x86_64
-            release/agent-aarch64
-            release/agent-armv7
+            release/node-x86_64
+            release/node-aarch64
+            release/node-armv7
             docs/*
             README.md
-            config-agent-example.toml
+            config-node-example.toml
             config-api-example.toml
             config-auth-example.toml
         env:

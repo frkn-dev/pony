@@ -1,18 +1,16 @@
 use tracing::error;
 
-use pony::http::helpers as http;
-use pony::http::response::Instance;
-
-use pony::{
+use fcore::{
+    http::{helpers as http, response::Instance},
     Connection, ConnectionApiOperations, ConnectionBaseOperations, Distributor, Error, Key,
-    NodeStorageOperations, Status, SubscriptionOperations,
+    NodeStorageOperations, Status, Subscription, SubscriptionOperations,
 };
 
-use super::super::super::sync::{tasks::SyncOp, MemSync};
-
-use super::super::param::KeyQueryParams;
-use super::super::request::ActivateKeyReq;
-use super::super::request::KeyReq;
+use super::super::{
+    super::sync::{tasks::SyncOp, MemSync},
+    param::KeyQueryParams,
+    request::{ActivateKeyReq, KeyReq},
+};
 
 /// Get specific & validate key handler
 pub async fn get_key_validate_handler<N, C, S>(
@@ -119,14 +117,8 @@ where
         + 'static
         + From<Connection>
         + PartialEq,
-    S: SubscriptionOperations
-        + Send
-        + Sync
-        + Clone
-        + 'static
-        + std::convert::From<pony::Subscription>
-        + std::cmp::PartialEq,
-    pony::Connection: From<C>,
+    S: SubscriptionOperations + Send + Sync + Clone + 'static + From<Subscription> + PartialEq,
+    Connection: From<C>,
 {
     let key_db = memory.db.key();
 

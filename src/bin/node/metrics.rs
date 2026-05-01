@@ -1,7 +1,11 @@
-use super::agent::Agent;
-use pony::{ConnectionBaseOperations, HasMetrics, MetricBuffer, Node, Prefix, StatsOp, Tag};
+use super::node::Node;
 
-impl<C> HasMetrics for Agent<C>
+#[cfg(feature = "xray")]
+use fcore::{Prefix, StatsOp, Tag};
+
+use fcore::{ConnectionBaseOperations, HasMetrics, MetricBuffer, Node as MemNode};
+
+impl<C> HasMetrics for Node<C>
 where
     C: ConnectionBaseOperations + Send + Sync + Clone + 'static,
 {
@@ -9,23 +13,29 @@ where
         &self.metrics
     }
 
-    fn node_settings(&self) -> &Node {
+    fn node_settings(&self) -> &MemNode {
         &self.node
     }
 }
 
+#[cfg(any(feature = "xray", feature = "wireguard"))]
 #[async_trait::async_trait]
 pub trait BusinessMetrics {
+    #[cfg(feature = "xray")]
     async fn collect_inbound_metrics(&self);
+    #[cfg(feature = "xray")]
     async fn collect_user_metrics(&self);
+    #[cfg(feature = "wireguard")]
     async fn collect_wg_metrics(&self);
 }
 
+#[cfg(any(feature = "xray", feature = "wireguard"))]
 #[async_trait::async_trait]
-impl<C> BusinessMetrics for Agent<C>
+impl<C> BusinessMetrics for Node<C>
 where
     C: ConnectionBaseOperations + Send + Sync + Clone + 'static,
 {
+    #[cfg(feature = "xray")]
     async fn collect_inbound_metrics(&self) {
         let node_uuid = self.node.uuid;
         let base_tags = self.node.get_base_tags();
@@ -65,6 +75,7 @@ where
         }
     }
 
+    #[cfg(feature = "xray")]
     async fn collect_user_metrics(&self) {
         let node_uuid = self.node.uuid;
         let base_tags = self.node.get_base_tags();
@@ -104,6 +115,7 @@ where
         }
     }
 
+    #[cfg(feature = "wireguard")]
     async fn collect_wg_metrics(&self) {
         let wg_client = match &self.wg_client {
             Some(c) => c,

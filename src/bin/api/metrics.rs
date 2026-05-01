@@ -1,7 +1,7 @@
 use rkyv::Deserialize;
 use std::sync::Arc;
 
-use pony::{MetricEnvelope, MetricStorage, Subscriber};
+use fcore::{MetricEnvelope, MetricStorage, Subscriber};
 
 pub struct MetricWorker;
 

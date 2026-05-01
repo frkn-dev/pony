@@ -4,26 +4,27 @@ use std::net::{IpAddr, Ipv4Addr};
 
 use tracing::{debug, error};
 
-use pony::{
-    Connection, ConnectionApiOperations, ConnectionBaseOperations, ConnectionStorageApiOperations,
-    InboundConnLink, IpAddrMask, NodeStorageOperations, Proto, Status, Subscription,
-    SubscriptionOperations, SubscriptionStorageOperations, Tag, WgKeys, WgParam,
+use fcore::{
+    http::{
+        helpers as http, MyRejection,
+        {request::ConnType, response::Instance},
+    },
+    utils, Connection, ConnectionApiOperations, ConnectionBaseOperations,
+    ConnectionStorageApiOperations, InboundConnLink, IpAddrMask, NodeStorageOperations, Proto,
+    Status, Subscription, SubscriptionOperations, SubscriptionStorageOperations, Tag, Topic,
+    WgKeys, WgParam,
 };
 
-use pony::http::helpers as http;
-use pony::http::response::Instance;
-use pony::http::MyRejection;
-use pony::utils;
-
-use super::super::super::sync::{tasks::SyncOp, MemSync};
-
-use super::super::param::{ConnQueryParam, ConnTypeParam};
-use super::super::request::{ConnCreateRequest, ConnectionInfoRequest};
+use super::super::{
+    super::sync::{tasks::SyncOp, MemSync},
+    param::ConnQueryParam,
+    request::{ConnCreateRequest, ConnectionInfoRequest},
+};
 
 /// Handler get connection
-// GET /connections
+// POST /connections/sync
 pub async fn get_connections_handler<N, C, S>(
-    req: ConnTypeParam,
+    req: ConnType,
     memory: MemSync<N, C, S>,
 ) -> Result<impl warp::Reply, warp::Rejection>
 where
@@ -40,8 +41,10 @@ where
     S: SubscriptionOperations + Send + Sync + Clone + 'static + PartialEq + From<Subscription>,
 {
     let mem = memory.memory.read().await;
+    tracing::debug!("POST /connections/sync {:?}", req.clone());
+
     let proto = req.proto;
-    let topic = req.topic;
+    let topic = req.topic.try_into()?;
     let last_update = req.last_update;
     let env = req.env;
 
@@ -51,9 +54,7 @@ where
         .filter(|(_, conn)| {
             !conn.get_deleted()
                 && conn.get_proto().proto() == proto
-                && env
-                    .as_ref()
-                    .is_none_or(|e| conn.get_env().to_string() == *e)
+                && (proto == Tag::Hysteria2 || conn.get_env() == env)
                 && last_update.is_none_or(|ts| conn.get_modified_at().timestamp() as u64 >= ts)
         })
         .collect();
@@ -224,11 +225,11 @@ where
 
             let topic = if let Some(_token) = conn.get_token() {
                 // Hysteria2 uses external auth provided which handles all envs
-                Some("auth".to_string())
+                Some(Topic::Auth)
             } else if conn.get_proto().is_mtproto() {
                 None
             } else {
-                Some(conn.get_env().to_string())
+                Some(conn.get_env().into())
             };
 
             if let Some(topic) = topic {

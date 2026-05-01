@@ -14,7 +14,7 @@ pub struct WireguardServerConfig {
 }
 
 impl WireguardServerConfig {
-    pub fn from_file(path: &str) -> anyhow::Result<Self> {
+    pub fn from_file(path: &str) -> Result<Self, Error> {
         let contents = std::fs::read_to_string(path)?;
 
         let mut private_key = None;
@@ -26,7 +26,7 @@ impl WireguardServerConfig {
             .split('/')
             .next_back()
             .and_then(|f| f.split('.').next())
-            .ok_or_else(|| anyhow::anyhow!("no interface name"))?
+            .ok_or_else(|| Error::Custom("no interface name".into()))?
             .to_string();
 
         for line in contents.lines() {
@@ -36,7 +36,7 @@ impl WireguardServerConfig {
                 if let Some((_, value)) = line.split_once('=') {
                     private_key = Some(value.trim().to_string());
                 } else {
-                    return Err(anyhow::anyhow!("Invalid PrivateKey line"));
+                    return Err(Error::Custom("Invalid PrivateKey line".into()));
                 }
             }
 
@@ -64,9 +64,9 @@ impl WireguardServerConfig {
 
         Ok(Self {
             interface,
-            port: port.ok_or_else(|| anyhow::anyhow!("no ListenPort"))?,
-            private_key: private_key.ok_or_else(|| anyhow::anyhow!("no PrivateKey"))?,
-            address: address.ok_or_else(|| anyhow::anyhow!("no Address"))?,
+            port: port.ok_or_else(|| Error::Custom("no ListenPort".into()))?,
+            private_key: private_key.ok_or_else(|| Error::Custom("no PrivateKey".into()))?,
+            address: address.ok_or_else(|| Error::Custom("no Address".into()))?,
             dns: Some(dns),
         })
     }

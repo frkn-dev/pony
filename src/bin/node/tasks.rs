@@ -1,20 +1,22 @@
 use async_trait::async_trait;
 use futures::future::try_join_all;
-use rkyv::AlignedVec;
-use rkyv::Deserialize;
-use rkyv::Infallible;
+use rkyv::{AlignedVec, Deserialize, Infallible};
 use tokio::time::Duration;
+#[cfg(feature = "xray")]
 use tonic::Status;
 
-use pony::{
-    Action, BaseConnection as Connection, ConnectionBaseOperations,
-    ConnectionStorageBaseOperations, Message, Metrics, Proto, StatsOp, Tag, Topic,
-    XrayHandlerActions,
-};
-use pony::{Error, Result};
+use fcore::{Action, BaseConnection as Connection, Message, Metrics, Topic};
+#[cfg(any(feature = "xray", feature = "wireguard"))]
+use fcore::{ConnectionStorageBaseOperations, Proto, Tag};
+use fcore::{Error, Result};
+#[cfg(feature = "xray")]
+use fcore::{StatsOp, XrayHandlerActions};
 
-use super::agent::Agent;
+use fcore::ConnectionBaseOperations;
+
+#[cfg(any(feature = "xray", feature = "wireguard"))]
 use super::metrics::BusinessMetrics;
+use super::node::Node;
 
 #[async_trait]
 pub trait Tasks {
@@ -25,13 +27,14 @@ pub trait Tasks {
 }
 
 #[async_trait]
-impl<C> Tasks for Agent<C>
+impl<C> Tasks for Node<C>
 where
     C: ConnectionBaseOperations + Send + Sync + Clone + 'static + From<Connection>,
 {
     async fn run_subscriber(&self) -> Result<()> {
         let sub = self.subscriber.clone();
-        assert!(self.subscriber.topics.contains(&"all".to_string()));
+        let node_uuid = self.node.uuid;
+        let node_env = &self.node.env;
 
         loop {
             let Some((topic_bytes, payload_bytes)) = sub.recv().await else {
@@ -39,61 +42,64 @@ where
                 continue;
             };
 
-            let topic_str = std::str::from_utf8(&topic_bytes).unwrap_or("<invalid utf8>");
-            tracing::debug!("SUB: Topic string: {:?}", topic_str);
-            tracing::debug!("SUB: Payload {} bytes", payload_bytes.len());
+            let topic_str = std::str::from_utf8(&topic_bytes)
+                .map_err(|_| Error::Custom("Invalid UTF8 topic".into()))?;
 
-            match Topic::from_raw(topic_str) {
-                Topic::Init(uuid) if uuid != self.subscriber.topics[0] => {
-                    tracing::warn!("SUB: Skipping init for another node: {}", uuid);
-                    continue;
-                }
-                Topic::Updates(env) if env != self.subscriber.topics[1] => {
-                    tracing::warn!("SUB: Skipping update for another env: {}", env);
-                    continue;
-                }
-                Topic::Unknown(raw) => {
-                    tracing::warn!("SUB: Unknown topic: {}", raw);
-                    continue;
-                }
-                Topic::All => {
-                    tracing::debug!("SUB: Message for 'All' topic received");
-                }
-                topic => {
-                    tracing::debug!("SUB: Accepted topic: {:?}", topic);
-                }
-            }
-
-            if payload_bytes.is_empty() {
-                tracing::warn!("SUB: Empty payload, skipping");
-                continue;
-            }
-
-            let mut aligned = AlignedVec::new();
-            aligned.extend_from_slice(&payload_bytes);
-
-            let archived = match rkyv::check_archived_root::<Vec<Message>>(&aligned) {
-                Ok(a) => a,
+            let topic = match topic_str.parse::<Topic>() {
+                Ok(t) => t,
                 Err(e) => {
-                    tracing::error!("SUB: Invalid rkyv root: {:?}", e);
-                    tracing::error!("SUB: Payload bytes (hex) = {}", hex::encode(payload_bytes));
+                    tracing::error!("SUB: Failed to parse topic '{}': {}", topic_str, e);
                     continue;
                 }
             };
 
-            match archived.deserialize(&mut Infallible) {
-                Ok(messages) => {
-                    if let Err(err) = self.handle_messages_batch(messages).await {
-                        tracing::error!("SUB: Failed to handle messages: {}", err);
-                    }
+            tracing::debug!("SUB: Received topic: {:?}", topic);
+
+            match &topic {
+                Topic::Auth | Topic::Metrics => {
+                    tracing::trace!("SUB: Ignoring unhandled topic: {:?}", topic);
+                    continue;
                 }
-                Err(err) => {
-                    tracing::error!("SUB: Failed to deserialize messages: {}", err);
-                    tracing::error!("SUB: Payload bytes (hex) = {}", hex::encode(payload_bytes));
+
+                Topic::Init(uuid) if uuid != &node_uuid => {
+                    tracing::trace!("SUB: Skipping init for another node: {}", uuid);
+                    continue;
+                }
+
+                Topic::Updates(env) if env != node_env => {
+                    tracing::trace!("SUB: Skipping update for another env: {}", env);
+                    continue;
+                }
+
+                _ => {
+                    tracing::debug!("SUB: Accepted for processing: {:?}", topic);
                 }
             }
 
-            tokio::time::sleep(Duration::from_millis(10)).await;
+            if payload_bytes.is_empty() {
+                continue;
+            }
+
+            let messages: Option<Vec<Message>> = {
+                let mut aligned = AlignedVec::new();
+                aligned.extend_from_slice(&payload_bytes);
+
+                match rkyv::check_archived_root::<Vec<Message>>(&aligned) {
+                    Ok(archived) => archived.deserialize(&mut Infallible).ok(),
+                    Err(e) => {
+                        tracing::error!("SUB: Invalid rkyv root: {:?}", e);
+                        None
+                    }
+                }
+            };
+
+            if let Some(msgs) = messages {
+                if let Err(err) = self.handle_messages_batch(msgs).await {
+                    tracing::error!("SUB: Failed to handle messages: {}", err);
+                }
+            }
+
+            tokio::time::sleep(Duration::from_millis(1)).await;
         }
     }
 
@@ -113,9 +119,11 @@ where
     async fn handle_message(&self, msg: Message) -> Result<()> {
         match msg.action {
             Action::Create | Action::Update => {
+                #[cfg(any(feature = "xray", feature = "wireguard"))]
                 let conn_id: uuid::Uuid = msg.conn_id;
 
                 match msg.tag {
+                    #[cfg(feature = "wireguard")]
                     Tag::Wireguard => {
                         let wg = msg
                             .wg
@@ -161,7 +169,7 @@ where
                         }
                         return Ok(());
                     }
-
+                    #[cfg(feature = "xray")]
                     Tag::VlessTcpReality
                     | Tag::VlessGrpcReality
                     | Tag::VlessXhttpReality
@@ -173,7 +181,7 @@ where
                             msg.subscription_id,
                         );
 
-                        let client = self.xray_handler_client.as_ref().ok_or_else(|| {
+                        let client = self.handler_client.as_ref().ok_or_else(|| {
                             Error::Grpc(Box::new(Status::unavailable("Xray handler unavailable")))
                         })?;
 
@@ -195,6 +203,7 @@ where
 
                         return Ok(());
                     }
+                    #[cfg(feature = "xray")]
                     Tag::Shadowsocks => {
                         if let Some(password) = msg.password {
                             let proto = Proto::new_ss(&password);
@@ -204,7 +213,7 @@ where
                                 msg.subscription_id,
                             );
 
-                            let client = self.xray_handler_client.as_ref().ok_or_else(|| {
+                            let client = self.handler_client.as_ref().ok_or_else(|| {
                                 Error::Grpc(Box::new(Status::unavailable(
                                     "Xray handler unavailable",
                                 )))
@@ -232,17 +241,19 @@ where
                             ));
                         }
                     }
-                    Tag::Hysteria2 => {
-                        return Err(Error::Custom("Hysteria2 is not supported".into()))
+                    _ => {
+                        return Err(Error::Custom(
+                            "Is not supported, or built without support the proto".into(),
+                        ))
                     }
-                    Tag::Mtproto => return Err(Error::Custom("Mtproto is not supported".into())),
                 }
             }
-
             Action::Delete => {
                 let tag = msg.tag;
+                #[cfg(any(feature = "xray", feature = "wireguard"))]
                 let conn_id = msg.conn_id;
                 match tag {
+                    #[cfg(feature = "wireguard")]
                     Tag::Wireguard => {
                         let wg_api = self
                             .wg_client
@@ -262,12 +273,13 @@ where
 
                         return Ok(());
                     }
+                    #[cfg(feature = "xray")]
                     Tag::VlessTcpReality
                     | Tag::VlessGrpcReality
                     | Tag::VlessXhttpReality
                     | Tag::Vmess
                     | Tag::Shadowsocks => {
-                        let client = self.xray_handler_client.as_ref().ok_or_else(|| {
+                        let client = self.handler_client.as_ref().ok_or_else(|| {
                             Error::Grpc(Box::new(Status::unavailable("Xray handler unavailable")))
                         })?;
 
@@ -286,14 +298,17 @@ where
 
                         return Ok(());
                     }
-                    Tag::Hysteria2 => {
-                        return Err(Error::Custom("Hysteria2 is not supported".into()))
+
+                    _ => {
+                        return Err(Error::Custom(
+                            "Is not supported, or built without support the proto".into(),
+                        ))
                     }
-                    Tag::Mtproto => return Err(Error::Custom("Mtproto is not supported".into())),
                 }
             }
 
             Action::ResetStat => {
+                #[cfg(feature = "xray")]
                 self.reset(&msg.conn_id)
                     .await
                     .map_err(|e| Error::Custom(format!("Couldn't reset stat: {}", e)))?;
@@ -310,12 +325,12 @@ where
         self.loadavg().await;
         self.memory().await;
         self.disk_usage().await;
-
-        if self.xray_stats_client.is_some() {
+        #[cfg(feature = "xray")]
+        if self.stats_client.is_some() {
             self.collect_inbound_metrics().await;
             self.collect_user_metrics().await;
         }
-
+        #[cfg(feature = "wireguard")]
         if self.wg_client.is_some() {
             self.collect_wg_metrics().await;
         }

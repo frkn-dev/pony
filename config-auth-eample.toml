@@ -1,38 +1,41 @@
-[auth]
-snapshot_interval = 30
-snapshot_path = "snapshots/auth_snapshot.bin"
-web_host = "https://auth.frkn.org"
+
+[service]
+zmq_updates_endpoint = "tcp://localhost:3000"
 listen = "127.0.0.1"
-port = 3005
-email_file = "users_trials.csv"
+port = 3002
+log_level = "debug"
+snapshot_path = "snapshots/snapshot-auth.bin"
+snapshot_interval = 60
+web_host = "http://localhost:8080"
+
 
 [node]
-env = "auth"
-uuid = "ab514c21-aaaa-bbbb-91f7-32f8cb1aaaaa"
-hostname = "darkmachine.frkn.local"
-address = "192.168.1.100"
-label = "🏴‍☠️ Darkmachine"
-max_bandwidth_bps = 1000000000
+env = "experimental"
+hostname = "darkmachine.local"
+address = "192.168.1.10"
+uuid = "9557b391-cccc-dddd-ffff-6cbdd74fffff"
+label = "🏴‍☠️ Auth DarkMachine"
+max_bandwidth_bps = 1000000000 #1gbps
 country = "RU"
 type = "common"
 
+[metrics]
+interval = 30
+publisher = "tcp://127.0.0.1:3002"
+
 [api]
-endpoint = "http://localhost:3005"
-token = "your-super-secret-api-token"
+endpoint = "http://127.0.0.1:3001"
+token = "supetsecrettoken"
 
 [smtp]
-server = "smtp.gmail.com"
+email_file = "users_trials.csv"
+email_sign_token = [85,118,97,56,119]
+server = "smtp.yandex.ru"
+username = "hehe@hehe.org"
+password = "PASSWORD"
 port = 587
-username = "notifications@frkn.org"
-password = "app-password-here"
-from = "FRKN Privacy <noreply@frkn.org>"
 
-[metrics]
-publisher = "tcp://127.0.0.1:5555"
-interval = 60
-
-[logging]
-level = "info"
-
-[zmq]
-endpoint = "tcp://localhost:3000"
+from = "Privacy Company <hehe@hehe.org>"
+title = "Тест-Драйв активирован 🏴‍☠️"
+company_name = "Privacy Company"
+support = "https://t.me/hehe_support"

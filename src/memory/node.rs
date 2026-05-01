@@ -13,8 +13,14 @@ use serde::{Deserialize, Serialize};
 use super::env::Env;
 use super::tag::ProtoTag as Tag;
 use crate::config::h2::H2Settings;
-use crate::config::inbound::{Inbound, Settings as XraySettings};
-use crate::config::settings::{MtprotoConfig, NodeConfig};
+
+#[cfg(feature = "xray")]
+use crate::config::inbound::Settings as XraySettings;
+
+use crate::config::inbound::Inbound;
+use crate::config::mtproto::MtprotoSettings;
+use crate::config::settings::NodeConfig;
+#[cfg(feature = "wireguard")]
 use crate::config::wireguard::WireguardSettings;
 
 #[derive(Clone, Debug, Deserialize, Serialize, Copy, ToSql, FromSql)]
@@ -134,15 +140,16 @@ pub struct Node {
 impl Node {
     pub fn new(
         settings: NodeConfig,
-        xray_config: Option<XraySettings>,
-        wg_config: Option<WireguardSettings>,
+        #[cfg(feature = "xray")] xray_config: Option<XraySettings>,
+        #[cfg(feature = "wireguard")] wg_config: Option<WireguardSettings>,
         h2_config: Option<H2Settings>,
-        mtproto_config: Option<MtprotoConfig>,
+        mtproto_config: Option<MtprotoSettings>,
     ) -> Self {
         let now = Utc::now();
         let mut inbounds: HashMap<Tag, Inbound> = HashMap::new();
 
         {
+            #[cfg(feature = "xray")]
             if let Some(config) = xray_config {
                 let xray_inbounds = config
                     .inbounds
@@ -153,6 +160,7 @@ impl Node {
                 inbounds.extend(xray_inbounds);
             }
 
+            #[cfg(feature = "wireguard")]
             if let Some(ref config) = wg_config {
                 inbounds.insert(
                     Tag::Wireguard,

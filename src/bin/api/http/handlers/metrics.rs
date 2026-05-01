@@ -3,7 +3,7 @@ use futures::{SinkExt, StreamExt};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use pony::MetricStorage;
+use fcore::MetricStorage;
 
 pub async fn handle_ws_client(
     socket: warp::ws::WebSocket,

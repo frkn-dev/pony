@@ -147,11 +147,10 @@ pub struct Settings {
 
 impl Settings {
     pub fn validate(&self) -> Result<()> {
-        // ToDo validate xray config
         Ok(())
     }
 
-    pub fn new(file_path: &str) -> Result<Settings> {
+    pub fn from_file(file_path: &str) -> Result<Settings> {
         let mut file = File::open(file_path)?;
         let mut contents = String::new();
 

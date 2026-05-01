@@ -1,22 +1,16 @@
 use async_trait::async_trait;
-use reqwest::Client;
-use reqwest::StatusCode;
-use reqwest::Url;
-use serde::{Deserialize, Serialize};
+use reqwest::{Client, StatusCode, Url};
 
-use pony::http::response::{Instance, InstanceWithId, ResponseMessage};
-use pony::{ConnectionBaseOperations, Error, Result, Tag};
+use fcore::{
+    http::{
+        request::ConnType,
+        response::{Instance, InstanceWithId, ResponseMessage},
+    },
+    ConnectionBaseOperations, Error, Result, Tag, Topic,
+};
 
-use super::auth::AuthService;
+use super::service::Service;
 pub type HttpClient = Client;
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct ConnTypeParam {
-    pub proto: Tag,
-    pub last_update: Option<u64>,
-    pub env: Option<String>,
-    pub topic: uuid::Uuid,
-}
 
 #[async_trait]
 pub trait ApiRequests {
@@ -30,7 +24,7 @@ pub trait ApiRequests {
 }
 
 #[async_trait]
-impl<C> ApiRequests for AuthService<C>
+impl<C> ApiRequests for Service<C>
 where
     C: ConnectionBaseOperations + Send + Sync + Clone + 'static,
 {
@@ -41,56 +35,65 @@ where
         proto: Tag,
         last_update: Option<u64>,
     ) -> Result<()> {
-        let id = self.node.uuid;
+        let topic = Topic::Init(self.node.uuid);
+        let env = self.node.env.clone();
 
-        let conn_type_param = ConnTypeParam {
+        let conn_type_param = ConnType {
             proto,
             last_update,
-            env: None,
-            topic: id,
+            env: env.clone(),
+            topic: topic.clone(),
         };
 
-        let mut endpoint_url = Url::parse(&endpoint)?;
+        let mut endpoint_url = Url::parse(&endpoint).map_err(|e| {
+            tracing::error!("Failed to parse endpoint URL '{}': {}", endpoint, e);
+            Error::Custom("Invalid API endpoint".to_string())
+        })?;
+
         endpoint_url
             .path_segments_mut()
             .map_err(|_| Error::Custom("Invalid API endpoint".to_string()))?
-            .push("connections");
+            .push("connections")
+            .push("sync");
+
         let endpoint_str = endpoint_url.to_string();
 
+        tracing::debug!("POST /connections/sync Body: {:?}", conn_type_param);
+
         let res = HttpClient::new()
-            .get(&endpoint_str)
-            .query(&conn_type_param)
-            .header("Content-Type", "application/json")
-            .header("Authorization", format!("Bearer {}", token))
+            .post(&endpoint_str)
+            .header("Authorization", format!("Bearer {}", token.trim()))
+            .json(&conn_type_param)
             .send()
-            .await?;
+            .await
+            .map_err(|e| {
+                tracing::error!("CRITICAL: reqwest send error: {:?}", e);
+                Error::Custom(format!("HTTP Send Error: {}", e))
+            })?;
 
         let status = res.status();
         let body = res.text().await?;
+
         if status.is_success() {
             let result: ResponseMessage<InstanceWithId<Instance>> = serde_json::from_str(&body)?;
             let count = match result.response.instance {
                 Instance::Count(count) => count,
-                _ => {
-                    return Err(Error::Custom("Unexpected instance type".into()));
-                }
+                _ => return Err(Error::Custom("Unexpected instance type".into())),
             };
             tracing::debug!(
-                "Connections Request Accepted for {}: {} Count: {} ",
-                proto,
-                status,
+                "Success: {} connections synced for {} {} {}",
                 count,
+                proto,
+                env,
+                topic
             );
             Ok(())
         } else if status == StatusCode::NOT_MODIFIED {
-            tracing::debug!("Connections Request Accepted for {}: {} ", proto, status,);
+            tracing::debug!("No updates (304) for {} {} {}", proto, env, topic);
             Ok(())
         } else {
-            tracing::error!("Connections Request failed: {} - {}", status, body);
-            Err(Error::Custom(format!(
-                "Connections Request failed: {} - {}",
-                status, body
-            )))
+            tracing::error!("Request failed: {} - {}", status, body);
+            Err(Error::Custom(format!("Status {}: {}", status, body)))
         }
     }
 }

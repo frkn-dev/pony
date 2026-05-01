@@ -3,52 +3,47 @@ use hmac::{Hmac, Mac};
 use sha2::Sha256;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::fs::File;
-use tokio::fs::OpenOptions;
-use tokio::io::AsyncWriteExt;
-use tokio::io::{AsyncBufReadExt, BufReader};
-use tokio::sync::RwLock;
+use tokio::{
+    fs::{File, OpenOptions},
+    io::AsyncWriteExt,
+    io::{AsyncBufReadExt, BufReader},
+    sync::RwLock,
+};
 
 use super::config::SmtpConfig;
 
 type HmacSha256 = Hmac<Sha256>;
 
-use lettre::transport::smtp::{
-    authentication::Credentials,
-    client::{Tls, TlsParameters},
-    AsyncSmtpTransport,
+use lettre::{
+    transport::smtp::{
+        authentication::Credentials,
+        client::{Tls, TlsParameters},
+        AsyncSmtpTransport,
+    },
+    AsyncTransport, Message, Tokio1Executor,
 };
-use lettre::AsyncTransport;
-use lettre::Message;
-use lettre::Tokio1Executor;
 
 #[derive(Clone)]
 pub struct EmailStore {
     pub store: Arc<RwLock<HashMap<String, DateTime<Utc>>>>,
-    file: String,
     smtp: SmtpConfig,
-    secret: Vec<u8>,
-    pub web_host: String,
-
     mailer: Arc<AsyncSmtpTransport<Tokio1Executor>>,
 }
 
 impl EmailStore {
-    pub fn new(file: String, smtp: SmtpConfig, secret: Vec<u8>, web_host: String) -> Self {
+    pub fn new(smtp: SmtpConfig) -> Self {
         let mailer = EmailStore::build_mailer(&smtp);
 
         Self {
             store: Arc::new(RwLock::new(HashMap::new())),
-            file,
             smtp,
-            secret,
-            web_host,
             mailer: Arc::new(mailer),
         }
     }
 
     fn hmac_email(&self, email: &str) -> String {
-        let mut mac = HmacSha256::new_from_slice(&self.secret).unwrap();
+        let secret = &self.smtp.email_sign_token;
+        let mut mac = HmacSha256::new_from_slice(&secret).unwrap();
         mac.update(email.as_bytes());
         hex::encode(mac.finalize().into_bytes())
     }
@@ -76,7 +71,7 @@ impl EmailStore {
         let file = OpenOptions::new()
             .create(true)
             .append(true)
-            .open(&self.file)
+            .open(&self.smtp.email_file)
             .await;
 
         let line = format!(
@@ -93,7 +88,7 @@ impl EmailStore {
     }
 
     pub async fn load_trials(&self) -> std::io::Result<()> {
-        let file = match File::open(&self.file).await {
+        let file = match File::open(&self.smtp.email_file).await {
             Ok(f) => f,
             Err(_) => return Ok(()),
         };
@@ -134,7 +129,7 @@ impl EmailStore {
 
     pub async fn send_email_background(&self, to: String, sub_id: uuid::Uuid) {
         let mailer = self.mailer.clone();
-        let web_host = self.web_host.clone();
+        let web_host = self.smtp.company_website.clone();
         let from = self.smtp.from.clone();
         let title = self.smtp.title.clone();
         let company_name = self.smtp.company_name.clone();

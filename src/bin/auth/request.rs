@@ -1,6 +1,8 @@
-use pony::Code;
 use serde::{Deserialize, Serialize};
 
+use fcore::Code;
+
+#[cfg(feature = "email")]
 #[derive(Debug, Deserialize)]
 pub struct Trial {
     pub email: String,

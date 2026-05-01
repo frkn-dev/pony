@@ -5,7 +5,7 @@ use serde::Serialize;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
-use pony::{
+use fcore::{
     Connection, ConnectionBaseOperations, Error, IpAddrMask, Proto, Result, Tag, WgKeys, WgParam,
 };
 

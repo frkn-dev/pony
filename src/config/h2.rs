@@ -5,12 +5,23 @@ use std::fs::File;
 use std::io::Read;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct HysteriaServerConfig {
+pub struct Hysteria2Settings {
     pub listen: Option<String>,
     pub acme: Option<AcmeConfig>,
     pub auth: Option<AuthConfig>,
     pub obfs: Option<HysteriaObfs>,
     pub masquerade: Option<Masquerade>,
+}
+
+impl Hysteria2Settings {
+    pub fn from_file(path: &str) -> Result<Self> {
+        let mut file = File::open(path)?;
+        let mut contents = String::new();
+        file.read_to_string(&mut contents)?;
+
+        let config: Hysteria2Settings = serde_yaml::from_str(&contents)?;
+        Ok(config)
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -48,17 +59,6 @@ pub struct Masquerade {
     pub r#type: String,
 }
 
-impl HysteriaServerConfig {
-    pub fn from_file(path: &str) -> anyhow::Result<Self> {
-        let mut file = File::open(path)?;
-        let mut contents = String::new();
-        file.read_to_string(&mut contents)?;
-
-        let config: HysteriaServerConfig = serde_yaml::from_str(&contents)?;
-        Ok(config)
-    }
-}
-
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct H2Settings {
     pub host: String,
@@ -77,7 +77,7 @@ pub struct H2Obfs {
     pub password: String,
 }
 
-impl HysteriaServerConfig {
+impl Hysteria2Settings {
     pub fn validate(&self) -> Result<()> {
         if self.listen.is_none() {
             return Err(Error::Custom("Hysteria2: listen is required".into()));
@@ -92,10 +92,10 @@ impl HysteriaServerConfig {
     }
 }
 
-impl TryFrom<HysteriaServerConfig> for H2Settings {
+impl TryFrom<Hysteria2Settings> for H2Settings {
     type Error = Error;
 
-    fn try_from(server: HysteriaServerConfig) -> std::result::Result<H2Settings, Error> {
+    fn try_from(server: Hysteria2Settings) -> std::result::Result<H2Settings, Error> {
         let listen = server
             .listen
             .ok_or_else(|| Error::Custom("Hysteria2: listen missing".into()))?;

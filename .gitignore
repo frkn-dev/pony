@@ -8,3 +8,4 @@ target
 snapshots/*.bin
 dev/data/*
 experimental/
+fcore.sublime-workspace

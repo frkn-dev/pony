@@ -11,7 +11,7 @@ use warp::Filter;
 
 use fcore::{
     http::filters as my_filters, ApiAccessConfig, BaseConnection as Connection,
-    ConnectionBaseOperations, Connections, MetricBuffer, Node, NodeConfig, Publisher, Result,
+    ConnectionBaseOperations, Connections, Env, MetricBuffer, Node, NodeConfig, Publisher, Result,
     SnapshotManager, Subscriber, Tag, Topic,
 };
 
@@ -25,14 +25,6 @@ use super::handlers::{activate_key_handler, auth_handler, tg_trial_handler};
 use super::http::{ApiRequests, HttpClient};
 use super::request;
 use super::tasks::Tasks;
-
-pub const PROTOS: [&str; 5] = [
-    "VlessTcpReality",
-    "VlessGrpcReality",
-    "VlessXhttpReality",
-    "Hysteria2",
-    "Mtproto",
-];
 
 pub const DEFAULT_DAYS: i64 = 1;
 
@@ -51,6 +43,8 @@ where
     pub listen: Ipv4Addr,
     pub port: u16,
     pub origin: String,
+    pub envs: Vec<Env>,
+    pub protos: Vec<Tag>,
 }
 
 impl<C> Service<C>
@@ -66,6 +60,8 @@ where
         api: ApiAccessConfig,
         listen: (Ipv4Addr, u16),
         origin: String,
+        envs: Vec<Env>,
+        protos: Vec<Tag>,
     ) -> Self {
         let memory = Arc::new(RwLock::new(Connections::default()));
         Self {
@@ -80,6 +76,8 @@ where
             listen: listen.0,
             port: listen.1,
             origin,
+            envs,
+            protos,
         }
     }
 
@@ -109,6 +107,8 @@ where
             .and(filters::with_store(email_store.clone()))
             .and(my_filters::with_http_client(http_client.clone()))
             .and(filters::with_api_settings(api.clone()))
+            .and(filters::with_envs(self.envs.clone()))
+            .and(filters::with_protos(self.protos.clone()))
             .and_then(trial_handler);
 
         let tg_trial_route = warp::post()
@@ -116,6 +116,8 @@ where
             .and(warp::body::json::<request::TgTrial>())
             .and(my_filters::with_http_client(http_client.clone()))
             .and(filters::with_api_settings(api.clone()))
+            .and(filters::with_envs(self.envs.clone()))
+            .and(filters::with_protos(self.protos.clone()))
             .and_then(tg_trial_handler);
 
         let auth_route = warp::post()
@@ -129,6 +131,8 @@ where
             .and(warp::body::json::<request::ActivateKey>())
             .and(my_filters::with_http_client(http_client))
             .and(filters::with_api_settings(api))
+            .and(filters::with_envs(self.envs.clone()))
+            .and(filters::with_protos(self.protos.clone()))
             .and_then(activate_key_handler);
 
         let routes = health_check
@@ -181,6 +185,8 @@ pub async fn run(settings: ServiceSettings) -> Result<()> {
         settings.api.clone(),
         (settings.service.listen, settings.service.port),
         settings.service.origin.clone(),
+        settings.service.enabled_envs.clone(),
+        settings.service.enabled_protos.clone(),
     ));
 
     let snapshot_manager = SnapshotManager::new(

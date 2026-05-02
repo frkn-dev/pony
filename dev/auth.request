@@ -1,0 +1,10 @@
+
+
+requests.post(
+'http://127.0.0.1:3005/trial',
+headers={
+'Content-Type': 'application/json'
+},
+json={
+"email": "2pizza1063@gmail.com"
+})

@@ -205,6 +205,7 @@ where
                 Tag::VlessGrpcReality,
                 Tag::VlessTcpReality,
                 Tag::VlessXhttpReality,
+                Tag::Vmess,
             ];
 
             let xray_nodes = nodes.clone();

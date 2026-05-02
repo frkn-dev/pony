@@ -2,7 +2,7 @@ use serde::Deserialize;
 
 use fcore::{
     http::response::{Instance, InstanceWithId, ResponseMessage, SubscriptionResponse},
-    Code, Env, Error, Key, Result, Subscription,
+    Code, Env, Error, Key, Result, Subscription, Tag,
 };
 
 use super::http::HttpClient;
@@ -170,7 +170,7 @@ pub async fn create_subscription(
 pub async fn create_connection(
     http: &HttpClient,
     env: &Env,
-    proto: &str,
+    proto: &Tag,
     sub_id: &uuid::Uuid,
     api_address: &str,
     api_token: &str,
@@ -180,7 +180,7 @@ pub async fn create_connection(
     let res = auth_headers(
         http.post(format!("{}/connection", api_address))
             .json(&serde_json::json!({
-                "env": env.to_string(),
+                "env": env,
                 "proto": proto,
                 "subscription_id": sub_id
             })),

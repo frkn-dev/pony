@@ -1,7 +1,7 @@
 use serde::Deserialize;
 use std::net::Ipv4Addr;
 
-use fcore::{ApiAccessConfig, MetricsTxConfig, NodeConfigRaw, Result, Settings};
+use fcore::{ApiAccessConfig, Env, MetricsTxConfig, NodeConfigRaw, Result, Settings, Tag};
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct ServiceSettings {
@@ -48,6 +48,9 @@ pub struct ServiceConfig {
     #[serde(default = "default_cors_origin")]
     pub origin: String,
     pub updates_endpoint_zmq: String,
+
+    pub enabled_envs: Vec<Env>,
+    pub enabled_protos: Vec<Tag>,
 }
 
 #[cfg(feature = "email")]

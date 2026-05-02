@@ -4,6 +4,7 @@ use tokio::sync::RwLock;
 use fcore::{
     http::{helpers as http, response::Instance},
     ApiAccessConfig, ConnectionBaseOperations, ConnectionStorageBaseOperations, Connections, Env,
+    Tag,
 };
 
 #[cfg(feature = "email")]
@@ -14,12 +15,36 @@ use super::http::HttpClient;
 use super::request;
 use super::response;
 use super::service::DEFAULT_DAYS;
-use super::service::PROTOS;
+
+pub async fn auth_handler<C>(
+    req: request::Auth,
+    memory: Arc<RwLock<Connections<C>>>,
+) -> Result<impl warp::Reply, warp::Rejection>
+where
+    C: ConnectionBaseOperations + Sync + Send + Clone + 'static + std::fmt::Display,
+{
+    tracing::debug!("Auth req {} {} {}", req.auth, req.addr, req.tx);
+    let mem = memory.read().await;
+    if let Some(id) = mem.validate_token(&req.auth) {
+        Ok(warp::reply::json(&response::Auth {
+            ok: true,
+            id: Some(id.to_string()),
+        }))
+    } else {
+        Ok(warp::reply::json(&response::Auth {
+            ok: false,
+            id: None,
+        }))
+    }
+}
 
 pub async fn activate_key_handler(
     req: request::ActivateKey,
     http: HttpClient,
     api: ApiAccessConfig,
+
+    envs: Vec<Env>,
+    protos: Vec<Tag>,
 ) -> Result<impl warp::Reply, warp::Rejection> {
     let key = match validate_key(&http, &api.endpoint, &api.token, &req.code).await {
         Ok(k) => k,
@@ -45,7 +70,7 @@ pub async fn activate_key_handler(
                 Err(e) => return Ok(http::internal_error(&format!("Creation failed: {}", e))),
             };
 
-        if let Err(e) = setup_connections(&http, &api, &sub.id).await {
+        if let Err(e) = setup_connections(&http, &api, &sub.id, envs, protos).await {
             tracing::error!("{}", e);
             return Ok(http::internal_error("Failed to establish connections."));
         }
@@ -89,6 +114,8 @@ pub async fn trial_handler(
     store: EmailStore,
     http: HttpClient,
     api: ApiAccessConfig,
+    envs: Vec<Env>,
+    protos: Vec<Tag>,
 ) -> Result<impl warp::Reply, warp::Rejection> {
     if store.check_email_hmac(&req.email).await {
         return Ok(http::bad_request("Trial already requested"));
@@ -104,7 +131,7 @@ pub async fn trial_handler(
             }
         };
 
-    if let Err(e) = setup_connections(&http, &api, &sub.id).await {
+    if let Err(e) = setup_connections(&http, &api, &sub.id, envs, protos).await {
         tracing::error!("{}", e);
         return Ok(http::internal_error(
             "Failed to establish trial connections.",
@@ -134,6 +161,8 @@ pub async fn tg_trial_handler(
     req: request::TgTrial,
     http: HttpClient,
     api: ApiAccessConfig,
+    envs: Vec<Env>,
+    protos: Vec<Tag>,
 ) -> Result<impl warp::Reply, warp::Rejection> {
     let referred_by = req.referred_by.unwrap_or_else(|| "TG".to_string());
 
@@ -147,7 +176,7 @@ pub async fn tg_trial_handler(
         };
 
     // 2. Create connections
-    if let Err(e) = setup_connections(&http, &api, &sub.id).await {
+    if let Err(e) = setup_connections(&http, &api, &sub.id, envs, protos).await {
         tracing::error!("{}", e);
         return Ok(http::internal_error(
             "Failed to establish trial connections.",
@@ -161,36 +190,15 @@ pub async fn tg_trial_handler(
     ))
 }
 
-pub async fn auth_handler<C>(
-    req: request::Auth,
-    memory: Arc<RwLock<Connections<C>>>,
-) -> Result<impl warp::Reply, warp::Rejection>
-where
-    C: ConnectionBaseOperations + Sync + Send + Clone + 'static + std::fmt::Display,
-{
-    tracing::debug!("Auth req {} {} {}", req.auth, req.addr, req.tx);
-    let mem = memory.read().await;
-    if let Some(id) = mem.validate_token(&req.auth) {
-        Ok(warp::reply::json(&response::Auth {
-            ok: true,
-            id: Some(id.to_string()),
-        }))
-    } else {
-        Ok(warp::reply::json(&response::Auth {
-            ok: false,
-            id: None,
-        }))
-    }
-}
-
 async fn setup_connections(
     http: &HttpClient,
     api: &ApiAccessConfig,
     sub_id: &uuid::Uuid,
+    envs: Vec<Env>,
+    protos: Vec<Tag>,
 ) -> Result<(), String> {
-    let envs = [Env::Production, Env::Dev, Env::Ru, Env::Wl];
     let futures = envs.iter().flat_map(|env| {
-        PROTOS.iter().map(move |proto| {
+        protos.iter().map(move |proto| {
             create_connection(http, env, proto, sub_id, &api.endpoint, &api.token)
         })
     });

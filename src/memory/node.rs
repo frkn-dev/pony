@@ -214,7 +214,7 @@ impl Node {
         };
         Self {
             uuid: settings.uuid,
-            env: settings.env.into(),
+            env: settings.env,
             hostname: settings.hostname,
             status: Status::Online,
             address: settings.address,

@@ -42,6 +42,8 @@ pub struct SubscriptionResponse {
     pub ref_code: String,
     pub invited_count: usize,
     pub locations: Vec<EnvInfo>,
+    pub downlink: i64,
+    pub limit_bytes: i64,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]

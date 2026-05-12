@@ -53,7 +53,7 @@ where
             sync,
             settings,
             metrics,
-            email_store: email_store,
+            email_store,
         }
     }
 }

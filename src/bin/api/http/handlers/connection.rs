@@ -44,7 +44,7 @@ where
     tracing::debug!("POST /connections/sync {:?}", req.clone());
 
     let proto = req.proto;
-    let topic = req.topic.try_into()?;
+    let topic = req.topic;
     let last_update = req.last_update;
     let env = req.env;
 

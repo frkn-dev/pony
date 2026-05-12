@@ -18,6 +18,9 @@ pub struct Subscription {
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub is_deleted: bool,
+
+    pub limit_bytes: Option<i64>,
+    pub downlink_bytes: Option<i64>,
 }
 
 impl Subscription {
@@ -26,6 +29,7 @@ impl Subscription {
         ref_by: Option<String>,
         ref_code: String,
         exp_at: Option<DateTime<Utc>>,
+        limit_bytes: Option<i64>,
     ) -> Subscription {
         let now = Utc::now();
         Self {
@@ -36,6 +40,9 @@ impl Subscription {
             created_at: now,
             updated_at: now,
             is_deleted: false,
+
+            limit_bytes,
+            downlink_bytes: Some(0),
         }
     }
 }
@@ -55,6 +62,8 @@ impl Default for Subscription {
             created_at: now,
             updated_at: now,
             is_deleted: false,
+            limit_bytes: None,
+            downlink_bytes: Some(0),
         }
     }
 }
@@ -65,6 +74,9 @@ impl From<tokio_postgres::Row> for Subscription {
         let created_at: DateTime<Utc> = row.get::<_, DateTime<Utc>>("created_at");
         let updated_at: DateTime<Utc> = row.get::<_, DateTime<Utc>>("updated_at");
 
+        let limit_bytes: Option<i64> = row.get("limit_bytes");
+        let downlink_bytes: Option<i64> = row.get("downlink_bytes");
+
         Self {
             id: row.get("id"),
             expires_at,
@@ -73,6 +85,8 @@ impl From<tokio_postgres::Row> for Subscription {
             created_at,
             updated_at,
             is_deleted: row.get::<_, bool>("is_deleted"),
+            limit_bytes,
+            downlink_bytes,
         }
     }
 }
@@ -133,6 +147,11 @@ pub trait Operations {
     fn set_expires_at(&mut self, expires_at: DateTime<Utc>) -> Result<(), String>;
     fn mark_deleted(&mut self);
     fn stats(&self) -> SubscriptionStats;
+
+    fn limit_bytes(&self) -> Option<i64>;
+    fn set_limit_bytes(&mut self, bytes: i64);
+    fn downlink_bytes(&self) -> Option<i64>;
+    fn set_downlink_bytes(&mut self, bytes: i64);
 }
 
 impl Operations for Subscription {
@@ -204,5 +223,20 @@ impl Operations for Subscription {
     fn mark_deleted(&mut self) {
         self.is_deleted = true;
         self.updated_at = Utc::now();
+    }
+
+    fn limit_bytes(&self) -> Option<i64> {
+        self.limit_bytes
+    }
+
+    fn set_limit_bytes(&mut self, bytes: i64) {
+        self.limit_bytes = Some(bytes)
+    }
+
+    fn downlink_bytes(&self) -> Option<i64> {
+        self.downlink_bytes
+    }
+    fn set_downlink_bytes(&mut self, bytes: i64) {
+        self.downlink_bytes = Some(bytes)
     }
 }

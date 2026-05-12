@@ -479,7 +479,7 @@ where
         Ok(())
     }
 
-    async fn update_sub(&self, sub_id: &uuid::Uuid, sub_req: SubReq) -> SyncResult<Status> {
+    async fn update_sub(&self, sub_id: &uuid::Uuid, req: SubReq) -> SyncResult<Status> {
         info!("Updating subscription: {}", sub_id);
 
         let mut memory = self.memory.write().await;
@@ -492,16 +492,20 @@ where
             }
         };
 
-        if let Some(days) = sub_req.days {
+        if let Some(days) = req.days {
             sub.extend(days);
         }
 
-        if let Some(ref_by) = sub_req.referred_by.clone() {
+        if let Some(ref_by) = req.referred_by.clone() {
             sub.set_referred_by(ref_by);
         }
 
-        if let Some(ref_code) = sub_req.refer_code.clone() {
+        if let Some(ref_code) = req.refer_code.clone() {
             sub.set_refer_code(ref_code);
+        }
+
+        if let Some(limit_bytes) = req.limit_bytes {
+            sub.set_limit_bytes(limit_bytes);
         }
 
         let expires_at = sub

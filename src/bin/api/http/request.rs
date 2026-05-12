@@ -56,6 +56,7 @@ pub struct Subscription {
     pub referred_by: Option<String>,
     pub refer_code: Option<String>,
     pub days: Option<i64>,
+    pub limit_bytes: Option<i64>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

@@ -43,7 +43,7 @@ impl EmailStore {
 
     fn hmac_email(&self, email: &str) -> String {
         let secret = &self.smtp.email_sign_token;
-        let mut mac = HmacSha256::new_from_slice(&secret).unwrap();
+        let mut mac = HmacSha256::new_from_slice(secret).unwrap();
         mac.update(email.as_bytes());
         hex::encode(mac.finalize().into_bytes())
     }

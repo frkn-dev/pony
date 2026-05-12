@@ -22,6 +22,7 @@ pub async fn post_trial_handler<N, C, S>(
     protos: Vec<Tag>,
     trial_days: i64,
     bonus: i64,
+    limit_bytes: i64,
 ) -> Result<impl warp::Reply, warp::Rejection>
 where
     N: NodeStorageOperations + Sync + Send + Clone + 'static,
@@ -83,10 +84,16 @@ where
 
     let now = Utc::now();
 
-    let expires_at: Option<DateTime<Utc>> = Some(now + chrono::Duration::days(trial_days.into()));
+    let expires_at: Option<DateTime<Utc>> = Some(now + chrono::Duration::days(trial_days));
 
     let ref_code = get_uuid_last_octet_simple(&sub_id);
-    let sub = Subscription::new(sub_id, req.referred_by, ref_code, expires_at);
+    let sub = Subscription::new(
+        sub_id,
+        req.referred_by,
+        ref_code,
+        expires_at,
+        Some(limit_bytes),
+    );
 
     let new_sub_id = match SyncOp::add_sub(&memory, sub.clone()).await {
         Ok(Status::Ok(id)) => id,
@@ -135,7 +142,7 @@ where
                 Tag::VlessTcpReality
                 | Tag::VlessGrpcReality
                 | Tag::VlessXhttpReality
-                | Tag::Vmess => Proto::Xray(p.clone()),
+                | Tag::Vmess => Proto::Xray(*p),
                 Tag::Hysteria2 => {
                     let token = uuid::Uuid::new_v4();
                     Proto::Hysteria2 { token }

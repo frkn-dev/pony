@@ -3,7 +3,7 @@ use std::sync::Arc;
 use warp::Filter;
 
 use fcore::{
-    http::filters::{auth, with_i64},
+    http::filters::{auth, with_i64, with_param_string},
     Connection, ConnectionApiOperations, ConnectionBaseOperations, NodeStorageOperations, Result,
     Subscription, SubscriptionOperations,
 };
@@ -45,12 +45,19 @@ where
     async fn run(&self, params: ServiceConfig) -> Result<()> {
         let auth = auth(Arc::new(self.settings.service.token.clone()));
 
-        let cors = warp::cors()
-            .allow_origin(params.base_url.as_str())
-            .allow_methods(vec!["GET", "POST", "DELETE", "OPTIONS"])
-            .allow_headers(vec!["Content-Type", "Authorization"])
-            .max_age(86400)
-            .build();
+        let cors_origins = params.cors_origins.clone();
+
+        let mut cors_builder = warp::cors()
+            .allow_methods(vec!["GET", "POST", "PUT", "DELETE", "OPTIONS"])
+            .allow_headers(vec!["Content-Type", "Authorization", "X-Requested-With"])
+            .allow_credentials(true)
+            .max_age(86400);
+
+        for origin in &cors_origins {
+            cors_builder = cors_builder.allow_origin(origin.as_str());
+        }
+
+        let cors = cors_builder.build();
 
         let get_healthcheck_route = warp::get()
             .and(warp::path("healthcheck"))
@@ -88,6 +95,7 @@ where
             .and(warp::path::end())
             .and(warp::query::<SubscriptionInfoRequest>())
             .and(with_sync(self.sync.clone()))
+            .and(with_param_string(params.subscription_title))
             .and_then(subscription_link_handler);
 
         let get_subscription_info_route = warp::get()
@@ -199,8 +207,9 @@ where
             .and(with_param_vec_string(params.system_refer_codes))
             .and(with_param_envs(params.enabled_envs))
             .and(with_param_tags(params.enabled_tags))
-            .and(with_i64(params.trial_days))
+            .and(with_i64(params.trial_limit_days))
             .and(with_i64(params.bonus_days))
+            .and(with_i64(params.trial_limit_bytes))
             .and_then(post_trial_handler);
 
         use uuid::Uuid;

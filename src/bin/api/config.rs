@@ -18,8 +18,11 @@ impl Settings for ServiceSettings {
     }
 }
 
-fn default_base_url() -> String {
-    "http://localhost:8080".to_string()
+fn default_cors_origins() -> Vec<String> {
+    vec![
+        "http://localhost:3000".to_string(),
+        "http://localhost:3001".to_string(),
+    ]
 }
 
 fn default_wg_network() -> IpAddrMask {
@@ -43,8 +46,8 @@ pub struct ServiceConfig {
     pub key_sign_token: Vec<u8>,
     pub bonus_days: i64,
     pub system_refer_codes: Vec<String>,
-    #[serde(default = "default_base_url")]
-    pub base_url: String,
+    #[serde(default = "default_cors_origins")]
+    pub cors_origins: Vec<String>,
     #[serde(default = "default_wg_network")]
     pub wireguard_network: IpAddrMask,
     #[serde(default = "default_log_level")]
@@ -52,7 +55,9 @@ pub struct ServiceConfig {
     pub updates_endpoint_zmq: String,
     pub enabled_envs: Vec<Env>,
     pub enabled_tags: Vec<Tag>,
-    pub trial_days: i64,
+    pub trial_limit_days: i64,
+    pub trial_limit_bytes: i64,
+    pub subscription_title: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]

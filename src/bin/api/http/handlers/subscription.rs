@@ -26,7 +26,7 @@ use super::super::{
 /// Handler creates subscription
 // POST /subscription
 pub async fn post_subscription_handler<N, C, S>(
-    sub_req: SubReq,
+    req: SubReq,
     memory: MemSync<N, C, S>,
     bonus: i64,
     system_refer_codes: Vec<String>,
@@ -47,11 +47,11 @@ where
     let sub_id = uuid::Uuid::new_v4();
     let mut bonus_days = 0;
 
-    let ref_code = sub_req
+    let ref_code = req
         .refer_code
         .unwrap_or_else(|| get_uuid_last_octet_simple(&sub_id));
 
-    let sub_id_to_update = if let Some(ref_by) = sub_req.referred_by.clone() {
+    let sub_id_to_update = if let Some(ref_by) = req.referred_by.clone() {
         let mem = memory.memory.read().await;
 
         let is_system_code = system_refer_codes.iter().any(|c| c == &ref_by);
@@ -78,11 +78,17 @@ where
         }
     }
 
-    let expires_at: Option<DateTime<Utc>> = sub_req
+    let expires_at: Option<DateTime<Utc>> = req
         .days
         .map(|days| Utc::now() + chrono::Duration::days(days + bonus_days));
 
-    let sub = Subscription::new(sub_id, sub_req.referred_by, ref_code, expires_at);
+    let sub = Subscription::new(
+        sub_id,
+        req.referred_by,
+        ref_code,
+        expires_at,
+        req.limit_bytes,
+    );
 
     match SyncOp::add_sub(&memory, sub.clone()).await {
         Ok(Status::Ok(id)) => Ok(http::success_response(
@@ -110,7 +116,7 @@ where
 // PUT /subscription
 pub async fn put_subscription_handler<N, C, S>(
     sub_param: SubIdQueryParam,
-    sub_req: SubReq,
+    req: SubReq,
     memory: MemSync<N, C, S>,
 ) -> Result<impl warp::Reply, warp::Rejection>
 where
@@ -128,7 +134,7 @@ where
 {
     let sub_id = sub_param.id;
 
-    match SyncOp::update_sub(&memory, &sub_id, sub_req).await {
+    match SyncOp::update_sub(&memory, &sub_id, req).await {
         Ok(Status::Updated(id)) => Ok(http::success_response(
             format!("Subscription {} has been updated", id),
             Some(sub_id),
@@ -185,6 +191,7 @@ where
 
     let connections = mem.connections.get_by_subscription_id(&subscription_id);
     let mut locations = Vec::new();
+    let downlink: i64 = 0; // Placeholder
 
     if let Some(conns) = connections.clone() {
         let active_envs: HashSet<Env> = conns
@@ -261,6 +268,8 @@ where
         }
     }
 
+    let limit_bytes = sub.limit_bytes().unwrap_or(0);
+
     let sub_resp = SubscriptionResponse {
         id: sub.id(),
         expires: sub.expires_at().unwrap_or_default(),
@@ -268,6 +277,8 @@ where
         ref_code: sub.refer_code(),
         invited_count: mem.subscriptions.count_invited_by(&sub.refer_code()),
         locations,
+        downlink,
+        limit_bytes,
     };
 
     Ok(Box::new(warp::reply::json(&sub_resp)))
@@ -276,6 +287,7 @@ where
 pub async fn subscription_link_handler<N, C, S>(
     req: SubscriptionInfoRequest,
     memory: MemSync<N, C, S>,
+    title: String,
 ) -> Result<Box<dyn warp::Reply + Send>, warp::Rejection>
 where
     N: NodeStorageOperations + Sync + Send + Clone + 'static,
@@ -297,14 +309,21 @@ where
 
     let mem = memory.memory.read().await;
 
-    if let Some(sub) = mem.subscriptions.find_by_id(&req.id) {
+    let sub = if let Some(sub) = mem.subscriptions.find_by_id(&req.id) {
         if !sub.is_active() {
             return Ok(Box::new(http::not_found(&format!(
                 "Subscription {} is expired",
                 req.id
             ))));
         }
-    }
+
+        sub
+    } else {
+        return Ok(Box::new(http::not_found(&format!(
+            "Subscription {} not found",
+            req.id
+        ))));
+    };
 
     let conns = mem.connections.get_by_subscription_id(&req.id);
     let mut inbounds_list: Vec<(Inbound, uuid::Uuid, Connection, String, Ipv4Addr, String)> =
@@ -340,7 +359,6 @@ where
             }
         }
     }
-    drop(mem);
 
     if inbounds_list.clone().is_empty() {
         return Ok(Box::new(http::not_found(&format!(
@@ -349,8 +367,32 @@ where
         ))));
     }
 
+    let expires_at = if let Some(exp) = sub.expires_at() {
+        exp.timestamp()
+    } else {
+        0
+    };
+
+    fn generate_meta(title: String, expires_at: i64) -> String {
+        let limit: u64 = 5 * 1024 * 1024 * 1024;
+        format!(
+            "
+#profile-title: {}
+#profile-update-interval: 1
+#subscription-userinfo: upload={}; download={}; total={}; expire={}
+
+",
+            title,
+            0,     // Placeholder, should be grab from mtrics
+            0,     // Placeholder, should be grab from mtrics
+            limit, // Placeholder, should be set externally
+            expires_at
+        )
+    }
+
     match req.format {
         FormatReq::Txt => {
+            let meta = generate_meta(title, expires_at);
             let links: Result<Vec<_>, _> = inbounds_list
                 .iter()
                 .map(|(inbound, conn_id, conn, hostname, address, label)| {
@@ -358,20 +400,22 @@ where
                 })
                 .collect();
 
-            let body = links?.join("\n");
+            let body = format!("{}{}", meta, links?.join("\n"));
             Ok(Box::new(warp::reply::with_status(
                 warp::reply::with_header(body, "Content-Type", "text/plain"),
                 StatusCode::OK,
             )))
         }
         FormatReq::Base64 => {
+            let meta = generate_meta(title, expires_at);
             let links: Result<Vec<_>, _> = inbounds_list
                 .iter()
                 .map(|(inbound, conn_id, conn, hostname, address, label)| {
                     inbound.create_link(conn_id, conn, hostname, address, label)
                 })
                 .collect();
-            let sub = base64::engine::general_purpose::STANDARD.encode(links?.join("\n"));
+            let body = format!("{}{}", meta, links?.join("\n"));
+            let sub = base64::engine::general_purpose::STANDARD.encode(body);
             Ok(Box::new(warp::reply::with_status(
                 warp::reply::with_header(format!("{}\n", sub), "Content-Type", "text/base64"),
                 StatusCode::OK,

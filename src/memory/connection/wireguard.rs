@@ -221,7 +221,7 @@ impl FromStr for IpAddrMask {
                 IpAddr::V6(_) => 128,
             };
             if cidr > max_cidr {
-                return Err(IpAddrParseError).into();
+                return Err(IpAddrParseError);
             }
             Ok(IpAddrMask { address: ip, cidr })
         } else {

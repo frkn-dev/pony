@@ -124,3 +124,10 @@ ALTER TYPE node_type ADD VALUE 'agent';
 
 alter table connections drop column "node_id";
 alter table connections drop column "wg_pubkey";
+
+alter table subscriptions add column limit_bytes INT;
+alter table subscriptions add column downlink_bytes bigint;
+
+
+ALTER TABLE subscriptions
+ALTER COLUMN limit_bytes TYPE BIGINT;

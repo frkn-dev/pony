@@ -59,6 +59,8 @@ where
 
         let cors = cors_builder.build();
 
+        tracing::debug!("Cors: {:?}", cors);
+
         let get_healthcheck_route = warp::get()
             .and(warp::path("healthcheck"))
             .and(warp::path::end())
@@ -96,6 +98,7 @@ where
             .and(warp::query::<SubscriptionInfoRequest>())
             .and(with_sync(self.sync.clone()))
             .and(with_param_string(params.subscription_title))
+            .and(with_i64(params.trial_limit_bytes))
             .and_then(subscription_link_handler);
 
         let get_subscription_info_route = warp::get()

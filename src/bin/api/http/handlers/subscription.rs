@@ -288,6 +288,7 @@ pub async fn subscription_link_handler<N, C, S>(
     req: SubscriptionInfoRequest,
     memory: MemSync<N, C, S>,
     title: String,
+    limit: i64,
 ) -> Result<Box<dyn warp::Reply + Send>, warp::Rejection>
 where
     N: NodeStorageOperations + Sync + Send + Clone + 'static,
@@ -373,8 +374,7 @@ where
         0
     };
 
-    fn generate_meta(title: String, expires_at: i64) -> String {
-        let limit: u64 = 5 * 1024 * 1024 * 1024;
+    fn generate_meta(title: String, limit: i64, expires_at: i64) -> String {
         format!(
             "
 #profile-title: {}
@@ -392,7 +392,7 @@ where
 
     match req.format {
         FormatReq::Txt => {
-            let meta = generate_meta(title, expires_at);
+            let meta = generate_meta(title, limit, expires_at);
             let links: Result<Vec<_>, _> = inbounds_list
                 .iter()
                 .map(|(inbound, conn_id, conn, hostname, address, label)| {
@@ -407,7 +407,7 @@ where
             )))
         }
         FormatReq::Base64 => {
-            let meta = generate_meta(title, expires_at);
+            let meta = generate_meta(title, limit, expires_at);
             let links: Result<Vec<_>, _> = inbounds_list
                 .iter()
                 .map(|(inbound, conn_id, conn, hostname, address, label)| {

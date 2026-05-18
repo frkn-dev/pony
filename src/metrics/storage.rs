@@ -97,6 +97,14 @@ impl MetricStorage {
         }
     }
     pub fn insert_envelope(&self, e: MetricEnvelope) {
+        tracing::info!(
+            "Inserting metric: node={}, name={}, value={}, tags={:?}",
+            e.node_id,
+            e.name,
+            e.value,
+            e.tags
+        );
+
         let key = Self::make_series_key(&e.name, &e.tags);
 
         self.metadata.entry(key).or_insert_with(|| {

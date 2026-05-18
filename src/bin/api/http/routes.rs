@@ -85,11 +85,10 @@ where
             .and(with_sync(self.sync.clone()))
             .and_then(post_node_handler);
 
-        let get_node_route = warp::get()
-            .and(warp::path!("node" / Uuid))
-            .and(warp::path::end())
-            .and(auth.clone())
+        let get_node_route = warp::path!("node" / Uuid)
+            .and(warp::get())
             .and(with_sync(self.sync.clone()))
+            .and(with_metrics(self.metrics.clone()))
             .and_then(get_node_handler);
 
         let get_subscription_route = warp::get()
@@ -242,6 +241,11 @@ where
                     },
                 );
 
+        let debug_metrics_route = warp::path!("debug" / "metrics")
+            .and(warp::get())
+            .and(with_metrics(self.metrics.clone()))
+            .and_then(debug_metrics_handler);
+
         let routes = get_healthcheck_route
             // Subscription
             .or(get_subscription_route)
@@ -268,6 +272,7 @@ where
             // Metrics
             .or(ws_all_metrics_route)
             .or(ws_aggregate_route)
+            .or(debug_metrics_route)
             .recover(rejection)
             .with(cors);
 

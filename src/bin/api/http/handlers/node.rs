@@ -9,7 +9,7 @@ use fcore::{
 
 use super::super::{
     super::sync::{tasks::SyncOp, MemSync},
-    param::{NodeIdParam, NodesQueryParams},
+    param::NodesQueryParams,
     request::NodeRequest,
 };
 
@@ -133,10 +133,6 @@ where
                                     (val.0.clone(), val.1.clone())
                                 })?;
 
-                                if !(name.starts_with("sys.") || name.starts_with("net.")) {
-                                    return None;
-                                }
-
                                 Some(NodeMetricInfo {
                                     key: series_hash.to_string(),
                                     name,
@@ -180,9 +176,9 @@ where
 }
 
 /// Get of a node handler
-// GET /node?id=
+// GET /node/UUID
 pub async fn get_node_handler<N, C, S>(
-    node_param: NodeIdParam,
+    node_id: uuid::Uuid,
     memory: MemSync<N, C, S>,
 ) -> Result<impl warp::Reply, warp::Rejection>
 where
@@ -199,10 +195,10 @@ where
 {
     let mem = memory.memory.read().await;
 
-    if let Some(node) = mem.nodes.get_by_id(&node_param.id) {
+    if let Some(node) = mem.nodes.get_by_id(&node_id) {
         let response = ResponseMessage::<Option<NodeResponse>> {
             status: StatusCode::OK.as_u16(),
-            message: format!("Node {}", node_param.id),
+            message: format!("Node {}", node_id),
             response: Some(node.as_node_response()),
         };
         Ok(warp::reply::with_status(

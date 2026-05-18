@@ -146,7 +146,6 @@ impl MetricStorage {
         }
         hasher.finish()
     }
-
     pub fn get_range(
         &self,
         node_id: &uuid::Uuid,

@@ -9,7 +9,7 @@ use fcore::{
 
 use super::super::{
     super::sync::{tasks::SyncOp, MemSync},
-    param::{NodeIdParam, NodesQueryParams},
+    param::NodesQueryParams,
     request::NodeRequest,
 };
 
@@ -133,10 +133,6 @@ where
                                     (val.0.clone(), val.1.clone())
                                 })?;
 
-                                if !(name.starts_with("sys.") || name.starts_with("net.")) {
-                                    return None;
-                                }
-
                                 Some(NodeMetricInfo {
                                     key: series_hash.to_string(),
                                     name,
@@ -179,11 +175,11 @@ where
     }
 }
 
-/// Get of a node handler
-// GET /node?id=
+/// Get single node handler - ИСПРАВЛЕНАЯ ВЕРСИЯ
 pub async fn get_node_handler<N, C, S>(
-    node_param: NodeIdParam,
+    node_id: uuid::Uuid,
     memory: MemSync<N, C, S>,
+    metrics: Arc<MetricStorage>, // ДОБАВЛЯЕМ metrics параметр!
 ) -> Result<impl warp::Reply, warp::Rejection>
 where
     N: NodeStorageOperations + Sync + Send + Clone + 'static,
@@ -199,12 +195,47 @@ where
 {
     let mem = memory.memory.read().await;
 
-    if let Some(node) = mem.nodes.get_by_id(&node_param.id) {
+    if let Some(node) = mem.nodes.get_by_id(&node_id) {
+        let mut res = node.as_node_response();
+
+        res.metrics = if let Some(node_metrics_map) = metrics.inner.get(&node_id) {
+            node_metrics_map
+                .iter()
+                .filter_map(|entry| {
+                    let series_hash = entry.key();
+                    let points = entry.value();
+
+                    if points.is_empty() {
+                        return None;
+                    }
+
+                    let (name, tags) = match metrics.metadata.get(series_hash) {
+                        Some(meta) => {
+                            let val = meta.value();
+                            (val.0.clone(), val.1.clone())
+                        }
+                        None => return None,
+                    };
+
+                    Some(NodeMetricInfo {
+                        key: series_hash.to_string(),
+                        name,
+                        tags,
+                    })
+                })
+                .collect()
+        } else {
+            vec![]
+        };
+
+        tracing::info!("Node {} has {} metrics", node_id, res.metrics.len());
+
         let response = ResponseMessage::<Option<NodeResponse>> {
             status: StatusCode::OK.as_u16(),
-            message: format!("Node {}", node_param.id),
-            response: Some(node.as_node_response()),
+            message: format!("Node {} with {} metrics", node_id, res.metrics.len()),
+            response: Some(res),
         };
+
         Ok(warp::reply::with_status(
             warp::reply::json(&response),
             StatusCode::OK,

@@ -24,6 +24,15 @@ impl PgNode {
         Self { manager }
     }
 
+    pub async fn ensure_pool_column(&self) -> Result<()> {
+        let mut manager = self.manager.lock().await;
+        let client = manager.get_client().await?;
+        client
+            .batch_execute("ALTER TABLE nodes ADD COLUMN IF NOT EXISTS pool TEXT;")
+            .await?;
+        Ok(())
+    }
+
     pub async fn upsert(&self, node_id: uuid::Uuid, node: Node) -> Result<()> {
         let mut manager = self.manager.lock().await;
         let client = manager.get_client().await?;
@@ -41,10 +50,10 @@ impl PgNode {
 
         let node_query = "
         INSERT INTO nodes (
-            id, uuid, env, hostname, address, status, created_at, modified_at, label, interface, cores, max_bandwidth_bps, country, node_type, cluster, node_ips
+            id, uuid, env, hostname, address, status, created_at, modified_at, label, interface, cores, max_bandwidth_bps, country, node_type, cluster, node_ips, pool
         )
         VALUES (
-            $1, $2, $3, $4, $5, $6::node_status, $7, $8, $9, $10, $11, $12, $13, $14::node_type, $15, $16
+            $1, $2, $3, $4, $5, $6::node_status, $7, $8, $9, $10, $11, $12, $13, $14::node_type, $15, $16, $17
         )
         ON CONFLICT (id) DO UPDATE SET
             uuid = EXCLUDED.uuid,
@@ -60,7 +69,8 @@ impl PgNode {
             country = EXCLUDED.country,
             node_type = EXCLUDED.node_type,
             cluster = EXCLUDED.cluster,
-            node_ips = EXCLUDED.node_ips
+            node_ips = EXCLUDED.node_ips,
+            pool = EXCLUDED.pool
     ";
 
         tx.execute(
@@ -82,6 +92,7 @@ impl PgNode {
                 &node.r#type,
                 &node.cluster,
                 &node_ips,
+                &node.pool,
             ],
         )
         .await?;
@@ -246,6 +257,7 @@ impl PgNode {
                       n.node_type,
                       n.cluster,
                       n.node_ips,
+                      n.pool,
 
                       i.id AS inbound_id,
                       i.tag,
@@ -291,6 +303,7 @@ impl PgNode {
             let max_bandwidth_bps: i64 = row.get("max_bandwidth_bps");
             let r#type: NodeType = row.get("node_type");
             let cluster: Option<String> = row.get("cluster");
+            let pool: Option<String> = row.get("pool");
 
             // Stored as TEXT[]; parse each entry back into Ipv4Addr.
             // Unparseable entries are skipped with a warning rather than
@@ -365,6 +378,7 @@ impl PgNode {
                     r#type,
                     cluster: cluster.clone(),
                     node_ips: node_ips.clone(),
+                    pool: pool.clone(),
                 });
 
                 if let Some(_inbound_id) = inbound_id {

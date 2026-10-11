@@ -146,6 +146,8 @@ pub struct NodeRequest {
     /// (old node binaries simply omit the field).
     #[serde(default)]
     pub node_ips: Option<Vec<Ipv4Addr>>,
+    #[serde(default)]
+    pub pool: Option<String>,
 }
 
 impl NodeRequest {
@@ -195,8 +197,26 @@ impl NodeRequest {
             r#type: t,
             cluster: self.cluster.clone(),
             node_ips: self.node_ips.clone(),
+            pool: normalized_pool(self.pool.clone()),
         }
     }
+}
+
+pub(crate) fn normalized_pool(pool: Option<String>) -> Option<String> {
+    pool.map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
+pub(crate) fn pool_inbounds_conflict(peers: &[Node], incoming: &Node) -> bool {
+    let Some(pool) = normalized_pool(incoming.pool.clone()) else {
+        return false;
+    };
+    peers.iter().any(|n| {
+        n.uuid != incoming.uuid
+            && n.status == NodeStatus::Online
+            && normalized_pool(n.pool.clone()).as_deref() == Some(pool.as_str())
+            && n.inbounds != incoming.inbounds
+    })
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -544,5 +564,40 @@ mod tests {
         let req: NodeRequest =
             serde_json::from_value(node_request_json(r#"{"node_ips": []}"#)).unwrap();
         assert!(req.validate().is_err());
+    }
+
+    fn node_with_port(port: u16, pool: Option<&str>, id: &str) -> Node {
+        let mut req: NodeRequest = serde_json::from_value(node_request_json("")).unwrap();
+        req.uuid = uuid::Uuid::parse_str(id).unwrap();
+        req.pool = pool.map(|s| s.to_string());
+        let mut node = req.as_node();
+        node.inbounds.insert(
+            Tag::VlessTcpReality,
+            Inbound {
+                tag: Tag::VlessTcpReality,
+                port,
+                stream_settings: None,
+                wg: None,
+                awg: None,
+                h2: None,
+                mtproto_secret: None,
+            },
+        );
+        node
+    }
+
+    #[test]
+    fn test_pool_blank_is_absent_and_keys_must_match() {
+        let req: NodeRequest =
+            serde_json::from_value(node_request_json(r#"{"pool":"  "}"#)).unwrap();
+        assert!(req.as_node().pool.is_none());
+
+        let a = node_with_port(443, Some("EU"), "11111111-1111-1111-1111-111111111111");
+        let same = node_with_port(443, Some("EU"), "22222222-2222-2222-2222-222222222222");
+        let other = node_with_port(8443, Some("EU"), "22222222-2222-2222-2222-222222222222");
+        let solo = node_with_port(8443, Some("EU"), "11111111-1111-1111-1111-111111111111");
+        assert!(!pool_inbounds_conflict(&[a.clone()], &same));
+        assert!(pool_inbounds_conflict(&[a.clone()], &other));
+        assert!(!pool_inbounds_conflict(&[a], &solo));
     }
 }

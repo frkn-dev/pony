@@ -127,6 +127,8 @@ pub struct NodeResponse {
     /// byte-for-byte old shape.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub node_ips: Option<Vec<Ipv4Addr>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pool: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -165,6 +167,8 @@ pub struct Node {
     /// as a node update in storage (see NodeStorageOperations::add).
     #[serde(default)]
     pub node_ips: Option<Vec<Ipv4Addr>>,
+    #[serde(default)]
+    pub pool: Option<String>,
 }
 
 impl Node {
@@ -287,6 +291,7 @@ impl Node {
             r#type: settings.r#type,
             cluster: settings.cluster,
             node_ips: settings.node_ips,
+            pool: settings.pool,
         }
     }
 
@@ -333,6 +338,7 @@ impl Node {
             r#type: self.r#type,
             cluster: self.cluster.clone(),
             node_ips: self.node_ips.clone(),
+            pool: self.pool.clone(),
         }
     }
 
@@ -395,6 +401,7 @@ mod tests {
             r#type: Type::Node,
             cluster: Some("test-cluster.example.com".to_string()),
             node_ips: None,
+            pool: None,
         };
 
         let response = node.as_node_response();

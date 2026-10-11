@@ -1047,6 +1047,7 @@ mod tests {
             r#type: NodeType::Node,
             cluster: None,
             node_ips: None,
+            pool: None,
         }
     }
 

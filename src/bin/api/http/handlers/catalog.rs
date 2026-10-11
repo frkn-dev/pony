@@ -35,9 +35,9 @@ where
         hasher.update(id.as_bytes());
         hasher.update(
             format!(
-                "{:?}|{}|{}|{:?}|{}|{:?}|{:?}|",
+                "{:?}|{}|{}|{:?}|{}|{:?}|{:?}|{:?}|",
                 node.env, node.hostname, node.address, node.status, node.label, node.cluster,
-                node.node_ips
+                node.node_ips, node.pool
             )
             .as_bytes(),
         );
@@ -135,6 +135,7 @@ mod tests {
             r#type: NodeType::Node,
             cluster: None,
             node_ips: None,
+            pool: None,
         }
     }
 

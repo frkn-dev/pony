@@ -32,6 +32,8 @@ pub struct NodeRequest {
     /// node. Old api binaries ignore the unknown field.
     #[serde(default)]
     pub node_ips: Option<Vec<Ipv4Addr>>,
+    #[serde(default)]
+    pub pool: Option<String>,
 }
 
 #[async_trait]
@@ -158,6 +160,7 @@ where
             r#type: node.r#type,
             cluster: node.cluster.clone(),
             node_ips: node.node_ips.clone(),
+            pool: node.pool.clone(),
         };
 
         let res = HttpClient::new()

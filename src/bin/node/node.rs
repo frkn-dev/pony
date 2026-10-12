@@ -304,7 +304,7 @@ pub async fn run(settings: ServiceSettings) -> Result<()> {
         tasks.push(h);
     }
 
-    let snapshot_timestamp = if Path::new(&snapshot_manager.snapshot_path).exists() {
+    if Path::new(&snapshot_manager.snapshot_path).exists() {
         match snapshot_manager.load_snapshot().await {
             Ok(Some(timestamp)) => {
                 #[cfg(feature = "wireguard")]
@@ -333,22 +333,19 @@ pub async fn run(settings: ServiceSettings) -> Result<()> {
                     "Loaded {} connections from snapshot with ts  {}",
                     count, timestamp,
                 );
-                Some(timestamp)
             }
             Ok(None) => {
                 warn!("Snapshot file exists but couldn't be loaded");
-                None
             }
             Err(e) => {
                 error!("Failed to load snapshot: {}", e);
                 info!("Starting fresh due to snapshot load error");
-                None
             }
         }
     } else {
         warn!("No snapshot found, starting fresh");
-        None
     };
+    let snapshot_for_sync = snapshot_manager.clone();
     {
         tokio::spawn(async move {
             info!(
@@ -415,11 +412,12 @@ pub async fn run(settings: ServiceSettings) -> Result<()> {
                                 .collect();
 
                             for tag in tags {
+                                let since = snapshot_for_sync.sync_cursor(*tag).await;
                                 node.sync_connections(
                                     settings.api.endpoint.clone(),
                                     settings.api.token.clone(),
                                     *tag,
-                                    snapshot_timestamp,
+                                    since,
                                 )
                                 .await?
                             }

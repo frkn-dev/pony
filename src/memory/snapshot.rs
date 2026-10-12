@@ -13,7 +13,9 @@ use tokio::sync::RwLock;
 use crate::error::{Error, Result};
 
 use super::connection::conn::Conn;
+use super::connection::operation::base::Operations as ConnectionBaseOperations;
 use super::connection::Connections;
+use super::tag::ProtoTag as Tag;
 
 #[derive(Archive, Deserialize, Serialize, SerdeDeserialize, SerdeSerialize, Debug, Clone)]
 #[archive(check_bytes)]
@@ -88,6 +90,13 @@ where
 
     pub async fn create_snapshot(&self) -> Result<()> {
         let memory_guard = self.memory.read().await;
+        if memory_guard.is_empty() {
+            drop(memory_guard);
+            if Path::new(&self.snapshot_path).exists() {
+                async_fs::remove_file(&self.snapshot_path).await.ok();
+            }
+            return Ok(());
+        }
         let memory = memory_guard.clone();
         let timestamp = Utc::now().timestamp() as u64;
         drop(memory_guard);
@@ -183,6 +192,14 @@ where
         Ok(timestamp)
     }
 
+    pub async fn sync_cursor(&self, proto: Tag) -> Option<u64>
+    where
+        C: ConnectionBaseOperations,
+    {
+        let mem = self.memory.read().await;
+        sync_cursor(&mem, proto)
+    }
+
     pub async fn len(&self) -> usize {
         let mem = self.memory.read().await;
         mem.0.len()
@@ -194,9 +211,60 @@ where
     }
 }
 
+pub fn sync_cursor<C>(conns: &Connections<C>, proto: Tag) -> Option<u64>
+where
+    C: ConnectionBaseOperations,
+{
+    conns
+        .iter()
+        .filter(|(_, conn)| !conn.get_deleted() && conn.get_proto().proto() == proto)
+        .map(|(_, conn)| conn.get_modified_at().timestamp())
+        .filter(|ts| *ts >= 0)
+        .max()
+        .map(|ts| ts as u64)
+}
+
 impl<C: Send + Sync + Clone + From<Conn>> Connections<C> {
     pub fn load_from_cache(&mut self, connections: Connections<C>) -> Result<()> {
         *self = connections;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::connection::base::Base;
+    use super::super::connection::proto::Proto;
+    use super::*;
+    use chrono::{DateTime, Utc};
+
+    fn at(secs: i64) -> DateTime<Utc> {
+        DateTime::from_timestamp(secs, 0).unwrap()
+    }
+
+    #[test]
+    fn cursor_is_per_proto_and_ignores_empty_and_deleted() {
+        let mut conns = Connections::<Base>::default();
+        assert_eq!(sync_cursor(&conns, Tag::VlessTcpReality), None);
+
+        let mut tcp = Base::new(Proto::Xray(Tag::VlessTcpReality), None, None);
+        tcp.modified_at = at(100);
+        let mut tcp_older = Base::new(Proto::Xray(Tag::VlessTcpReality), None, None);
+        tcp_older.modified_at = at(40);
+        let mut grpc = Base::new(Proto::Xray(Tag::VlessGrpcReality), None, None);
+        grpc.modified_at = at(70);
+        let mut gone = Base::new(Proto::Xray(Tag::Vmess), None, None);
+        gone.modified_at = at(500);
+        gone.is_deleted = true;
+
+        conns.insert(uuid::Uuid::new_v4(), tcp);
+        conns.insert(uuid::Uuid::new_v4(), tcp_older);
+        conns.insert(uuid::Uuid::new_v4(), grpc);
+        conns.insert(uuid::Uuid::new_v4(), gone);
+
+        assert_eq!(sync_cursor(&conns, Tag::VlessTcpReality), Some(100));
+        assert_eq!(sync_cursor(&conns, Tag::VlessGrpcReality), Some(70));
+        assert_eq!(sync_cursor(&conns, Tag::Vmess), None);
+        assert_eq!(sync_cursor(&conns, Tag::Wireguard), None);
     }
 }

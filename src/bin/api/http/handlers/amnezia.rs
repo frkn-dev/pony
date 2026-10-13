@@ -9,6 +9,7 @@ use fcore::{
     SubscriptionOperations, SubscriptionStorageOperations, Tag,
 };
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::io::Write;
 use warp::Reply;
@@ -118,6 +119,8 @@ pub struct GatewayConnection {
     /// Absent for single-address nodes so old clients see the old shape.
     #[serde(rename = "node_ips", skip_serializing_if = "Option::is_none")]
     pub node_ips: Option<Vec<String>>,
+    #[serde(rename = "config_rev", skip_serializing_if = "Option::is_none")]
+    pub config_rev: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -246,6 +249,8 @@ pub struct GatewayConfigResponse {
     /// single-address nodes so old clients see the old shape.
     #[serde(rename = "node_ips", skip_serializing_if = "Option::is_none")]
     pub node_ips: Option<Vec<String>>,
+    #[serde(rename = "config_rev", skip_serializing_if = "Option::is_none")]
+    pub config_rev: Option<String>,
 }
 
 // ============================================================================
@@ -344,6 +349,87 @@ fn connection_title(
     node_label.to_string()
 }
 
+pub(crate) fn config_rev(node: &fcore::Node, tag: Tag, ips: &[String]) -> Option<String> {
+    let inbound = node.inbounds.get(&tag)?;
+    let host = if tag == Tag::VlessXhttpCdn {
+        inbound
+            .stream_settings
+            .as_ref()
+            .and_then(|s| s.tls_settings.as_ref())
+            .and_then(|t| t.server_name.clone())
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| node.connection_host())
+    } else {
+        node.connection_host()
+    };
+    let body = serde_json::json!({
+        "host": host,
+        "address": node.address,
+        "port": inbound.port,
+        "node_ips": ips,
+        "dns": ["1.1.1.1", "1.0.0.1"],
+        "server": server_material(inbound),
+    });
+    let mut hasher = Sha256::new();
+    hasher.update(body.to_string().as_bytes());
+    Some(format!("{:x}", hasher.finalize()))
+}
+
+fn server_material(inbound: &fcore::Inbound) -> serde_json::Value {
+    let awg = inbound.awg.as_ref().map(|awg| {
+        serde_json::json!({
+            "pub": awg.interface.private_key.pubkey().ok(),
+            "port": awg.interface.listen_port,
+            "mtu": awg.interface.mtu,
+            "dns": awg.interface.dns,
+            "keepalive": awg.keepalive.unwrap_or(25),
+            "obf": serde_json::to_value(&awg.obfuscation).unwrap_or(serde_json::Value::Null),
+        })
+    });
+    let wg = inbound.wg.as_ref().map(|wg| {
+        serde_json::json!({
+            "pub": wg.keys.pubkey().ok(),
+            "port": wg.port,
+            "keepalive": wg.keepalive.unwrap_or(25),
+            "dns": ["1.1.1.1", "1.0.0.1"],
+        })
+    });
+    let h2 = inbound.h2.as_ref().map(|h2| {
+        serde_json::json!({
+            "host": h2.host,
+            "sni": h2.sni,
+            "insecure": h2.insecure,
+            "obfs": h2.obfs,
+            "alpn": h2.alpn,
+            "up": h2.up_mbps,
+            "down": h2.down_mbps,
+        })
+    });
+    let stream = inbound.stream_settings.as_ref().map(|s| {
+        let reality = s.reality_settings.as_ref().map(|r| {
+            serde_json::json!({
+                "server_names": r.server_names,
+                "public_key": r.public_key,
+                "short_ids": r.short_ids,
+            })
+        });
+        serde_json::json!({
+            "network": s.network,
+            "reality": reality,
+            "grpc": s.grpc_settings,
+            "xhttp": s.xhttp_settings,
+            "tls_name": s.tls_settings.as_ref().and_then(|t| t.server_name.clone()),
+        })
+    });
+    serde_json::json!({
+        "awg": awg,
+        "wg": wg,
+        "h2": h2,
+        "stream": stream,
+        "mtproto": inbound.mtproto_secret,
+    })
+}
+
 /// Returns the list of connections for the given protocol.
 /// For each online node with the required inbound, finds a matching connection of the subscription.
 /// A node-pinned conn (`conn_nodes`) matches only its own node.
@@ -434,6 +520,7 @@ where
                             env: conn.get_env().to_string(),
                             connection_label: format!("{pool} · {}", inbound_label(tag)),
                             node_ips: None,
+                            config_rev: None,
                         });
                         continue;
                     }
@@ -448,6 +535,11 @@ where
                     conn_labels.get(conn_id).map(String::as_str),
                 );
                 let label = format!("{title} · {}", inbound_label(tag));
+                let ips: Vec<String> = node
+                    .node_ips
+                    .as_ref()
+                    .map(|ips| ips.iter().map(|ip| ip.to_string()).collect())
+                    .unwrap_or_default();
                 result.push(GatewayConnection {
                     connection_uuid: *conn_id,
                     node_id: node.uuid,
@@ -456,19 +548,25 @@ where
                     service_protocol: proto_label(tag).to_string(),
                     env: conn.get_env().to_string(),
                     connection_label: label,
-                    node_ips: node
-                        .node_ips
-                        .as_ref()
-                        .map(|ips| ips.iter().map(|ip| ip.to_string()).collect()),
+                    node_ips: if ips.is_empty() { None } else { Some(ips.clone()) },
+                    config_rev: config_rev(node, tag, &ips),
                 });
             }
         }
     }
-    for ((_, _, pool), idx) in &pool_index {
+    for ((_, tag, pool), idx) in &pool_index {
         let env = fcore::Env::from(result[*idx].env.as_str());
         let ips = pooled_entry_ips(nodes, &env, pool);
+        let node_id = result[*idx].node_id;
+        let node = nodes
+            .iter_nodes()
+            .find(|(id, _)| **id == node_id)
+            .map(|(_, n)| n);
         if !ips.is_empty() {
-            result[*idx].node_ips = Some(ips);
+            result[*idx].node_ips = Some(ips.clone());
+        }
+        if let Some(node) = node {
+            result[*idx].config_rev = config_rev(node, *tag, &ips);
         }
     }
     if result.is_empty() {
@@ -481,6 +579,7 @@ where
             env: String::new(),
             connection_label: "All countries".to_string(),
             node_ips: None,
+            config_rev: None,
         }];
     }
     result
@@ -1424,6 +1523,11 @@ where
             .as_ref()
             .map(|ips| ips.iter().map(|ip| ip.to_string()).collect())
     };
+    let config_rev = config_rev(
+        &node,
+        conn.get_proto().proto(),
+        node_ips.as_deref().unwrap_or(&[]),
+    );
 
     // From here on only owned clones are used; release the read lock so the
     // WireGuard branch can take a write lock for peer registration.
@@ -1551,6 +1655,7 @@ where
         service_protocol: None,
         service_type: None,
         node_ips,
+        config_rev,
     })
 }
 
@@ -1798,6 +1903,7 @@ mod tests {
             env: "ru".to_string(),
             connection_label: "Moscow · AmneziaWG".to_string(),
             node_ips: None,
+            config_rev: None,
         };
         // Single-address node: the field is omitted entirely (old shape).
         let v = serde_json::to_value(&base).unwrap();
@@ -1812,6 +1918,52 @@ mod tests {
             v["node_ips"],
             serde_json::json!(["78.17.28.66", "78.17.28.67"])
         );
+        assert!(v.get("config_rev").is_none());
+    }
+
+    #[test]
+    fn config_rev_tracks_server_material_only() {
+        let inbound = wg_inbound();
+        let node = fcore::Node {
+            uuid: uuid::Uuid::nil(),
+            env: Env::Ru,
+            hostname: "uncle".into(),
+            address: "203.0.113.7".parse().unwrap(),
+            status: fcore::NodeStatus::Online,
+            label: "Uncle Sam".into(),
+            interface: "eth0".into(),
+            created_at: chrono::Utc::now(),
+            modified_at: chrono::Utc::now(),
+            inbounds: [(Tag::Wireguard, inbound)].into(),
+            cores: 1,
+            max_bandwidth_bps: 1,
+            country: "US".into(),
+            r#type: fcore::NodeType::Node,
+            cluster: None,
+            node_ips: None,
+            pool: None,
+        };
+        let rev = config_rev(&node, Tag::Wireguard, &[]).unwrap();
+        assert_eq!(config_rev(&node, Tag::Wireguard, &[]).as_deref(), Some(rev.as_str()));
+        assert_eq!(rev.len(), 64);
+
+        let mut renamed = node.clone();
+        renamed.label = "Other".into();
+        renamed.country = "DE".into();
+        assert_eq!(config_rev(&renamed, Tag::Wireguard, &[]).as_deref(), Some(rev.as_str()));
+
+        let mut moved = node.clone();
+        moved.address = "203.0.113.8".parse().unwrap();
+        assert_ne!(config_rev(&moved, Tag::Wireguard, &[]).unwrap(), rev);
+
+        let with_ips = config_rev(
+            &node,
+            Tag::Wireguard,
+            &["203.0.113.7".into(), "203.0.113.9".into()],
+        )
+        .unwrap();
+        assert_ne!(with_ips, rev);
+        assert!(config_rev(&node, Tag::Hysteria2, &[]).is_none());
     }
 
     #[test]
@@ -1834,6 +1986,7 @@ mod tests {
             service_protocol: Some("awg".to_string()),
             service_type: Some(share::SHARE_SERVICE_TYPE.to_string()),
             node_ips: Some(vec!["78.17.28.66".to_string(), "78.17.28.67".to_string()]),
+            config_rev: Some("abc".to_string()),
         };
         let v = serde_json::to_value(&resp).unwrap();
         assert_eq!(v["share_label"], "Android Mama");
@@ -1846,6 +1999,7 @@ mod tests {
             v["node_ips"],
             serde_json::json!(["78.17.28.66", "78.17.28.67"])
         );
+        assert_eq!(v["config_rev"], "abc");
 
         // Owner branch: display fields are omitted entirely.
         let owner = GatewayConfigResponse {
@@ -1859,6 +2013,7 @@ mod tests {
             service_protocol: None,
             service_type: None,
             node_ips: None,
+            config_rev: None,
         };
         let v = serde_json::to_value(&owner).unwrap();
         for field in [
@@ -1868,6 +2023,7 @@ mod tests {
             "service_protocol",
             "service_type",
             "node_ips",
+            "config_rev",
         ] {
             assert!(v.get(field).is_none(), "{} must be omitted", field);
         }

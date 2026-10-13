@@ -9,10 +9,9 @@ use fcore::{
 use super::super::super::service::Cache;
 use super::super::super::sync::MemSync;
 
-/// Cheap change detector for the server catalog. The client polls this on a
-/// timer instead of re-downloading the full subscription feed: when the hash
-/// differs from the stored one, the feed changed (node went on/offline,
-/// address/inbound/connection shape changed) and a reload is due.
+/// Cheap change detector for the server catalog. The hash moves when an
+/// online node's server config revision changes, or when a node joins or
+/// leaves the online set. Labels, countries and subscription rows do not.
 pub fn catalog_version<N, C, S>(mem: &Cache<N, C, S>) -> (String, usize)
 where
     N: NodeStorageOperations + Sync + Send + Clone + 'static,
@@ -32,46 +31,24 @@ where
     let mut nodes: Vec<_> = mem.nodes.iter_nodes().collect();
     nodes.sort_by_key(|(id, _)| *id);
     for (id, node) in &nodes {
+        if node.status != fcore::NodeStatus::Online {
+            continue;
+        }
         hasher.update(id.as_bytes());
-        hasher.update(
-            format!(
-                "{:?}|{}|{}|{:?}|{}|{:?}|{:?}|{:?}|",
-                node.env, node.hostname, node.address, node.status, node.label, node.cluster,
-                node.node_ips, node.pool
-            )
-            .as_bytes(),
-        );
-        let mut inbounds: Vec<_> = node.inbounds.values().collect();
-        inbounds.sort_by_key(|inbound| (inbound.tag.to_string(), inbound.port));
-        for inbound in inbounds {
-            hasher.update(format!("{}|{};", inbound.tag, inbound.port).as_bytes());
+        let ips: Vec<String> = node
+            .node_ips
+            .as_ref()
+            .map(|v| v.iter().map(|ip| ip.to_string()).collect())
+            .unwrap_or_default();
+        let mut tags: Vec<_> = node.inbounds.keys().copied().collect();
+        tags.sort_by_key(|tag| tag.to_string());
+        for tag in tags {
+            if let Some(rev) = super::amnezia::config_rev(node, tag, &ips) {
+                hasher.update(tag.to_string().as_bytes());
+                hasher.update(rev.as_bytes());
+            }
         }
         hasher.update(b"\n");
-    }
-
-    let mut feed: Vec<_> = mem.main_feed_nodes.iter().collect();
-    feed.sort();
-    for id in feed {
-        hasher.update(id.as_bytes());
-    }
-    hasher.update(b"\n");
-
-    let mut conns: Vec<_> = mem.connections.iter().collect();
-    conns.sort_by_key(|(id, _)| *id);
-    for (id, conn) in &conns {
-        let conn: Connection = (*conn).clone().into();
-        hasher.update(id.as_bytes());
-        hasher.update(
-            format!(
-                "{}|{:?}|{}|{:?}|{:?};",
-                conn.get_proto().proto(),
-                conn.get_env(),
-                conn.get_deleted(),
-                mem.conn_labels.get(*id),
-                mem.conn_nodes.get(*id)
-            )
-            .as_bytes(),
-        );
     }
 
     (format!("{:x}", hasher.finalize()), nodes.len())
@@ -179,17 +156,24 @@ mod tests {
         let (v1_again, _) = catalog_version(&cache);
         assert_eq!(v1, v1_again);
 
-        // status flip changes the hash
+        cache.nodes.get_mut(&Env::Ru).unwrap()[0].label = "Renamed".into();
+        let (v_label, _) = catalog_version(&cache);
+        assert_eq!(v1, v_label);
+
+        cache.nodes.get_mut(&Env::Ru).unwrap()[0].address = "203.0.113.9".parse().unwrap();
+        let (v_ip, _) = catalog_version(&cache);
+        assert_ne!(v1, v_ip);
+        cache.nodes.get_mut(&Env::Ru).unwrap()[0].address = "192.168.1.100".parse().unwrap();
+
         cache.nodes.get_mut(&Env::Ru).unwrap()[0].status = NodeStatus::Offline;
         let (v2, _) = catalog_version(&cache);
         assert_ne!(v1, v2);
 
-        // feed membership changes the hash too
         cache.nodes.get_mut(&Env::Ru).unwrap()[0].status = NodeStatus::Online;
         let (v3, _) = catalog_version(&cache);
         assert_eq!(v1, v3);
         cache.main_feed_nodes.insert(node_id);
         let (v4, _) = catalog_version(&cache);
-        assert_ne!(v1, v4);
+        assert_eq!(v1, v4);
     }
 }

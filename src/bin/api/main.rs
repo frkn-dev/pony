@@ -11,6 +11,7 @@ use crate::{
 
 mod bootstrap;
 mod config;
+mod entitlements;
 mod http;
 mod iap;
 mod metrics;

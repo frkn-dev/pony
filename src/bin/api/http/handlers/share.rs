@@ -495,6 +495,7 @@ where
         Some(label.clone()),
         None,
         Some(ISSUED_VIA_SHARE.to_string()),
+        false,
         memory,
         wg_network,
         awg_network,

@@ -4,8 +4,9 @@ use std::str::FromStr;
 use fcore::{
     http::{helpers as http, response::Instance},
     utils::get_uuid_last_octet_simple,
-    Connection, ConnectionApiOperations, ConnectionBaseOperations, Distributor, Env, Error, Key,
-    KeyKind, NodeStorageOperations, Status, Subscription, SubscriptionOperations, Tag,
+    Connection, ConnectionApiOperations, ConnectionBaseOperations, Distributor, Error, Key,
+    KeyKind, NodeStorageOperations, PlanKind, Product, Status, Subscription,
+    SubscriptionOperations,
 };
 
 use super::super::{
@@ -108,8 +109,24 @@ where
     let distributor = Distributor::new(distributor_str)
         .map_err(|_| Error::Custom("invalid distributor".to_string()))?;
 
+    let product = match req.product.as_deref().map(str::trim) {
+        Some(s) if !s.is_empty() => match Product::from_str(s) {
+            Ok(product) => product,
+            Err(_) => return Ok(http::bad_request("Unknown product")),
+        },
+        _ => Product::Standard,
+    };
+
+    // Products other than the default `standard` are unlimited-only: they
+    // are never sold as traffic (lite) keys.
+    if !product.is_standard() && kind != KeyKind::Standard {
+        return Ok(http::bad_request(
+            "Tariff products other than 'standard' are only available for standard (unlimited) keys",
+        ));
+    }
+
     let key = match kind {
-        KeyKind::Standard => Key::new(req.days, &distributor, &secret),
+        KeyKind::Standard => Key::new(req.days, &distributor, &secret).with_product(product),
         KeyKind::Lite => {
             let traffic_gib = match req.traffic_gib {
                 Some(gib) if gib > 0 => gib,
@@ -159,8 +176,7 @@ pub async fn post_activate_key_handler<N, C, S>(
     wg_network: fcore::IpAddrMask,
     awg_network: fcore::IpAddrMask,
     awg_mobile_network: Option<fcore::IpAddrMask>,
-    enabled_conns: Option<std::collections::HashMap<Env, Vec<Tag>>>,
-    lite_conns: Option<std::collections::HashMap<Env, Vec<Tag>>>,
+    resolver: crate::entitlements::ConnResolver,
     mrkting: Option<crate::config::MrktingConfig>,
 ) -> Result<impl warp::Reply, warp::Rejection>
 where
@@ -188,6 +204,48 @@ where
         return Ok(http::bad_request("Key already activated"));
     }
 
+    // Which shared connections this key buys. Resolved before anything is
+    // written: a product whose entitlements are misconfigured must fail the
+    // activation without consuming the key.
+    let key_plan_kind = match key.kind {
+        KeyKind::Standard => PlanKind::Standard,
+        KeyKind::Lite => PlanKind::Lite,
+    };
+    let conns_map = match resolver.resolve(key_plan_kind, key.product) {
+        Ok(map) => map,
+        Err(err) => {
+            error!("Cannot activate key {}: {}", key.id, err);
+            return Ok(http::internal_error(&format!(
+                "Activation is not configured: {}",
+                err
+            )));
+        }
+    };
+
+    // Cross-product renewal is rejected before the expiry, the key and the
+    // connections are touched: a subscription keeps the product it was
+    // activated with. Another product is a new independent subscription,
+    // i.e. an activation without subscription_id.
+    if let Some(existing_id) = req.subscription_id {
+        match memory.db.sub().find(&existing_id).await {
+            Ok(Some(existing)) if existing.product != key.product => {
+                return Ok(http::conflict(&format!(
+                    "Key product '{}' does not match subscription product '{}'. \
+                     Renew only with the same product, or activate the key as a new subscription.",
+                    key.product, existing.product
+                )));
+            }
+            Ok(_) => {}
+            Err(err) => {
+                error!(
+                    "Failed to load subscription {} for a product check: {}",
+                    existing_id, err
+                );
+                return Ok(http::internal_error("Failed to load subscription"));
+            }
+        }
+    }
+
     let sub_id = match req.subscription_id {
         Some(id) => id,
         None => {
@@ -202,9 +260,10 @@ where
                 // expires_at stays empty on purpose: the shared add_days call
                 // below grants the key's days exactly once. Setting it here too
                 // would double them (days in expires_at + days from add_days).
-                KeyKind::Standard => {
-                    Subscription::new(sub_id, ref_code, None, req.limit_bytes)
-                }
+                // The tariff product comes from the key, never from the
+                // request: activation is the only place it is ever set.
+                KeyKind::Standard => Subscription::new(sub_id, ref_code, None, req.limit_bytes)
+                    .with_product(key.product),
             };
 
             subscription_audit::log_transaction_start(sub_id, Some(key.days as i64));
@@ -286,11 +345,11 @@ where
 
             match key.kind {
                 // Lite subs get connections from lite_enabled_conns; the
-                // fallback to the full enabled_conns is resolved in routes.
+                // fallback to the full enabled_conns is inside the resolver.
                 KeyKind::Lite => {
                     ensure_enabled_connections(
                         sub_id,
-                        &lite_conns,
+                        &conns_map,
                         &memory,
                         &wg_network,
                         &awg_network,
@@ -298,12 +357,14 @@ where
                     )
                     .await;
                 }
-                // Top up connections for every enabled (env, tag): existing ones
-                // are kept, only missing protocols are created.
+                // Top up connections for every entitled (env, tag): existing
+                // ones are kept, only missing protocols are created. For a
+                // new product these are its six-product entitlements, for a
+                // legacy key the historical enabled_conns.
                 KeyKind::Standard => {
                     ensure_enabled_connections(
                         sub_id,
-                        &enabled_conns,
+                        &conns_map,
                         &memory,
                         &wg_network,
                         &awg_network,

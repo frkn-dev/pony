@@ -11,6 +11,13 @@ use fcore::{
 
 use super::pg::PgClientManager;
 
+/// Marks a connection created by the tariff ensure step (activation or
+/// renewal of a subscription): `connections.issued_via = 'plan'`. Distinct
+/// from a user-created extra device (`NULL`) and from a share child
+/// (`postgres::share::ISSUED_VIA_SHARE`). Plan-issued connections are the
+/// owner's own devices: unlike share children they are listed as usual.
+pub const ISSUED_VIA_PLAN: &str = "plan";
+
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct ConnRow {
     pub conn_id: uuid::Uuid,
@@ -28,15 +35,20 @@ pub struct ConnRow {
     /// into `Connection`/`Conn` so it cannot cross the rkyv wire to nodes
     /// (same precedent as `deleted_reason`).
     pub label: Option<String>,
-    /// Provenance flag: Some("share") marks a child connection minted for a
-    /// share token recipient. PG-only like `label`; the api mirrors it into
-    /// an in-memory set to hide share children from owner-facing listings.
+    /// Provenance flag: `'share'` marks a child connection minted for a share
+    /// token recipient, `'plan'` marks a connection created by the tariff
+    /// ensure step (activation/renewal of a subscription). PG-only like
+    /// `label`; the api mirrors `'share'` into an in-memory set to hide share
+    /// children from owner-facing listings — `'plan'` connections are the
+    /// user's own devices and stay visible.
     pub issued_via: Option<String>,
     /// Pin of a "named device" connection to a single node (nodes.uuid).
     /// PG-only like `label`; the api mirrors it into an in-memory map so
     /// pinned peers are only published to/listed on their node. None =
     /// env-wide (current behavior).
     pub node_id: Option<uuid::Uuid>,
+    /// PG-only feed visibility flag; never crosses the rkyv wire to nodes.
+    pub include_in_main: bool,
 }
 
 impl From<(uuid::Uuid, Connection)> for ConnRow {
@@ -63,6 +75,7 @@ impl From<(uuid::Uuid, Connection)> for ConnRow {
             // Same for the node pin: callers that have one set it on the
             // row explicitly (see SyncOp::add_conn).
             node_id: None,
+            include_in_main: true,
         }
     }
 }
@@ -145,6 +158,26 @@ impl PgConn {
         Self { manager }
     }
 
+    pub async fn ensure_schema(&self) -> Result<()> {
+        let mut manager = self.manager.lock().await;
+        let client = manager.get_client().await?;
+        client
+            .batch_execute(
+                "ALTER TABLE connections ADD COLUMN IF NOT EXISTS include_in_main BOOLEAN NOT NULL DEFAULT TRUE",
+            )
+            .await?;
+        // Selfhosted account caps (server_limit/user_limit): applied here so
+        // an existing production DB gets them on the next api start.
+        client
+            .batch_execute(
+                "ALTER TABLE subscriptions
+                     ADD COLUMN IF NOT EXISTS server_limit INTEGER NOT NULL DEFAULT 3,
+                     ADD COLUMN IF NOT EXISTS user_limit INTEGER NOT NULL DEFAULT 20",
+            )
+            .await?;
+        Ok(())
+    }
+
     pub async fn all(&self) -> Result<Vec<ConnRow>> {
         let mut manager = self.manager.lock().await;
         let client = manager.get_client().await?;
@@ -165,7 +198,8 @@ impl PgConn {
             is_deleted,
             label,
             issued_via,
-            node_id
+            node_id,
+            include_in_main
         FROM connections
     ";
 
@@ -192,6 +226,7 @@ impl PgConn {
                 let label: Option<String> = row.get("label");
                 let issued_via: Option<String> = row.get("issued_via");
                 let node_id: Option<uuid::Uuid> = row.get("node_id");
+                let include_in_main: bool = row.get("include_in_main");
 
                 let wg = match (wg_privkey, wg_address) {
                     (Some(privkey), Some(address)) => {
@@ -218,6 +253,7 @@ impl PgConn {
                     label,
                     issued_via,
                     node_id,
+                    include_in_main,
                 }
             })
             .collect()
@@ -283,6 +319,18 @@ impl PgConn {
         Ok(())
     }
 
+    pub async fn set_include_in_main(&self, conn_id: &uuid::Uuid, include: bool) -> Result<()> {
+        let mut manager = self.manager.lock().await;
+        let client = manager.get_client().await?;
+        client
+            .execute(
+                "UPDATE connections SET include_in_main = $2 WHERE id = $1",
+                &[conn_id, &include],
+            )
+            .await?;
+        Ok(())
+    }
+
     pub async fn insert(&self, conn: ConnRow) -> Result<()> {
         let mut manager = self.manager.lock().await;
         let client = manager.get_client().await?;
@@ -303,11 +351,12 @@ impl PgConn {
             token,
             label,
             issued_via,
-            node_id
+            node_id,
+            include_in_main
         )
         VALUES (
             $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-            $11, $12, $13, $14, $15
+            $11, $12, $13, $14, $15, $16
         )
     ";
 
@@ -330,6 +379,7 @@ impl PgConn {
                     &conn.label,
                     &conn.issued_via,
                     &conn.node_id,
+                    &conn.include_in_main,
                 ],
             )
             .await;

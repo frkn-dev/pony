@@ -1,6 +1,6 @@
 use chrono::DateTime;
 use chrono::Utc;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
 use std::sync::Arc;
@@ -17,6 +17,19 @@ use super::pg::PgClientManager;
 
 pub struct PgNode {
     pub manager: Arc<Mutex<PgClientManager>>,
+}
+
+/// Result of a limit-aware private node insert
+/// (`PgNode::insert_private_node_with_limit`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct NodeSlotOutcome {
+    /// `false` when the account already sits at its server cap: nothing was
+    /// inserted.
+    pub inserted: bool,
+    /// Nodes in the personal env after the call (offline included).
+    pub used: i64,
+    /// The account's server cap at the time of the check.
+    pub limit: i64,
 }
 
 impl PgNode {
@@ -37,6 +50,19 @@ impl PgNode {
         let mut manager = self.manager.lock().await;
         let client = manager.get_client().await?;
         let tx = client.transaction().await?;
+        Self::upsert_node_in_tx(&tx, node_id, node).await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
+    /// Node + inbounds upsert inside an already-open transaction. Shared by
+    /// `upsert` (own transaction) and `insert_private_node_with_limit`,
+    /// which must lock the owning subscription before inserting.
+    async fn upsert_node_in_tx(
+        tx: &tokio_postgres::Transaction<'_>,
+        node_id: uuid::Uuid,
+        node: Node,
+    ) -> Result<()> {
         let cores = node.cores as i32;
 
         let address: IpAddr = IpAddr::V4(node.address);
@@ -48,12 +74,21 @@ impl PgNode {
             .as_ref()
             .map(|ips| ips.iter().map(|ip| ip.to_string()).collect());
 
+        // JSONB map lang -> translated pool name; None -> NULL. On upsert a
+        // NULL incoming value keeps the stored one (COALESCE below), so a
+        // partial re-registration never wipes existing translations.
+        let pool_translation: Option<serde_json::Value> = node
+            .pool_translation
+            .as_ref()
+            .map(serde_json::to_value)
+            .transpose()?;
+
         let node_query = "
         INSERT INTO nodes (
-            id, uuid, env, hostname, address, status, created_at, modified_at, label, interface, cores, max_bandwidth_bps, country, node_type, cluster, node_ips, pool
+            id, uuid, env, hostname, address, status, created_at, modified_at, label, interface, cores, max_bandwidth_bps, country, node_type, cluster, node_ips, pool, pool_translation
         )
         VALUES (
-            $1, $2, $3, $4, $5, $6::node_status, $7, $8, $9, $10, $11, $12, $13, $14::node_type, $15, $16, $17
+            $1, $2, $3, $4, $5, $6::node_status, $7, $8, $9, $10, $11, $12, $13, $14::node_type, $15, $16, $17, $18
         )
         ON CONFLICT (id) DO UPDATE SET
             uuid = EXCLUDED.uuid,
@@ -70,7 +105,8 @@ impl PgNode {
             node_type = EXCLUDED.node_type,
             cluster = EXCLUDED.cluster,
             node_ips = EXCLUDED.node_ips,
-            pool = EXCLUDED.pool
+            pool = COALESCE(EXCLUDED.pool, nodes.pool),
+            pool_translation = COALESCE(EXCLUDED.pool_translation, nodes.pool_translation)
     ";
 
         tx.execute(
@@ -93,6 +129,7 @@ impl PgNode {
                 &node.cluster,
                 &node_ips,
                 &node.pool,
+                &pool_translation,
             ],
         )
         .await?;
@@ -230,8 +267,72 @@ impl PgNode {
             }
         }
 
-        tx.commit().await?;
         Ok(())
+    }
+
+    /// Registers a private node with the account's server cap applied
+    /// **transactionally**: the subscription owning this personal
+    /// `scope_env` is locked (`SELECT ... FOR UPDATE`), the nodes already
+    /// living in that env are counted (offline ones included, a
+    /// re-registration of the same node excluded) and the node is inserted —
+    /// all in one transaction, so two concurrent registrations can't both slip
+    /// past the last free slot.
+    ///
+    /// `Ok(None)` = no subscription owns this env: refuse rather than insert
+    /// a node nobody could count or clean up.
+    pub async fn insert_private_node_with_limit(
+        &self,
+        env: &fcore::Env,
+        node_id: uuid::Uuid,
+        node: Node,
+    ) -> Result<Option<NodeSlotOutcome>> {
+        let mut manager = self.manager.lock().await;
+        let client = manager.get_client().await?;
+        let tx = client.transaction().await?;
+
+        let env_str = env.to_string();
+        let Some(row) = tx
+            .query_opt(
+                "SELECT server_limit FROM subscriptions
+                 WHERE scope_env = $1 AND is_deleted = false
+                 FOR UPDATE",
+                &[&env_str],
+            )
+            .await?
+        else {
+            return Ok(None);
+        };
+        let server_limit: i32 = row
+            .try_get::<_, i32>("server_limit")
+            .unwrap_or(fcore::DEFAULT_SERVER_LIMIT as i32)
+            .max(0);
+
+        // `uuid <> $2` keeps a re-registration of an already known node from
+        // consuming a slot twice.
+        let used: i64 = tx
+            .query_one(
+                "SELECT count(*) FROM nodes WHERE env = $1 AND uuid <> $2",
+                &[&env_str, &node_id],
+            )
+            .await?
+            .get(0);
+
+        if used >= server_limit as i64 {
+            // Dropping the transaction rolls back the (read-only) work.
+            return Ok(Some(NodeSlotOutcome {
+                inserted: false,
+                used,
+                limit: server_limit as i64,
+            }));
+        }
+
+        Self::upsert_node_in_tx(&tx, node_id, node).await?;
+        tx.commit().await?;
+        Ok(Some(NodeSlotOutcome {
+            inserted: true,
+            used: used + 1,
+            limit: server_limit as i64,
+        }))
     }
 
     pub async fn all(&self) -> Result<Vec<Node>> {
@@ -258,6 +359,7 @@ impl PgNode {
                       n.cluster,
                       n.node_ips,
                       n.pool,
+                      n.pool_translation,
 
                       i.id AS inbound_id,
                       i.tag,
@@ -304,6 +406,9 @@ impl PgNode {
             let r#type: NodeType = row.get("node_type");
             let cluster: Option<String> = row.get("cluster");
             let pool: Option<String> = row.get("pool");
+            let pool_translation: Option<BTreeMap<String, String>> = row
+                .get::<_, Option<serde_json::Value>>("pool_translation")
+                .and_then(|v| serde_json::from_value(v).ok());
 
             // Stored as TEXT[]; parse each entry back into Ipv4Addr.
             // Unparseable entries are skipped with a warning rather than
@@ -379,6 +484,7 @@ impl PgNode {
                     cluster: cluster.clone(),
                     node_ips: node_ips.clone(),
                     pool: pool.clone(),
+                    pool_translation: pool_translation.clone(),
                 });
 
                 if let Some(_inbound_id) = inbound_id {

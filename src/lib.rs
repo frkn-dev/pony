@@ -63,6 +63,7 @@ pub use memory::{
         InboundStat, Node, NodeMetricInfo, NodeResponse, Status as NodeStatus, Type as NodeType,
     },
     snapshot::SnapshotManager,
+    product::Product,
     stat::{Kind as StatKind, StatType},
     storage::{
         connection::ApiOp as ConnectionStorageApiOperations,
@@ -70,7 +71,10 @@ pub use memory::{
         node::Operations as NodeStorageOperations,
         subscription::Operations as SubscriptionStorageOperations, Status,
     },
-    subscription::{Operations as SubscriptionOperations, PlanKind, Subscription, Subscriptions},
+    subscription::{
+        Operations as SubscriptionOperations, PlanKind, SelfhostedLimits, Subscription,
+        Subscriptions, DEFAULT_SERVER_LIMIT, DEFAULT_USER_LIMIT,
+    },
     tag::ProtoTag as Tag,
 };
 

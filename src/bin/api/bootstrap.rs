@@ -59,6 +59,7 @@ where
 
         // Share tokens: idempotent DDL (own table + connections.issued_via).
         db.share().ensure_table().await?;
+        db.conn().ensure_schema().await?;
 
         db.install_token().ensure_table().await?;
         db.node_access_token().ensure_table().await?;

@@ -53,6 +53,12 @@ type = "common"
 # ports/keys/inbounds — only the entry address differs. Clients pick/rotate
 # addresses themselves. Omit for a single-address node.
 # node_ips = ["192.168.1.100", "192.168.1.101"]
+# Optional pool/group name. Clients group identically-named nodes and show a
+# localized title (falling back to `label`). `pool_translation` maps a
+# language code -> display name; en/ru/uk are used, `ua` is accepted as an
+# alias of `uk`. Blank values are ignored and never overwrite stored ones.
+# pool = "Finland"
+# pool_translation = { en = "Finland", ru = "Финляндия", uk = "Фінляндія" }
 
 [api]
 endpoint = "http://127.0.0.1:3000"

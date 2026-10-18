@@ -7,8 +7,8 @@ use tracing::{debug, error, info, warn};
 
 use fcore::{
     measure_time, Connection, ConnectionApiOperations, ConnectionBaseOperations,
-    ConnectionStorageApiOperations, Env, NodeStatus, NodeStorageOperations, PlanKind, Result,
-    Status, Subscription, SubscriptionOperations, SubscriptionStorageOperations,
+    ConnectionStorageApiOperations, Env, NodeStatus, NodeStorageOperations, PlanKind, Product,
+    Result, Status, Subscription, SubscriptionOperations, SubscriptionStorageOperations,
 };
 
 use super::{
@@ -314,7 +314,9 @@ where
         }
     }
 
-    /// Reconcile subscriptions against enabled_conns / lite_enabled_conns:
+    /// Reconcile subscriptions against their entitled connections
+    /// (`enabled_conns` / `lite_enabled_conns` for legacy and traffic plans,
+    /// `product_envs` + `env_proto_templates` for the new tariff products):
     /// any missing (env, proto) connection is created. Soft-deleted
     /// connections are not recreated here — restore_subscriptions revives
     /// them; this task only fills genuinely absent pairs (e.g. lost after a
@@ -373,31 +375,32 @@ where
             debug!("Run reconcile enabled connections task");
 
             let traffic_mode_enabled = self.settings.service.traffic_mode_enabled;
-            let enabled_conns = self.settings.service.enabled_conns.clone();
-            let lite_conns = self
-                .settings
-                .service
-                .lite_enabled_conns
-                .clone()
-                .or_else(|| enabled_conns.clone());
+            let resolver = self.settings.service.conn_resolver();
 
-            if enabled_conns.is_none() {
+            // Nothing to reconcile if no shared conns are configured at all.
+            if resolver.enabled_conns.is_none() && resolver.env_proto_templates.is_empty() {
                 continue;
             }
 
-            // (sub_id, use_lite_map, needs_balance_check) — same selection as
-            // restore_subscriptions: active subs, plus time-expired subs
-            // living on their traffic balance (traffic mode).
-            let subs: Vec<(uuid::Uuid, bool, bool)> = {
+            // Same selection as restore_subscriptions: active subs, plus
+            // time-expired subs living on their traffic balance (traffic
+            // mode). Selfhosted accounts are filtered out below — they never
+            // take shared connections.
+            let subs: Vec<uuid::Uuid> = {
                 let mem = self.sync.memory.read().await;
                 mem.subscriptions
                     .iter()
                     .filter_map(|(id, sub)| {
+                        // A selfhosted account never takes shared
+                        // connections — it only holds the nodes the user
+                        // registered via an install token.
+                        if sub.plan_kind() == PlanKind::Selfhosted {
+                            return None;
+                        }
                         if sub.is_active() {
-                            Some((*id, sub.plan_kind() == PlanKind::Lite, false))
-                        } else if traffic_mode_enabled && !sub.is_deleted() && sub.time_expired()
-                        {
-                            Some((*id, true, true))
+                            Some(*id)
+                        } else if traffic_mode_enabled && !sub.is_deleted() && sub.time_expired() {
+                            Some(*id)
                         } else {
                             None
                         }
@@ -405,8 +408,29 @@ where
                     .collect()
             };
 
-            for (sub_id, use_lite_map, balance_check) in subs {
-                if balance_check {
+            for sub_id in subs {
+                let snapshot = {
+                    let mem = self.sync.memory.read().await;
+                    mem.subscriptions.find_by_id(&sub_id).map(|s| {
+                        (s.plan_kind(), s.product(), s.is_active(), s.time_expired())
+                    })
+                };
+                let Some((plan_kind, product, is_active, time_expired)) = snapshot else {
+                    continue;
+                };
+
+                // Historical traffic-mode behaviour: a time-expired sub that
+                // includes the classic set is served by the lite map while it
+                // lives on its balance. A single-env product keeps its own
+                // entitlements (its envs are what the customer pays for).
+                let (plan_kind, product) =
+                    if !is_active && time_expired && product.includes_standard() {
+                        (PlanKind::Lite, Product::Standard)
+                    } else {
+                        (plan_kind, product)
+                    };
+
+                if !is_active {
                     match self.sync.db.traffic().total_for_subscription(sub_id).await {
                         Ok((uplink, downlink)) => {
                             let remaining = {
@@ -430,15 +454,17 @@ where
                     }
                 }
 
-                let conns_map = if use_lite_map {
-                    &lite_conns
-                } else {
-                    &enabled_conns
+                let conns_map = match resolver.resolve(plan_kind, product) {
+                    Ok(map) => map,
+                    Err(err) => {
+                        error!("Cannot resolve conns for subscription {}: {}", sub_id, err);
+                        continue;
+                    }
                 };
 
                 ensure_enabled_connections(
                     sub_id,
-                    conns_map,
+                    &conns_map,
                     &self.sync,
                     &self.settings.service.wireguard_network,
                     &self.settings.service.amnezia_wireguard_network,
@@ -643,6 +669,7 @@ where
                     None,
                     None,
                     None,
+                    true,
                     &self.sync,
                     &self.settings.service.wireguard_network,
                     &self.settings.service.amnezia_wireguard_network,

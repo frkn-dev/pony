@@ -113,6 +113,7 @@ mod tests {
             cluster: None,
             node_ips: None,
             pool: None,
+            pool_translation: None,
         }
     }
 
@@ -139,6 +140,7 @@ mod tests {
             share_conns: HashSet::new(),
             conn_nodes: HashMap::new(),
             main_feed_nodes: HashSet::new(),
+            main_feed_excluded_conns: HashSet::new(),
         }
     }
 

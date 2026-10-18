@@ -18,6 +18,16 @@ case "$ARCH" in
     *) echo "Architecture ${ARCH} not supported by current release assets; build manually." >&2; exit 1 ;;
 esac
 
+# Schema migrations run BEFORE the new binary is installed: it may read new
+# columns unconditionally (e.g. nodes.pool), and migrations never run at api
+# startup — see deploy/migrations/README.md. Order is strict: migrate → start.
+DEPLOY_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [[ -n "${DATABASE_URL:-}" ]]; then
+    "${DEPLOY_DIR}/migrate.sh" "${DATABASE_URL}"
+elif compgen -G "${DEPLOY_DIR}/migrations/*.sql" > /dev/null; then
+    echo "WARNING: DATABASE_URL is not set — apply ${DEPLOY_DIR}/migrations/*.sql manually BEFORE (re)starting ${SERVICE}." >&2
+fi
+
 echo "Installing api ${VERSION}..."
 
 mkdir -p "$CONFIG_DIR" "$DATA_DIR" "$LOG_DIR"
@@ -40,4 +50,4 @@ else
     echo "Example config copied to ${CONFIG_DIR}/config.toml; edit before starting."
 fi
 
-echo "Done. Start with: sudo systemctl start ${SERVICE}"
+echo "Done. Start with: sudo systemctl restart ${SERVICE}"

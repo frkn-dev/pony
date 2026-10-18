@@ -85,6 +85,7 @@ where
         label: Option<String>,
         node_id: Option<uuid::Uuid>,
         issued_via: Option<String>,
+        include_in_main: bool,
     ) -> SyncResult<Status>;
     async fn add_sub(&self, sub: Subscription) -> SyncResult<Status>;
     async fn delete_connection(
@@ -340,6 +341,7 @@ impl<N, C, S> SyncOp<N, C, S> for MemSync<N, C, S>where
         label: Option<String>,
         node_id: Option<uuid::Uuid>,
         issued_via: Option<String>,
+        include_in_main: bool,
     ) -> SyncResult<Status> {
         info!("Adding connection: {}", conn_id);
 
@@ -354,6 +356,7 @@ impl<N, C, S> SyncOp<N, C, S> for MemSync<N, C, S>where
         conn_row.label = label.clone();
         conn_row.node_id = node_id;
         conn_row.issued_via = issued_via;
+        conn_row.include_in_main = include_in_main;
 
         // Insert into database first
         if let Err(e) = self.db.conn().insert(conn_row).await {
@@ -372,6 +375,11 @@ impl<N, C, S> SyncOp<N, C, S> for MemSync<N, C, S>where
             }
             if let Some(node_id) = node_id {
                 memory.conn_nodes.insert(*conn_id, node_id);
+            }
+            if include_in_main {
+                memory.main_feed_excluded_conns.remove(conn_id);
+            } else {
+                memory.main_feed_excluded_conns.insert(*conn_id);
             }
             ConnectionStorageApiOperations::add(
                 &mut memory.connections,

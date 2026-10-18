@@ -711,6 +711,103 @@ where
 }
 
 #[derive(Debug, Deserialize)]
+pub struct AdminSelfhostedLimitsRequest {
+    pub server_limit: i64,
+    pub user_limit: i64,
+}
+
+/// Admin-only: replace the selfhosted caps of an account. Raising them lets
+/// the account grow; lowering them deletes nothing — every node and child
+/// subscription it already holds stays, it just can't add more.
+pub async fn admin_api_set_selfhosted_limits_handler<N, C, S>(
+    subscription_id: uuid::Uuid,
+    req: AdminSelfhostedLimitsRequest,
+    memory: MemSync<N, C, S>,
+    admin_enabled: bool,
+    admin_token: String,
+    auth_header: Option<String>,
+) -> Result<Box<dyn warp::Reply + Send>, warp::Rejection>
+where
+    N: NodeStorageOperations + Sync + Send + Clone + 'static,
+    C: ConnectionApiOperations
+        + ConnectionBaseOperations
+        + Sync
+        + Send
+        + Clone
+        + 'static
+        + From<Connection>
+        + PartialEq,
+    Connection: From<C>,
+    S: SubscriptionOperations + Send + Sync + Clone + 'static + PartialEq + From<Subscription>,
+{
+    if !admin_enabled {
+        return Ok(Box::new(warp::reply::with_status(
+            "Admin disabled",
+            StatusCode::FORBIDDEN,
+        )));
+    }
+    if !check_token(auth_header, &admin_token) {
+        return Ok(Box::new(warp::reply::with_status(
+            "Unauthorized",
+            StatusCode::UNAUTHORIZED,
+        )));
+    }
+    if req.server_limit < 0 || req.user_limit < 0 {
+        return Ok(Box::new(warp::reply::with_status(
+            warp::reply::json(&serde_json::json!({
+                "status": 400,
+                "message": "limits must be non-negative"
+            })),
+            StatusCode::BAD_REQUEST,
+        )));
+    }
+
+    {
+        let mem = memory.memory.read().await;
+        match mem.subscriptions.find_by_id(&subscription_id) {
+            Some(sub) if !sub.is_deleted() => {}
+            _ => {
+                return Ok(Box::new(warp::reply::with_status(
+                    "Subscription not found",
+                    StatusCode::NOT_FOUND,
+                )))
+            }
+        }
+    }
+
+    // Postgres first, then the cache: if the DB write fails nothing was
+    // changed in memory either.
+    let row = match memory
+        .db
+        .sub()
+        .set_selfhosted_limits(&subscription_id, req.server_limit, req.user_limit)
+        .await
+    {
+        Ok(row) => row,
+        Err(e) => {
+            error!("Failed to set selfhosted limits: {}", e);
+            return Ok(Box::new(warp::reply::with_status(
+                "Database error",
+                StatusCode::INTERNAL_SERVER_ERROR,
+            )));
+        }
+    };
+
+    {
+        let mut mem = memory.memory.write().await;
+        if let Some(sub) = mem.subscriptions.find_by_id_mut(&subscription_id) {
+            sub.set_selfhosted_limits(row.server_limit, row.user_limit);
+        }
+    }
+
+    Ok(Box::new(warp::reply::json(&serde_json::json!({
+        "subscription_id": subscription_id,
+        "server_limit": row.server_limit,
+        "user_limit": row.user_limit,
+    }))))
+}
+
+#[derive(Debug, Deserialize)]
 pub struct AdminCreateSubscriptionRequest {
     pub days: i64,
     pub limit_bytes: Option<i64>,

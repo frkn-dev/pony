@@ -238,6 +238,24 @@ ALTER TABLE keys
 ALTER TABLE subscriptions
     ADD COLUMN IF NOT EXISTS plan_kind TEXT NOT NULL DEFAULT 'standard';
 
+-- Tariff products (standard/gaming/bs-prem/standard-gaming/standard-bs-prem/
+-- full): what a key sells and what access a subscription gets. `standard` is
+-- the classic set (enabled_conns, wl included) and the value of every row
+-- created before products existed. Applied as a deploy migration
+-- (deploy/migrations/0002_products.sql), never at api startup.
+ALTER TABLE keys
+    ADD COLUMN IF NOT EXISTS product TEXT NOT NULL DEFAULT 'standard';
+
+ALTER TABLE subscriptions
+    ADD COLUMN IF NOT EXISTS product TEXT NOT NULL DEFAULT 'standard';
+
+-- Selfhosted account caps: how many own nodes ("servers", offline included)
+-- and how many child subscriptions ("users") the account may hold. Applied
+-- automatically at api startup; a lower value deletes nothing.
+ALTER TABLE subscriptions
+    ADD COLUMN IF NOT EXISTS server_limit INTEGER NOT NULL DEFAULT 3,
+    ADD COLUMN IF NOT EXISTS user_limit INTEGER NOT NULL DEFAULT 20;
+
 -- Idempotent traffic top-ups for lite subscriptions: trace_id is the
 -- idempotency key, a repeated POST with the same trace_id is a no-op.
 CREATE TABLE IF NOT EXISTS traffic_topups (
@@ -273,6 +291,10 @@ ALTER TABLE connections
 -- map rebuilt from this column.
 ALTER TABLE connections
     ADD COLUMN IF NOT EXISTS label TEXT;
+
+-- Existing devices stay included; the API stores FALSE for new named devices.
+ALTER TABLE connections
+    ADD COLUMN IF NOT EXISTS include_in_main BOOLEAN NOT NULL DEFAULT TRUE;
 
 
 -- Share tokens (frkn://conn/<token>): a scoped credential that lets a
@@ -338,6 +360,16 @@ CREATE UNIQUE INDEX connections_single_proto_idx
       AND proto NOT IN ('wireguard', 'amnezia_wg', 'amnezia_wg_mobile')
       AND issued_via IS DISTINCT FROM 'share';
 
+-- The tariff ensure step marks the connections it creates issued_via = 'plan'
+-- (activation/renewal). They are single per (subscription, env, proto) even
+-- for the wg family, so a repeated or concurrent ensure cannot duplicate
+-- them. User-created extra devices (NULL) and share children are not
+-- covered. Kept in sync with deploy/migrations/0003_plan_conns.sql.
+CREATE UNIQUE INDEX IF NOT EXISTS connections_plan_single_proto_idx
+    ON connections (subscription_id, env, proto)
+    WHERE is_deleted = false
+      AND issued_via = 'plan';
+
 -- Private user nodes: one-time install tokens minted from the cabinet.
 -- Applied automatically at api startup (PgInstallToken::ensure_table).
 CREATE TABLE IF NOT EXISTS install_tokens (
@@ -359,3 +391,13 @@ CREATE TABLE IF NOT EXISTS node_access_tokens (
     node_uuid UUID NOT NULL UNIQUE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Pool/group name of a node (config.toml `[node] pool`) and its
+-- per-language translations (`pool_translation`, JSONB map lang -> name).
+-- Clients group identically-named nodes and show a localized title instead
+-- of `label`; `connection_label` is left unchanged for old clients. NULL =
+-- old node / no pool. A NULL incoming value on re-registration keeps the
+-- stored one (COALESCE in PgNode::upsert), so partial payloads never wipe
+-- existing translations.
+ALTER TABLE nodes ADD COLUMN IF NOT EXISTS pool TEXT;
+ALTER TABLE nodes ADD COLUMN IF NOT EXISTS pool_translation JSONB;

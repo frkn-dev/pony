@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use reqwest::{Client as HttpClient, StatusCode, Url};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::net::Ipv4Addr;
 
 use fcore::{
@@ -32,8 +32,13 @@ pub struct NodeRequest {
     /// node. Old api binaries ignore the unknown field.
     #[serde(default)]
     pub node_ips: Option<Vec<Ipv4Addr>>,
+    /// Optional pool/group name (config.toml `[node] pool`). Old api
+    /// binaries ignore the unknown field.
     #[serde(default)]
     pub pool: Option<String>,
+    /// Optional per-language translations of `pool`.
+    #[serde(default)]
+    pub pool_translation: Option<BTreeMap<String, String>>,
 }
 
 #[async_trait]
@@ -161,6 +166,7 @@ where
             cluster: node.cluster.clone(),
             node_ips: node.node_ips.clone(),
             pool: node.pool.clone(),
+            pool_translation: node.pool_translation.clone(),
         };
 
         let res = HttpClient::new()

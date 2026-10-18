@@ -7,6 +7,7 @@ use hmac::{Hmac, Mac};
 use sha2::Sha256;
 
 use crate::error::Error;
+use crate::memory::product::Product;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Key {
@@ -20,6 +21,11 @@ pub struct Key {
     pub distributor: Distributor,
     pub kind: KeyKind,
     pub traffic_bytes: Option<i64>,
+    /// Tariff product the key sells. Absent in old rows/requests =
+    /// [`Product::Standard`]: access is resolved from `enabled_conns`.
+    /// Only standard (unlimited) keys may carry a new product.
+    #[serde(default)]
+    pub product: Product,
 }
 
 /// What a key grants on activation: days (standard) or traffic (lite).
@@ -69,6 +75,7 @@ impl Key {
             distributor: *distributor,
             kind: KeyKind::Standard,
             traffic_bytes: None,
+            product: Product::Standard,
         }
     }
 
@@ -90,7 +97,17 @@ impl Key {
             distributor: *distributor,
             kind: KeyKind::Lite,
             traffic_bytes: Some(traffic_gib as i64 * 1024 * 1024 * 1024),
+            // New products are unlimited-only: a lite (traffic) key is
+            // always legacy.
+            product: Product::Standard,
         }
+    }
+
+    /// Sells `product` with this key. Only meaningful for standard keys —
+    /// callers must reject new products on lite keys.
+    pub fn with_product(mut self, product: Product) -> Key {
+        self.product = product;
+        self
     }
 
     pub fn activate(&mut self, sub_id: &uuid::Uuid) -> uuid::Uuid {
@@ -122,6 +139,13 @@ impl From<tokio_postgres::Row> for Key {
                 KeyKind::from_str(&kind_str).unwrap_or_default()
             },
             traffic_bytes: row.get::<_, Option<i64>>("traffic_bytes"),
+            // Tolerate an unmigrated schema and unknown values: an old
+            // database or a future product degrades to legacy access.
+            product: row
+                .try_get::<_, String>("product")
+                .ok()
+                .and_then(|s| Product::from_stored(&s))
+                .unwrap_or_default(),
         }
     }
 }
@@ -632,8 +656,7 @@ mod tests {
     }
 
     #[test]
-    fn test_key_kind_string_roundtrip() {
-        for (kind, s) in [(KeyKind::Standard, "standard"), (KeyKind::Lite, "lite")] {
+    fn test_key_kind_string_roundtrip() {        for (kind, s) in [(KeyKind::Standard, "standard"), (KeyKind::Lite, "lite")] {
             assert_eq!(kind.to_string(), s);
             assert_eq!(KeyKind::from_str(s).unwrap(), kind);
             assert_eq!(serde_json::to_string(&kind).unwrap(), format!("\"{}\"", s));
@@ -642,5 +665,28 @@ mod tests {
 
         assert!(KeyKind::from_str("premium").is_err());
         assert_eq!(KeyKind::default(), KeyKind::Standard);
+    }
+
+    #[test]
+    fn test_key_product_defaults_to_standard() {
+        let key = Key::new(30, &distributor(), SECRET);
+        assert_eq!(key.product, Product::Standard);
+        assert!(key.product.is_standard());
+
+        // A lite key never carries a product.
+        let lite = Key::new_lite(5, &distributor(), SECRET);
+        assert_eq!(lite.product, Product::Standard);
+    }
+
+    #[test]
+    fn test_key_with_product() {
+        let key = Key::new(30, &distributor(), SECRET).with_product(Product::StandardGaming);
+        assert_eq!(key.product, Product::StandardGaming);
+        assert!(!key.product.is_standard());
+
+        // The product is part of the serialized key (GET /key/validate
+        // returns it next to kind/traffic_gib).
+        let json = serde_json::to_value(&key).unwrap();
+        assert_eq!(json["product"], serde_json::json!("standard-gaming"));
     }
 }

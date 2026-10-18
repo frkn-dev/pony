@@ -2,6 +2,7 @@ use crate::memory::connection::conn::Conn as Connection;
 use crate::memory::connection::stat::Stat as ConnectionStat;
 use crate::memory::env::Env;
 use crate::memory::key::Key;
+use crate::memory::product::Product;
 use crate::memory::subscription::{PlanKind, Subscription};
 use crate::memory::tag::ProtoTag as Tag;
 use serde::{Deserialize, Serialize};
@@ -49,6 +50,9 @@ pub struct SubscriptionResponse {
     pub monthly_uplink: i64,
     pub limit_bytes: i64,
     pub plan_kind: PlanKind,
+    /// Tariff product of the subscription (`legacy` when it was created
+    /// before products existed). Orthogonal to `plan_kind`.
+    pub product: Product,
     /// Lifetime traffic (uplink + downlink) persisted for the subscription.
     pub used_bytes: i64,
     /// Bytes left on the traffic balance; null when the subscription has no
@@ -104,6 +108,8 @@ pub struct ConnectionInfo {
     pub is_deleted: bool,
     pub uplink: i64,
     pub downlink: i64,
+    /// False keeps the device available only through explicit conn/share URLs.
+    pub include_in_main: bool,
     /// Active share token minted FROM this connection (the site shows the
     /// frkn://conn/... link per device); null when the connection has no
     /// live share. The token is a share-scope credential — it yields only
@@ -173,6 +179,7 @@ mod tests {
             is_deleted: false,
             uplink: 1024,
             downlink: 2048,
+            include_in_main: false,
             share_token: Some("k7f29mxq4tvzabcd".to_string()),
             share_url: Some("frkn://conn/k7f2-9mxq-4tvz-abcd".to_string()),
             share_feed_url: Some("https://api.frkn.org/sub/k7f2-9mxq-4tvz-abcd".to_string()),
@@ -190,8 +197,8 @@ mod tests {
         assert_eq!(
             keys,
             [
-                "downlink", "env", "id", "is_deleted", "label", "proto", "share_feed_url",
-                "share_token", "share_url", "uplink"
+                "downlink", "env", "id", "include_in_main", "is_deleted", "label", "proto",
+                "share_feed_url", "share_token", "share_url", "uplink"
             ]
         );
 
@@ -201,6 +208,7 @@ mod tests {
         assert_eq!(obj["is_deleted"], serde_json::json!(false));
         assert_eq!(obj["uplink"], serde_json::json!(1024));
         assert_eq!(obj["downlink"], serde_json::json!(2048));
+        assert_eq!(obj["include_in_main"], serde_json::json!(false));
         assert_eq!(obj["share_token"], serde_json::json!("k7f29mxq4tvzabcd"));
         assert_eq!(
             obj["share_url"],
@@ -222,6 +230,7 @@ mod tests {
             is_deleted: true,
             uplink: 0,
             downlink: 0,
+            include_in_main: true,
             share_token: None,
             share_url: None,
             share_feed_url: None,

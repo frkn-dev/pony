@@ -148,6 +148,23 @@ where
             .and(with_sync(self.sync.clone()))
             .and_then(mint_install_token_handler);
 
+        // Public selfhosted account creation: anyone may open an empty
+        // account, but creation is per-IP rate-limited against abuse.
+        let private_account_rate_limiter =
+            Arc::new(RateLimiter::new(5, std::time::Duration::from_secs(600)));
+        let private_create_account_route = warp::post()
+            .and(warp::path("private"))
+            .and(warp::path("account"))
+            .and(warp::path::end())
+            .and(with_sync(self.sync.clone()))
+            .and(warp::addr::remote())
+            .and(warp::header::optional::<String>("x-forwarded-for"))
+            .and(warp::any().map({
+                let limiter = private_account_rate_limiter.clone();
+                move || limiter.clone()
+            }))
+            .and_then(create_private_account_handler);
+
         let private_register_node_route = warp::post()
             .and(warp::path("private"))
             .and(warp::path("nodes"))
@@ -174,6 +191,15 @@ where
             .and(with_sync(self.sync.clone()))
             .and_then(list_private_nodes_handler);
 
+        // Cabinet counters: used/limit/remaining for servers and users.
+        let private_state_route = warp::get()
+            .and(warp::path("private"))
+            .and(warp::path("state"))
+            .and(warp::path::end())
+            .and(warp::query::<PrivateNodesQuery>())
+            .and(with_sync(self.sync.clone()))
+            .and_then(private_state_handler);
+
         let private_feed_route = warp::post()
             .and(warp::path("private"))
             .and(warp::path("nodes"))
@@ -193,11 +219,51 @@ where
             .and(with_sync(self.sync.clone()))
             .and_then(delete_private_node_handler);
 
+        // Selfhosted "users": child subscriptions carrying the account's
+        // nodes (pinned subset or all of them).
+        let private_create_user_route = warp::post()
+            .and(warp::path("private"))
+            .and(warp::path("users"))
+            .and(warp::path::end())
+            .and(warp::body::json::<PrivateUserCreateRequest>())
+            .and(with_sync(self.sync.clone()))
+            .and(with_param_ipaddrmask(params.wireguard_network.clone()))
+            .and(with_param_ipaddrmask(
+                params.amnezia_wireguard_network.clone(),
+            ))
+            .and(warp::any().map({
+                let net = params.amnezia_wireguard_mobile_network.clone();
+                move || net.clone()
+            }))
+            .and_then(create_private_user_handler);
+
+        let private_list_users_route = warp::get()
+            .and(warp::path("private"))
+            .and(warp::path("users"))
+            .and(warp::path::end())
+            .and(warp::query::<PrivateNodesQuery>())
+            .and(with_sync(self.sync.clone()))
+            .and_then(list_private_users_handler);
+
+        let private_delete_user_route = warp::delete()
+            .and(warp::path("private"))
+            .and(warp::path("users"))
+            .and(warp::path::param::<Uuid>())
+            .and(warp::path::end())
+            .and(warp::query::<PrivateNodesQuery>())
+            .and(with_sync(self.sync.clone()))
+            .and_then(delete_private_user_handler);
+
         let private_routes = private_mint_install_token_route
+            .or(private_create_account_route)
             .or(private_register_node_route)
             .or(private_list_nodes_route)
+            .or(private_state_route)
             .or(private_feed_route)
-            .or(private_delete_node_route);
+            .or(private_delete_node_route)
+            .or(private_create_user_route)
+            .or(private_list_users_route)
+            .or(private_delete_user_route);
 
         let get_clusters_route = warp::get()
             .and(warp::path("clusters"))
@@ -386,6 +452,19 @@ where
             .and(warp::header::optional::<String>("authorization"))
             .and_then(admin_api_extend_subscription_handler);
 
+        // Selfhosted caps of one account (servers / users).
+        let admin_api_selfhosted_limits_route = warp::put()
+            .and(warp::path!(
+                "admin" / "api" / "subscriptions" / Uuid / "selfhosted-limits"
+            ))
+            .and(warp::path::end())
+            .and(warp::body::json())
+            .and(with_sync(self.sync.clone()))
+            .and(with_param_bool(admin_enabled))
+            .and(with_param_string(admin_token.clone()))
+            .and(warp::header::optional::<String>("authorization"))
+            .and_then(admin_api_set_selfhosted_limits_handler);
+
         let admin_api_delete_subscription_route = warp::delete()
             .and(warp::path!("admin" / "api" / "subscriptions" / Uuid))
             .and(warp::path::end())
@@ -439,6 +518,7 @@ where
             .or(admin_api_assign_premium_route)
             .or(admin_api_create_subscription_route)
             .or(admin_api_extend_subscription_route)
+            .or(admin_api_selfhosted_limits_route)
             .or(admin_api_delete_subscription_route)
             .or(admin_api_delete_connection_route);
 
@@ -547,7 +627,7 @@ where
             .and(with_sync(self.sync.clone()))
             .and_then(post_subscription_handler);
 
-        let put_enabled_conns = params.enabled_conns.clone();
+        let put_conn_resolver = params.conn_resolver();
 
         let put_subscription_route = warp::put()
             .and(warp::path("subscription"))
@@ -565,7 +645,7 @@ where
                 let net = params.amnezia_wireguard_mobile_network.clone();
                 move || net.clone()
             }))
-            .and(warp::any().map(move || put_enabled_conns.clone()))
+            .and(warp::any().map(move || put_conn_resolver.clone()))
             .and_then(put_subscription_handler);
 
         // Connections Routes
@@ -626,6 +706,16 @@ where
             }))
             .and_then(create_connection_handler);
 
+        let post_connection_feed_route = warp::post()
+            .and(warp::path("connection"))
+            .and(warp::path::param::<Uuid>())
+            .and(warp::path("feed"))
+            .and(warp::path::end())
+            .and(mgmt_auth.clone())
+            .and(warp::body::json::<ConnectionFeedRequest>())
+            .and(with_sync(self.sync.clone()))
+            .and_then(set_connection_feed_handler);
+
         let delete_connection_route = warp::delete()
             .and(warp::path("connection"))
             .and(warp::path::end())
@@ -681,11 +771,7 @@ where
             .and(with_param_vec(params.key_sign_token.clone()))
             .and_then(post_key_handler);
 
-        let enabled_conns = params.enabled_conns.clone();
-        let lite_conns = params
-            .lite_enabled_conns
-            .clone()
-            .or_else(|| params.enabled_conns.clone());
+        let activate_conn_resolver = params.conn_resolver();
         let mrkting_config = params.mrkting.clone();
 
         let post_activate_key_route = warp::post()
@@ -701,8 +787,7 @@ where
                 let net = params.amnezia_wireguard_mobile_network.clone();
                 move || net.clone()
             }))
-            .and(warp::any().map(move || enabled_conns.clone()))
-            .and(warp::any().map(move || lite_conns.clone()))
+            .and(warp::any().map(move || activate_conn_resolver.clone()))
             .and(warp::any().map(move || mrkting_config.clone()))
             .and_then(post_activate_key_handler);
 
@@ -1096,6 +1181,7 @@ where
             .or(get_cluster_nodes_route)
             // Connection
             .or(post_connection_route)
+            .or(post_connection_feed_route)
             .or(post_connections_sync_route)
             .or(delete_connection_route)
             .or(get_mtproto_connections_info_route)

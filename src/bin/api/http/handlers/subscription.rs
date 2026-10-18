@@ -33,7 +33,7 @@ use super::super::{
 };
 use super::{resolve_serving_access, serving_access, ServingAccess};
 use super::share::{grouped_token, is_share_connection};
-use super::connection::pinned_to;
+use super::connection::{main_feed_connection_visible, pinned_to};
 
 #[derive(Debug, Deserialize)]
 pub struct TrafficHistoryQuery {
@@ -251,7 +251,7 @@ pub async fn put_subscription_handler<N, C, S>(
     wg_network: fcore::IpAddrMask,
     awg_network: fcore::IpAddrMask,
     awg_mobile_network: Option<fcore::IpAddrMask>,
-    enabled_conns: Option<std::collections::HashMap<fcore::Env, Vec<fcore::Tag>>>,
+    resolver: crate::entitlements::ConnResolver,
 ) -> Result<impl warp::Reply, warp::Rejection>
 where
     N: NodeStorageOperations + Sync + Send + Clone + 'static,
@@ -285,11 +285,28 @@ where
     {
         Ok(Status::Updated(id)) => {
             // Renewal (incl. reactivation of an expired sub): make sure the
-            // subscription has connections for all currently enabled
-            // protocols. Existing ones are kept, only missing are created.
+            // subscription has connections for all protocols it is entitled
+            // to. Existing ones are kept, only missing are created. The set
+            // depends on the subscription's own plan/product, so a product
+            // never silently gains or loses envs on renewal.
+            let sub_conns = match memory.db.sub().find(&sub_id).await {
+                Ok(Some(sub)) => match resolver.resolve(sub.plan_kind, sub.product) {
+                    Ok(map) => map,
+                    Err(err) => {
+                        tracing::error!("Cannot resolve conns for sub {}: {}", sub_id, err);
+                        None
+                    }
+                },
+                Ok(None) => None,
+                Err(err) => {
+                    tracing::error!("Failed to load sub {} for conns: {}", sub_id, err);
+                    None
+                }
+            };
+
             super::connection::ensure_enabled_connections(
                 sub_id,
-                &enabled_conns,
+                &sub_conns,
                 &memory,
                 &wg_network,
                 &awg_network,
@@ -457,6 +474,7 @@ where
     let limit = sub.limit_bytes();
     let limit_bytes = limit.unwrap_or(0);
     let plan_kind = sub.plan_kind();
+    let product = sub.product();
     let created_at = sub.created_at();
     let sub_id = sub.id();
     let expires = sub.expires_at();
@@ -477,6 +495,7 @@ where
             is_deleted: conn.get_deleted(),
             uplink: 0,
             downlink: 0,
+            include_in_main: !mem.main_feed_excluded_conns.contains(conn_id),
             share_token: None,
             share_url: None,
             share_feed_url: None,
@@ -638,6 +657,7 @@ where
         monthly_uplink: traffic.monthly.uplink as i64,
         limit_bytes,
         plan_kind,
+        product,
         used_bytes,
         remaining_bytes: limit.map(|l| l - used_bytes),
         env_traffic,
@@ -915,6 +935,13 @@ where
             // Under a share scope the child IS the feed, so the exclusion
             // does not apply.
             if share.is_none() && is_share_connection(&mem.share_conns, conn_id) {
+                return false;
+            }
+            if !main_feed_connection_visible(
+                &mem.main_feed_excluded_conns,
+                conn_id,
+                req.conn.is_none() && share.is_none(),
+            ) {
                 return false;
             }
 

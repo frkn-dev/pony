@@ -8,7 +8,9 @@ use super::pg::PgClientManager;
 
 pub const INSTALL_TOKEN_TTL_SECS: i64 = 3600;
 pub const MAX_ACTIVE_INSTALL_TOKENS: i64 = 3;
-pub const MAX_PRIVATE_NODES_PER_SUB: i64 = 3;
+// The per-account server cap used to live here as `MAX_PRIVATE_NODES_PER_SUB`;
+// it is now the per-subscription `subscriptions.server_limit` column
+// (default 3, see `fcore::DEFAULT_SERVER_LIMIT`).
 
 #[derive(Debug, Clone)]
 pub struct InstallTokenRow {

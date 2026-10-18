@@ -28,6 +28,18 @@ agw_private_key_path = "/etc/fcore/api/agw_private.pem"
 # shape as enabled_conns. Falls back to enabled_conns when unset, so lite subs
 # get the default set until dedicated lite servers exist.
 # lite_enabled_conns = { lite-prod = ["VlessTcpReality", "Hysteria2"] }
+# Tariff products (standard, gaming, bs-prem, standard-gaming,
+# standard-bs-prem, full): the product → env contract lives in code —
+# standard = enabled_conns (wl included), gaming/bs-prem = that env only,
+# standard-gaming/standard-bs-prem = enabled_conns + that env, full =
+# enabled_conns + gaming + bs-prem. gaming/bs-prem must NOT be added to
+# enabled_conns: every standard subscription would receive them.
+# Protocols of the envs added by the products (env → tags). An empty list is
+# a config error; a missing env makes activation of the products that need it
+# fail loudly (500, the key is not consumed) instead of provisioning a
+# partial subscription. Keeping the classic set working without these lines
+# is fine (deployments that do not sell gaming/bs-prem yet).
+# env_proto_templates = { gaming = ["AmneziaWg", "AmneziaWgMobile"], "bs-prem" = ["AmneziaWg"] }
 # Labels on the client's service cards (/v1/services). Bare numbers only —
 # the client formats them itself. Defaults shown.
 # gateway_price_label = "500"

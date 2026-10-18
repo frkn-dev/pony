@@ -1,12 +1,42 @@
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::net::Ipv4Addr;
 use std::str::FromStr;
 
 use std::collections::HashSet;
 
 use fcore::{Env, Error, Inbound, Node, NodeStatus, NodeType, Tag};
+
+/// Normalizes an optional `pool_translation` map received from a node (or a
+/// third-party tool): trims keys/values, lowercases the language code,
+/// aliases `ua` to `uk` and drops blank entries. An empty result becomes
+/// `None`, so a partial payload can never wipe stored translations with
+/// empty strings (see the COALESCE in the upsert).
+fn normalize_pool_translation(
+    map: Option<BTreeMap<String, String>>,
+) -> Option<BTreeMap<String, String>> {
+    let cleaned: BTreeMap<String, String> = map?
+        .into_iter()
+        .filter_map(|(key, value)| {
+            let mut key = key.trim().to_lowercase();
+            if key == "ua" {
+                key = "uk".to_string();
+            }
+            let value = value.trim().to_string();
+            if key.is_empty() || value.is_empty() {
+                None
+            } else {
+                Some((key, value))
+            }
+        })
+        .collect();
+    if cleaned.is_empty() {
+        None
+    } else {
+        Some(cleaned)
+    }
+}
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub enum TagReq {
@@ -146,6 +176,14 @@ pub struct NodeRequest {
     /// (old node binaries simply omit the field).
     #[serde(default)]
     pub node_ips: Option<Vec<Ipv4Addr>>,
+    /// Optional pool/group name (config.toml `[node] pool`). Old node
+    /// binaries omit it, so old clients keep the previous behavior.
+    #[serde(default)]
+    pub pool: Option<String>,
+    /// Optional per-language translations of `pool` (en/ru/uk/...); `ua` is
+    /// accepted as an alias of `uk`.
+    #[serde(default)]
+    pub pool_translation: Option<BTreeMap<String, String>>,
 }
 
 impl NodeRequest {
@@ -195,6 +233,12 @@ impl NodeRequest {
             r#type: t,
             cluster: self.cluster.clone(),
             node_ips: self.node_ips.clone(),
+            pool: self
+                .pool
+                .clone()
+                .map(|p| p.trim().to_string())
+                .filter(|p| !p.is_empty()),
+            pool_translation: normalize_pool_translation(self.pool_translation.clone()),
         }
     }
 }
@@ -214,6 +258,9 @@ pub struct ConnCreateRequest {
     /// (current behavior).
     #[serde(default)]
     pub node_id: Option<uuid::Uuid>,
+    /// Missing = separate-link-only for a new named device. Defaults stay included.
+    #[serde(default)]
+    pub include_in_main: Option<bool>,
 }
 
 impl ConnCreateRequest {
@@ -249,6 +296,10 @@ pub struct KeyReq {
     /// creates a traffic-only key and requires traffic_gib.
     pub kind: Option<String>,
     pub traffic_gib: Option<u32>,
+    /// Tariff product this key sells (dev, gaming, bs-prem, dev-gaming,
+    /// dev-bs-prem, full). Absent = legacy: the historical access from
+    /// enabled_conns. New products are standard (unlimited) keys only.
+    pub product: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -425,6 +476,7 @@ mod tests {
             days: None,
             label: label.map(str::to_string),
             node_id: None,
+            include_in_main: None,
         }
     }
 
@@ -433,6 +485,16 @@ mod tests {
         let req = req_with_label(None);
         assert!(req.validate().is_ok());
         assert_eq!(req.normalized_label(), None);
+        assert_eq!(req.include_in_main, None);
+    }
+
+    #[test]
+    fn test_conn_create_include_in_main_parses() {
+        let req: ConnCreateRequest = serde_json::from_str(
+            r#"{"env":"ru","proto":"Wireguard","label":"Phone","include_in_main":true}"#,
+        )
+        .unwrap();
+        assert_eq!(req.include_in_main, Some(true));
     }
 
     #[test]

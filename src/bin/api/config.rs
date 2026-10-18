@@ -61,8 +61,52 @@ impl Settings for ServiceSettings {
                 "service.agw_private_key_path is required".to_string(),
             ));
         }
+
+        // Tariff entitlements: refuse to start on an inconsistent table —
+        // otherwise the mistake only shows up as a failed activation.
+        validate_entitlements(
+            self.service.enabled_conns.as_ref(),
+            &self.service.env_proto_templates.clone().unwrap_or_default(),
+        )?;
+
         Ok(())
     }
+}
+
+/// Checks the tariff entitlement tables:
+///
+/// * the classic map (`enabled_conns`) must not contain the product-only envs
+///   — every `standard` subscription would silently receive them;
+/// * a listed protocol template must not be empty (typo protection).
+///
+/// A *missing* template for an extra env is allowed here on purpose: it only
+/// breaks the products that need that env, and it must not keep the whole api
+/// from starting (e.g. a deployment that does not sell `gaming` yet). Such an
+/// activation fails loudly at request time (500, the key is not consumed).
+fn validate_entitlements(
+    enabled_conns: Option<&HashMap<Env, Vec<Tag>>>,
+    templates: &HashMap<Env, Vec<Tag>>,
+) -> Result<()> {
+    for env in [Env::Gaming, Env::BsPrem] {
+        if enabled_conns.is_some_and(|enabled| enabled.contains_key(&env)) {
+            return Err(fcore::Error::Custom(format!(
+                "service.enabled_conns must not contain env '{}': every standard subscription \
+                 would receive it",
+                env
+            )));
+        }
+    }
+
+    for (env, tags) in templates {
+        if tags.is_empty() {
+            return Err(fcore::Error::Custom(format!(
+                "service.env_proto_templates['{}'] is empty: name the protocols of env '{}'",
+                env, env
+            )));
+        }
+    }
+
+    Ok(())
 }
 
 fn default_cors_origins() -> Vec<String> {
@@ -123,6 +167,15 @@ pub struct ServiceConfig {
     /// servers exist.
     #[serde(default)]
     pub lite_enabled_conns: Option<HashMap<Env, Vec<Tag>>>,
+    /// Protocols of the envs added by the tariff products (`gaming`,
+    /// `bs-prem`): `env → tags`. The product → env contract itself lives in
+    /// [`fcore::Product`] (see `includes_standard` / `extra_envs`); this table
+    /// only says how those envs are served. An env with an empty list is a
+    /// configuration error; a missing one makes activation of that product
+    /// fail loudly (500, the key is not consumed) instead of handing out a
+    /// partial subscription.
+    #[serde(default)]
+    pub env_proto_templates: Option<HashMap<Env, Vec<Tag>>>,
     #[serde(default = "default_log_level")]
     pub log_level: String,
     pub updates_endpoint_zmq: String,
@@ -195,6 +248,18 @@ pub struct TasksConfig {
     /// connections (heals nodes that missed the one-shot delete).
     #[serde(default = "default_tombstone_republish_interval_sec")]
     pub tombstone_republish_interval_sec: u64,
+}
+
+impl ServiceConfig {
+    /// Everything needed to decide which shared connections a subscription
+    /// gets: legacy/traffic maps plus the product entitlements.
+    pub fn conn_resolver(&self) -> crate::entitlements::ConnResolver {
+        crate::entitlements::ConnResolver {
+            enabled_conns: self.enabled_conns.clone(),
+            lite_enabled_conns: self.lite_enabled_conns.clone(),
+            env_proto_templates: self.env_proto_templates.clone().unwrap_or_default(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -273,4 +338,43 @@ fn default_conns_reconcile_interval_sec() -> u64 {
 
 fn default_tombstone_republish_interval_sec() -> u64 {
     3600
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn templates() -> HashMap<Env, Vec<Tag>> {
+        let mut map = HashMap::new();
+        map.insert(Env::Gaming, vec![Tag::AmneziaWg]);
+        map.insert(Env::BsPrem, vec![Tag::AmneziaWg]);
+        map
+    }
+
+    #[test]
+    fn accepts_a_consistent_table() {
+        assert!(validate_entitlements(None, &templates()).is_ok());
+        // A deployment that does not sell the extra envs yet may omit them.
+        assert!(validate_entitlements(None, &HashMap::new()).is_ok());
+    }
+
+    #[test]
+    fn rejects_empty_template() {
+        let mut empty = templates();
+        empty.insert(Env::Gaming, vec![]);
+        assert!(validate_entitlements(None, &empty).is_err());
+    }
+
+    #[test]
+    fn rejects_gaming_or_bs_prem_in_classic_map() {
+        let mut enabled = HashMap::new();
+        enabled.insert(Env::Gaming, vec![Tag::AmneziaWg]);
+        assert!(validate_entitlements(Some(&enabled), &templates()).is_err());
+
+        // A plain classic map (dev/ru/wl only) is fine.
+        let mut ok = HashMap::new();
+        ok.insert(Env::Dev, vec![Tag::Hysteria2]);
+        ok.insert(Env::Wl, vec![Tag::VlessXhttpCdn]);
+        assert!(validate_entitlements(Some(&ok), &templates()).is_ok());
+    }
 }

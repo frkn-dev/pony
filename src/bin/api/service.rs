@@ -98,6 +98,9 @@ where
     pub conn_nodes: std::collections::HashMap<uuid::Uuid, uuid::Uuid>,
     #[serde(default)]
     pub main_feed_nodes: std::collections::HashSet<uuid::Uuid>,
+    /// Excluded named devices remain available through explicit conn/share requests.
+    #[serde(default)]
+    pub main_feed_excluded_conns: std::collections::HashSet<uuid::Uuid>,
 }
 
 impl<T: Default, C, S: Default + PartialEq> Default for Cache<T, C, S>
@@ -138,6 +141,7 @@ where
             share_conns: std::collections::HashSet::new(),
             conn_nodes: std::collections::HashMap::new(),
             main_feed_nodes: std::collections::HashSet::new(),
+            main_feed_excluded_conns: std::collections::HashSet::new(),
         }
     }
 }

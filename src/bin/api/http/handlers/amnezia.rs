@@ -9,11 +9,11 @@ use fcore::{
     SubscriptionOperations, SubscriptionStorageOperations, Tag,
 };
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::io::Write;
 use warp::Reply;
 
-use super::connection::pinned_to;
+use super::connection::{main_feed_connection_visible, pinned_to};
 use super::share;
 
 // ============================================================================
@@ -93,6 +93,13 @@ pub struct GatewayCountry {
     pub connection_uuid: Option<uuid::Uuid>,
     #[serde(rename = "connection_label")]
     pub connection_label: String,
+    /// Pool/group name of the node (config.toml `[node] pool`). Absent for
+    /// old nodes so the old response shape is preserved.
+    #[serde(rename = "pool", skip_serializing_if = "Option::is_none")]
+    pub pool: Option<String>,
+    /// Per-language translations of `pool`; absent when there is none.
+    #[serde(rename = "pool_translation", skip_serializing_if = "Option::is_none")]
+    pub pool_translation: Option<BTreeMap<String, String>>,
 }
 
 #[derive(Debug, Serialize)]
@@ -115,6 +122,14 @@ pub struct GatewayConnection {
     /// Absent for single-address nodes so old clients see the old shape.
     #[serde(rename = "node_ips", skip_serializing_if = "Option::is_none")]
     pub node_ips: Option<Vec<String>>,
+    /// Pool/group name of the node (config.toml `[node] pool`). Clients
+    /// group identically-named nodes and may localize the title via
+    /// `pool_translation`. Absent for old nodes.
+    #[serde(rename = "pool", skip_serializing_if = "Option::is_none")]
+    pub pool: Option<String>,
+    /// Per-language translations of `pool`; absent when there is none.
+    #[serde(rename = "pool_translation", skip_serializing_if = "Option::is_none")]
+    pub pool_translation: Option<BTreeMap<String, String>>,
 }
 
 #[derive(Debug, Serialize)]
@@ -402,6 +417,8 @@ where
                         .node_ips
                         .as_ref()
                         .map(|ips| ips.iter().map(|ip| ip.to_string()).collect()),
+                    pool: node.pool.clone(),
+                    pool_translation: node.pool_translation.clone(),
                 });
             }
         }
@@ -416,6 +433,8 @@ where
             env: String::new(),
             connection_label: "All countries".to_string(),
             node_ips: None,
+            pool: None,
+            pool_translation: None,
         }];
     }
     result
@@ -432,6 +451,8 @@ fn available_countries_from_connections(conns: &[GatewayConnection]) -> Vec<Gate
                 country_name: conn.country_name.clone(),
                 connection_uuid: Some(conn.connection_uuid),
                 connection_label: conn.connection_label.clone(),
+                pool: conn.pool.clone(),
+                pool_translation: conn.pool_translation.clone(),
             });
         }
     }
@@ -987,7 +1008,10 @@ where
         .map(|cs| {
             // Share-issued child connections are not the owner's devices.
             cs.into_iter()
-                .filter(|(conn_id, _)| !share::is_share_connection(&mem.share_conns, conn_id))
+                .filter(|(conn_id, _)| {
+                    !share::is_share_connection(&mem.share_conns, conn_id)
+                        && main_feed_connection_visible(&mem.main_feed_excluded_conns, conn_id, true)
+                })
                 .collect::<Vec<_>>()
         });
     let conns_slice = conns.as_deref();
@@ -1140,6 +1164,8 @@ where
                 country_name: "All countries".to_string(),
                 connection_uuid: None,
                 connection_label: "All countries".to_string(),
+                pool: None,
+                pool_translation: None,
             },
         ],
         active_device_count: active_devices,
@@ -1261,6 +1287,13 @@ where
 
     for (conn_id, conn) in conns {
         if conn.get_deleted() {
+            continue;
+        }
+        if !main_feed_connection_visible(
+            &mem.main_feed_excluded_conns,
+            &conn_id,
+            params.connection_id.is_none(),
+        ) {
             continue;
         }
         let conn_tag = conn.get_proto().proto();
@@ -1718,10 +1751,15 @@ mod tests {
             env: "ru".to_string(),
             connection_label: "Moscow · AmneziaWG".to_string(),
             node_ips: None,
+            pool: None,
+            pool_translation: None,
         };
-        // Single-address node: the field is omitted entirely (old shape).
+        // Single-address node without a pool: both optional fields are omitted
+        // entirely (old shape, unchanged for old clients/nodes).
         let v = serde_json::to_value(&base).unwrap();
         assert!(v.get("node_ips").is_none());
+        assert!(v.get("pool").is_none());
+        assert!(v.get("pool_translation").is_none());
 
         let multi = GatewayConnection {
             node_ips: Some(vec!["78.17.28.66".to_string(), "78.17.28.67".to_string()]),
@@ -1732,6 +1770,34 @@ mod tests {
             v["node_ips"],
             serde_json::json!(["78.17.28.66", "78.17.28.67"])
         );
+    }
+
+    #[test]
+    fn gateway_connection_pool_serialization() {
+        let base = GatewayConnection {
+            connection_uuid: uuid::Uuid::nil(),
+            node_id: uuid::Uuid::nil(),
+            country_code: "FI".to_string(),
+            country_name: "FI".to_string(),
+            service_protocol: "awg".to_string(),
+            env: "ru".to_string(),
+            connection_label: "Finland · AmneziaWG".to_string(),
+            node_ips: None,
+            pool: Some("Finland".to_string()),
+            pool_translation: Some(
+                [
+                    ("en".to_string(), "Finland".to_string()),
+                    ("ru".to_string(), "Финляндия".to_string()),
+                    ("uk".to_string(), "Фінляндія".to_string()),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+        };
+        let v = serde_json::to_value(&base).unwrap();
+        assert_eq!(v["pool"], serde_json::json!("Finland"));
+        assert_eq!(v["pool_translation"]["ru"], serde_json::json!("Финляндия"));
+        assert_eq!(v["pool_translation"]["uk"], serde_json::json!("Фінляндія"));
     }
 
     #[test]

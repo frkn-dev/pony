@@ -171,6 +171,7 @@ where
         let label = db_conn.label.clone();
         let issued_via = db_conn.issued_via.clone();
         let node_id = db_conn.node_id;
+        let include_in_main = db_conn.include_in_main;
         let conn: Connection = db_conn.try_into()?;
 
         // Rebuild the conn_id -> label side map from the PG-only column.
@@ -188,6 +189,9 @@ where
         // connections are hidden from every owner-facing listing.
         if issued_via.as_deref() == Some(ISSUED_VIA_SHARE) {
             self.share_conns.insert(conn_id);
+        }
+        if !include_in_main {
+            self.main_feed_excluded_conns.insert(conn_id);
         }
 
         self.connections.add(&conn_id, conn.into()).map_err(|e| {

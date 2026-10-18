@@ -165,6 +165,16 @@ pub struct Node {
     /// as a node update in storage (see NodeStorageOperations::add).
     #[serde(default)]
     pub node_ips: Option<Vec<Ipv4Addr>>,
+    /// Optional pool/group name of the node (config.toml `[node] pool`, e.g.
+    /// "Finland"). Clients group identically-named nodes and may show a
+    /// localized title (`pool_translation`) instead of `label`. Absent for
+    /// old nodes, so old clients keep the previous behavior.
+    #[serde(default)]
+    pub pool: Option<String>,
+    /// Per-language translations of `pool` (e.g. en/ru/uk). A missing entry
+    /// falls back to `pool`; an absent map means there is no translation.
+    #[serde(default)]
+    pub pool_translation: Option<BTreeMap<String, String>>,
 }
 
 impl Node {
@@ -287,6 +297,8 @@ impl Node {
             r#type: settings.r#type,
             cluster: settings.cluster,
             node_ips: settings.node_ips,
+            pool: settings.pool,
+            pool_translation: settings.pool_translation,
         }
     }
 
@@ -395,6 +407,8 @@ mod tests {
             r#type: Type::Node,
             cluster: Some("test-cluster.example.com".to_string()),
             node_ips: None,
+            pool: None,
+            pool_translation: None,
         };
 
         let response = node.as_node_response();

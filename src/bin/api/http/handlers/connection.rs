@@ -117,6 +117,7 @@ pub async fn create_connection_inner<N, C, S>(
     label: Option<String>,
     node_id: Option<uuid::Uuid>,
     issued_via: Option<String>,
+    include_in_main: bool,
     memory: &MemSync<N, C, S>,
     wg_network: &IpAddrMask,
     awg_network: &IpAddrMask,
@@ -220,7 +221,7 @@ where
 
     let messages = vec![msg];
 
-    match SyncOp::add_conn(memory, &conn_id, conn.clone(), label, node_id, issued_via).await {
+    match SyncOp::add_conn(memory, &conn_id, conn.clone(), label, node_id, issued_via, include_in_main).await {
         Ok(Status::Ok(id)) => {
             let bytes = match rkyv::to_bytes::<_, 1024>(&messages) {
                 Ok(b) => b,
@@ -332,6 +333,15 @@ pub(crate) fn pinned_to(
     }
 }
 
+/// Excluded devices remain available through explicit conn/share requests.
+pub(crate) fn main_feed_connection_visible(
+    excluded: &std::collections::HashSet<uuid::Uuid>,
+    conn_id: &uuid::Uuid,
+    general: bool,
+) -> bool {
+    !general || !excluded.contains(conn_id)
+}
+
 /// Ensure the subscription has a connection for every (env, tag) pair from
 /// enabled_conns. Any existing *default* (unlabeled) connection of the
 /// subscription — including soft-deleted ones, which the restore flow
@@ -388,7 +398,10 @@ pub async fn ensure_enabled_connections<N, C, S>(
                 None,
                 None,
                 None,
-                None,
+                // Provenance marker: the connection was created by the plan
+                // (activation/renewal ensure), not by the user's own request.
+                Some(crate::postgres::connection::ISSUED_VIA_PLAN.to_string()),
+                true,
                 memory,
                 wg_network,
                 awg_network,
@@ -490,14 +503,17 @@ where
         }
     }
 
+    let label = conn_req.normalized_label();
+    let include_in_main = label.is_none() || conn_req.include_in_main.unwrap_or(false);
     match create_connection_inner(
         &conn_req.env,
         conn_req.proto,
         conn_req.subscription_id,
         conn_req.days,
-        conn_req.normalized_label(),
+        label,
         conn_req.node_id,
         None,
+        include_in_main,
         &memory,
         &wg_network,
         &awg_network,
@@ -521,6 +537,107 @@ where
             }
         }
     }
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub struct ConnectionFeedRequest {
+    pub subscription_id: uuid::Uuid,
+    pub include_in_main: bool,
+}
+
+/// POST /connection/{id}/feed — include a named device in general feeds.
+pub async fn set_connection_feed_handler<N, C, S>(
+    conn_id: uuid::Uuid,
+    req: ConnectionFeedRequest,
+    memory: MemSync<N, C, S>,
+) -> Result<Box<dyn warp::Reply + Send>, warp::Rejection>
+where
+    N: NodeStorageOperations + Sync + Send + Clone + 'static,
+    C: ConnectionApiOperations
+        + ConnectionBaseOperations
+        + Sync
+        + Send
+        + Clone
+        + 'static
+        + From<Connection>
+        + PartialEq,
+    Connection: From<C>,
+    S: SubscriptionOperations + Send + Sync + Clone + 'static + PartialEq + From<Subscription>,
+{
+    let personal_node_to_add = {
+        let mem = memory.memory.read().await;
+        let Some(conn) = mem.connections.get(&conn_id) else {
+            return Ok(Box::new(http::not_found("Connection not found")));
+        };
+        let named = mem
+            .conn_labels
+            .get(&conn_id)
+            .is_some_and(|label| !label.trim().is_empty());
+        if conn.get_deleted()
+            || conn.get_subscription_id() != Some(req.subscription_id)
+            || !named
+            || mem.share_conns.contains(&conn_id)
+        {
+            return Ok(Box::new(http::not_found("Connection not found")));
+        }
+
+        if req.include_in_main {
+            mem.conn_nodes
+                .get(&conn_id)
+                .and_then(|node_id| mem.nodes.get_by_id(node_id))
+                .filter(|node| {
+                    node.env.is_personal() && !mem.main_feed_nodes.contains(&node.uuid)
+                })
+                .map(|node| node.uuid)
+        } else {
+            None
+        }
+    };
+
+    if let Some(node_id) = personal_node_to_add {
+        if let Err(e) = memory.db.private_feed().insert(node_id).await {
+            error!("Failed to include personal node {} in main feed: {}", node_id, e);
+            return Ok(Box::new(http::internal_error("db error")));
+        }
+    }
+
+    if let Err(e) = memory
+        .db
+        .conn()
+        .set_include_in_main(&conn_id, req.include_in_main)
+        .await
+    {
+        if let Some(node_id) = personal_node_to_add {
+            if let Err(rollback_err) = memory.db.private_feed().delete(node_id).await {
+                error!(
+                    "Failed to roll back personal node {} feed inclusion: {}",
+                    node_id, rollback_err
+                );
+            }
+        }
+        error!("Failed to set connection {} main feed flag: {}", conn_id, e);
+        return Ok(Box::new(http::internal_error("db error")));
+    }
+
+    let mut mem = memory.memory.write().await;
+    if let Some(node_id) = personal_node_to_add {
+        mem.main_feed_nodes.insert(node_id);
+    }
+    if req.include_in_main {
+        mem.main_feed_excluded_conns.remove(&conn_id);
+    } else {
+        mem.main_feed_excluded_conns.insert(conn_id);
+    }
+    drop(mem);
+
+    Ok(Box::new(warp::reply::json(&serde_json::json!({
+        "status": 200,
+        "message": "Ok",
+        "response": {
+            "id": conn_id,
+            "include_in_main": req.include_in_main,
+        }
+    }))))
 }
 
 /// Handler deletes connection
@@ -679,6 +796,13 @@ where
             if req.conn.is_some_and(|cid| cid != conn_id) || mem.share_conns.contains(&conn_id) {
                 continue;
             }
+            if !main_feed_connection_visible(
+                &mem.main_feed_excluded_conns,
+                &conn_id,
+                req.conn.is_none(),
+            ) {
+                continue;
+            }
 
             if conn.get_proto().proto() != Tag::Wireguard {
                 continue;
@@ -777,6 +901,13 @@ where
 
             // Same scope/exclusion as the WG handler above.
             if req.conn.is_some_and(|cid| cid != conn_id) || mem.share_conns.contains(&conn_id) {
+                continue;
+            }
+            if !main_feed_connection_visible(
+                &mem.main_feed_excluded_conns,
+                &conn_id,
+                req.conn.is_none(),
+            ) {
                 continue;
             }
 
@@ -889,6 +1020,13 @@ where
             if req.conn.is_some_and(|cid| cid != conn_id) || mem.share_conns.contains(&conn_id) {
                 continue;
             }
+            if !main_feed_connection_visible(
+                &mem.main_feed_excluded_conns,
+                &conn_id,
+                req.conn.is_none(),
+            ) {
+                continue;
+            }
 
             if conn.get_proto().proto() != Tag::Mtproto {
                 continue;
@@ -927,7 +1065,10 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::{existing_default_pairs, pinned_to, sync_conn_visible, validate_node_pin};
+    use super::{
+        existing_default_pairs, main_feed_connection_visible, pinned_to, sync_conn_visible,
+        validate_node_pin,
+    };
     use chrono::Utc;
     use fcore::{Env, Inbound, Node, NodeStatus, NodeType, Tag, Topic};
     use std::collections::HashMap;
@@ -1029,6 +1170,18 @@ mod tests {
         assert!(!pinned_to(&conn_nodes, &conn_id, &node_b));
     }
 
+    #[test]
+    fn test_main_feed_connection_visible() {
+        let excluded_id = uuid::Uuid::new_v4();
+        let included_id = uuid::Uuid::new_v4();
+        let excluded: std::collections::HashSet<uuid::Uuid> =
+            [excluded_id].into_iter().collect();
+
+        assert!(!main_feed_connection_visible(&excluded, &excluded_id, true));
+        assert!(main_feed_connection_visible(&excluded, &excluded_id, false));
+        assert!(main_feed_connection_visible(&excluded, &included_id, true));
+    }
+
     fn test_node(env: Env, inbounds: HashMap<Tag, Inbound>) -> Node {
         Node {
             uuid: uuid::Uuid::new_v4(),
@@ -1047,6 +1200,8 @@ mod tests {
             r#type: NodeType::Node,
             cluster: None,
             node_ips: None,
+            pool: None,
+            pool_translation: None,
         }
     }
 

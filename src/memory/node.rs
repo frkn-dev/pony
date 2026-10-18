@@ -127,6 +127,8 @@ pub struct NodeResponse {
     /// byte-for-byte old shape.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub node_ips: Option<Vec<Ipv4Addr>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pool: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -345,6 +347,7 @@ impl Node {
             r#type: self.r#type,
             cluster: self.cluster.clone(),
             node_ips: self.node_ips.clone(),
+            pool: self.pool.clone(),
         }
     }
 

@@ -13,7 +13,7 @@ use fcore::{
 use super::super::{
     super::sync::{tasks::SyncOp, MemSync},
     param::NodesQueryParams,
-    request::NodeRequest,
+    request::{pool_inbounds_conflict, NodeRequest},
 };
 
 // Register node handler
@@ -61,6 +61,22 @@ where
 
     let node = node_req.clone().as_node();
     let node_id = node_req.uuid;
+
+    let key_mismatch = {
+        let mem = memory.memory.read().await;
+        let peers = mem.nodes.get_by_env(&node.env).unwrap_or_default();
+        pool_inbounds_conflict(&peers, &node)
+    };
+    if key_mismatch {
+        return Ok(warp::reply::with_status(
+            warp::reply::json(&ResponseMessage::<Option<IdResponse>> {
+                status: StatusCode::CONFLICT.as_u16(),
+                message: "pool_key_mismatch".to_string(),
+                response: None,
+            }),
+            StatusCode::CONFLICT,
+        ));
+    }
 
     let status = SyncOp::add_node(&memory, &node_id, node.clone()).await;
 

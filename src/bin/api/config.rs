@@ -11,6 +11,8 @@ pub struct ServiceSettings {
     pub metrics: MetricsRxConfig,
     pub tasks: TasksConfig,
     pub subscription_audit: SubscriptionAuditConfig,
+    #[serde(default)]
+    pub score: fcore::score::ScoreConfig,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -208,6 +210,10 @@ pub struct ServiceConfig {
     /// Protocol tags allowed while a subscription is in traffic mode.
     #[serde(default = "default_metered_conns")]
     pub metered_conns: Vec<String>,
+    /// Path of the mesh registry rkyv snapshot (UIN → device pubkeys). The
+    /// mesh inbox itself is memory-only by design.
+    #[serde(default = "default_mesh_snapshot_path")]
+    pub mesh_snapshot_path: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]
@@ -334,6 +340,10 @@ fn default_device_limit_max_ticks() -> u32 {
 
 fn default_conns_reconcile_interval_sec() -> u64 {
     3600
+}
+
+fn default_mesh_snapshot_path() -> String {
+    "/var/lib/fcore/api/mesh-registry.bin".to_string()
 }
 
 fn default_tombstone_republish_interval_sec() -> u64 {

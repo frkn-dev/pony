@@ -673,6 +673,7 @@ where
     node_req.env = expected.clone();
     node_req.r#type = Some(NodeType::Node);
     node_req.cluster = None;
+    node_req.pool = None;
 
     let node = node_req.clone().as_node();
     if node.env.is_frkn_shared() || !node.env.is_personal() {
@@ -1502,6 +1503,7 @@ where
     node_req.uuid = known;
     node_req.r#type = Some(NodeType::Node);
     node_req.cluster = None;
+    node_req.pool = None;
 
     let node = node_req.as_node();
 

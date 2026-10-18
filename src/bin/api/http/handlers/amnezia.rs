@@ -9,10 +9,12 @@ use fcore::{
     SubscriptionOperations, SubscriptionStorageOperations, Tag,
 };
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashMap};
 use std::io::Write;
 use warp::Reply;
 
+use super::super::request::normalized_pool;
 use super::connection::{main_feed_connection_visible, pinned_to};
 use super::share;
 
@@ -29,6 +31,8 @@ pub struct GatewayServicesRequest {
     pub app_language: Option<String>,
     #[serde(rename = "auth_data")]
     pub auth_data: Option<serde_json::Value>,
+    #[serde(default)]
+    pub pool_off: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -130,6 +134,8 @@ pub struct GatewayConnection {
     /// Per-language translations of `pool`; absent when there is none.
     #[serde(rename = "pool_translation", skip_serializing_if = "Option::is_none")]
     pub pool_translation: Option<BTreeMap<String, String>>,
+    #[serde(rename = "config_rev", skip_serializing_if = "Option::is_none")]
+    pub config_rev: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -258,6 +264,8 @@ pub struct GatewayConfigResponse {
     /// single-address nodes so old clients see the old shape.
     #[serde(rename = "node_ips", skip_serializing_if = "Option::is_none")]
     pub node_ips: Option<Vec<String>>,
+    #[serde(rename = "config_rev", skip_serializing_if = "Option::is_none")]
+    pub config_rev: Option<String>,
 }
 
 // ============================================================================
@@ -356,21 +364,135 @@ fn connection_title(
     node_label.to_string()
 }
 
+pub(crate) fn config_rev(node: &fcore::Node, tag: Tag, ips: &[String]) -> Option<String> {
+    let inbound = node.inbounds.get(&tag)?;
+    let host = if tag == Tag::VlessXhttpCdn {
+        inbound
+            .stream_settings
+            .as_ref()
+            .and_then(|s| s.tls_settings.as_ref())
+            .and_then(|t| t.server_name.clone())
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| node.connection_host())
+    } else {
+        node.connection_host()
+    };
+    let body = serde_json::json!({
+        "host": host,
+        "address": node.address,
+        "port": inbound.port,
+        "node_ips": ips,
+        "dns": ["1.1.1.1", "1.0.0.1"],
+        "server": server_material(inbound),
+    });
+    let mut hasher = Sha256::new();
+    hasher.update(body.to_string().as_bytes());
+    Some(format!("{:x}", hasher.finalize()))
+}
+
+fn server_material(inbound: &fcore::Inbound) -> serde_json::Value {
+    let awg = inbound.awg.as_ref().map(|awg| {
+        serde_json::json!({
+            "pub": awg.interface.private_key.pubkey().ok(),
+            "port": awg.interface.listen_port,
+            "mtu": awg.interface.mtu,
+            "dns": awg.interface.dns,
+            "keepalive": awg.keepalive.unwrap_or(25),
+            "obf": serde_json::to_value(&awg.obfuscation).unwrap_or(serde_json::Value::Null),
+        })
+    });
+    let wg = inbound.wg.as_ref().map(|wg| {
+        serde_json::json!({
+            "pub": wg.keys.pubkey().ok(),
+            "port": wg.port,
+            "keepalive": wg.keepalive.unwrap_or(25),
+            "dns": ["1.1.1.1", "1.0.0.1"],
+        })
+    });
+    let h2 = inbound.h2.as_ref().map(|h2| {
+        serde_json::json!({
+            "host": h2.host,
+            "sni": h2.sni,
+            "insecure": h2.insecure,
+            "obfs": h2.obfs,
+            "alpn": h2.alpn,
+            "up": h2.up_mbps,
+            "down": h2.down_mbps,
+        })
+    });
+    let stream = inbound.stream_settings.as_ref().map(|s| {
+        let reality = s.reality_settings.as_ref().map(|r| {
+            serde_json::json!({
+                "server_names": r.server_names,
+                "public_key": r.public_key,
+                "short_ids": r.short_ids,
+            })
+        });
+        serde_json::json!({
+            "network": s.network,
+            "reality": reality,
+            "grpc": s.grpc_settings,
+            "xhttp": s.xhttp_settings,
+            "tls_name": s.tls_settings.as_ref().and_then(|t| t.server_name.clone()),
+        })
+    });
+    serde_json::json!({
+        "awg": awg,
+        "wg": wg,
+        "h2": h2,
+        "stream": stream,
+        "mtproto": inbound.mtproto_secret,
+    })
+}
+
 /// Returns the list of connections for the given protocol.
 /// For each online node with the required inbound, finds a matching connection of the subscription.
 /// A node-pinned conn (`conn_nodes`) matches only its own node.
+fn entry_ips(node: &fcore::Node) -> Vec<String> {
+    node.node_ips
+        .as_ref()
+        .map(|ips| ips.iter().map(|ip| ip.to_string()).collect())
+        .filter(|ips: &Vec<String>| !ips.is_empty())
+        .unwrap_or_else(|| vec![node.address.to_string()])
+}
+
+fn pooled_entry_ips<N: NodeStorageOperations>(nodes: &N, env: &fcore::Env, pool: &str) -> Vec<String> {
+    let mut members: Vec<&fcore::Node> = nodes
+        .iter_nodes()
+        .map(|(_, n)| n)
+        .filter(|n| {
+            n.status == NodeStatus::Online
+                && &n.env == env
+                && normalized_pool(n.pool.clone()).as_deref() == Some(pool)
+        })
+        .collect();
+    members.sort_by_key(|n| n.uuid);
+    let mut ips = Vec::new();
+    for n in members {
+        for ip in entry_ips(n) {
+            if !ips.contains(&ip) {
+                ips.push(ip);
+            }
+        }
+    }
+    ips
+}
+
 fn connections_for_protocol<N, C>(
     nodes: &N,
     conn_nodes: &std::collections::HashMap<uuid::Uuid, uuid::Uuid>,
     conn_labels: &std::collections::HashMap<uuid::Uuid, String>,
     protocol: &str,
     conns: Option<&[(uuid::Uuid, C)]>,
+    collapse_pools: bool,
 ) -> Vec<GatewayConnection>
 where
     N: NodeStorageOperations,
     C: ConnectionApiOperations + ConnectionBaseOperations,
 {
-    let mut result = Vec::new();
+    let mut result: Vec<GatewayConnection> = Vec::new();
+    let mut pool_index: std::collections::HashMap<(uuid::Uuid, fcore::Tag, String), usize> =
+        std::collections::HashMap::new();
     for (_, node) in nodes.iter_nodes() {
         if node.status != NodeStatus::Online {
             continue;
@@ -396,6 +518,31 @@ where
                 if conn.get_env() != node.env {
                     continue;
                 }
+
+                if collapse_pools {
+                    if let Some(pool) = normalized_pool(node.pool.clone()) {
+                        let key = (*conn_id, tag, pool.clone());
+                        if pool_index.contains_key(&key) {
+                            continue;
+                        }
+                        pool_index.insert(key, result.len());
+                        result.push(GatewayConnection {
+                            connection_uuid: *conn_id,
+                            node_id: node.uuid,
+                            country_code: code.clone(),
+                            country_name: code.clone(),
+                            service_protocol: proto_label(tag).to_string(),
+                            env: conn.get_env().to_string(),
+                            connection_label: format!("{pool} · {}", inbound_label(tag)),
+                            node_ips: None,
+                            pool: Some(pool.clone()),
+                            pool_translation: node.pool_translation.clone(),
+                            config_rev: None,
+                        });
+                        continue;
+                    }
+                }
+
                 let title = connection_title(
                     &node.label,
                     &node.hostname,
@@ -405,6 +552,11 @@ where
                     conn_labels.get(conn_id).map(String::as_str),
                 );
                 let label = format!("{title} · {}", inbound_label(tag));
+                let ips: Vec<String> = node
+                    .node_ips
+                    .as_ref()
+                    .map(|ips| ips.iter().map(|ip| ip.to_string()).collect())
+                    .unwrap_or_default();
                 result.push(GatewayConnection {
                     connection_uuid: *conn_id,
                     node_id: node.uuid,
@@ -413,14 +565,27 @@ where
                     service_protocol: proto_label(tag).to_string(),
                     env: conn.get_env().to_string(),
                     connection_label: label,
-                    node_ips: node
-                        .node_ips
-                        .as_ref()
-                        .map(|ips| ips.iter().map(|ip| ip.to_string()).collect()),
+                    node_ips: if ips.is_empty() { None } else { Some(ips.clone()) },
                     pool: node.pool.clone(),
                     pool_translation: node.pool_translation.clone(),
+                    config_rev: config_rev(node, tag, &ips),
                 });
             }
+        }
+    }
+    for ((_, tag, pool), idx) in &pool_index {
+        let env = fcore::Env::from(result[*idx].env.as_str());
+        let ips = pooled_entry_ips(nodes, &env, pool);
+        let node_id = result[*idx].node_id;
+        let node = nodes
+            .iter_nodes()
+            .find(|(id, _)| **id == node_id)
+            .map(|(_, n)| n);
+        if !ips.is_empty() {
+            result[*idx].node_ips = Some(ips.clone());
+        }
+        if let Some(node) = node {
+            result[*idx].config_rev = config_rev(node, *tag, &ips);
         }
     }
     if result.is_empty() {
@@ -435,6 +600,7 @@ where
             node_ips: None,
             pool: None,
             pool_translation: None,
+            config_rev: None,
         }];
     }
     result
@@ -1016,18 +1182,18 @@ where
         });
     let conns_slice = conns.as_deref();
 
-    let vless_connections = connections_for_protocol(&mem.nodes, &mem.conn_nodes, &mem.conn_labels, "vless", conns_slice);
-    let awg_connections = connections_for_protocol(&mem.nodes, &mem.conn_nodes, &mem.conn_labels, "awg", conns_slice);
+    let vless_connections = connections_for_protocol(&mem.nodes, &mem.conn_nodes, &mem.conn_labels, "vless", conns_slice, !req.pool_off);
+    let awg_connections = connections_for_protocol(&mem.nodes, &mem.conn_nodes, &mem.conn_labels, "awg", conns_slice, !req.pool_off);
 
     // One merged service: the client must not offer a protocol choice at purchase.
     let mut connections = vless_connections;
     connections.extend(awg_connections);
     // Hysteria2 has no per-connection traffic accounting: hidden in traffic mode.
     if !traffic_mode || Tag::Hysteria2.is_metered(&metered_conns) {
-        connections.extend(connections_for_protocol(&mem.nodes, &mem.conn_nodes, &mem.conn_labels, "hysteria2", conns_slice));
+        connections.extend(connections_for_protocol(&mem.nodes, &mem.conn_nodes, &mem.conn_labels, "hysteria2", conns_slice, !req.pool_off));
     }
-    connections.extend(connections_for_protocol(&mem.nodes, &mem.conn_nodes, &mem.conn_labels, "awg-mobile", conns_slice));
-    connections.extend(connections_for_protocol(&mem.nodes, &mem.conn_nodes, &mem.conn_labels, "wireguard", conns_slice));
+    connections.extend(connections_for_protocol(&mem.nodes, &mem.conn_nodes, &mem.conn_labels, "awg-mobile", conns_slice, !req.pool_off));
+    connections.extend(connections_for_protocol(&mem.nodes, &mem.conn_nodes, &mem.conn_labels, "wireguard", conns_slice, !req.pool_off));
     let countries = available_countries_from_connections(&connections);
 
     let info = GatewayServiceInfo {
@@ -1366,13 +1532,36 @@ where
         }
     };
 
-    let service_name = connection_title(
-        &node.label,
-        &node.hostname,
-        &node.address.to_string(),
-        &node.country,
-        node.env.is_personal(),
-        mem.conn_labels.get(&conn_id).map(String::as_str),
+    let pinned = mem.conn_nodes.contains_key(&conn_id);
+    let pool = if pinned {
+        None
+    } else {
+        normalized_pool(node.pool.clone())
+    };
+    let service_name = if let Some(pool) = &pool {
+        pool.clone()
+    } else {
+        connection_title(
+            &node.label,
+            &node.hostname,
+            &node.address.to_string(),
+            &node.country,
+            node.env.is_personal(),
+            mem.conn_labels.get(&conn_id).map(String::as_str),
+        )
+    };
+    let node_ips = if let Some(pool) = &pool {
+        let ips = pooled_entry_ips(&mem.nodes, &node.env, pool);
+        if ips.is_empty() { None } else { Some(ips) }
+    } else {
+        node.node_ips
+            .as_ref()
+            .map(|ips| ips.iter().map(|ip| ip.to_string()).collect())
+    };
+    let config_rev = config_rev(
+        &node,
+        conn.get_proto().proto(),
+        node_ips.as_deref().unwrap_or(&[]),
     );
 
     // From here on only owned clones are used; release the read lock so the
@@ -1500,10 +1689,8 @@ where
         country_name: None,
         service_protocol: None,
         service_type: None,
-        node_ips: node
-            .node_ips
-            .as_ref()
-            .map(|ips| ips.iter().map(|ip| ip.to_string()).collect()),
+        node_ips,
+        config_rev,
     })
 }
 
@@ -1753,6 +1940,7 @@ mod tests {
             node_ips: None,
             pool: None,
             pool_translation: None,
+            config_rev: None,
         };
         // Single-address node without a pool: both optional fields are omitted
         // entirely (old shape, unchanged for old clients/nodes).
@@ -1770,6 +1958,53 @@ mod tests {
             v["node_ips"],
             serde_json::json!(["78.17.28.66", "78.17.28.67"])
         );
+        assert!(v.get("config_rev").is_none());
+    }
+
+    #[test]
+    fn config_rev_tracks_server_material_only() {
+        let inbound = wg_inbound();
+        let node = fcore::Node {
+            uuid: uuid::Uuid::nil(),
+            env: Env::Ru,
+            hostname: "uncle".into(),
+            address: "203.0.113.7".parse().unwrap(),
+            status: fcore::NodeStatus::Online,
+            label: "Uncle Sam".into(),
+            interface: "eth0".into(),
+            created_at: chrono::Utc::now(),
+            modified_at: chrono::Utc::now(),
+            inbounds: [(Tag::Wireguard, inbound)].into(),
+            cores: 1,
+            max_bandwidth_bps: 1,
+            country: "US".into(),
+            r#type: fcore::NodeType::Node,
+            cluster: None,
+            node_ips: None,
+            pool: None,
+            pool_translation: None,
+        };
+        let rev = config_rev(&node, Tag::Wireguard, &[]).unwrap();
+        assert_eq!(config_rev(&node, Tag::Wireguard, &[]).as_deref(), Some(rev.as_str()));
+        assert_eq!(rev.len(), 64);
+
+        let mut renamed = node.clone();
+        renamed.label = "Other".into();
+        renamed.country = "DE".into();
+        assert_eq!(config_rev(&renamed, Tag::Wireguard, &[]).as_deref(), Some(rev.as_str()));
+
+        let mut moved = node.clone();
+        moved.address = "203.0.113.8".parse().unwrap();
+        assert_ne!(config_rev(&moved, Tag::Wireguard, &[]).unwrap(), rev);
+
+        let with_ips = config_rev(
+            &node,
+            Tag::Wireguard,
+            &["203.0.113.7".into(), "203.0.113.9".into()],
+        )
+        .unwrap();
+        assert_ne!(with_ips, rev);
+        assert!(config_rev(&node, Tag::Hysteria2, &[]).is_none());
     }
 
     #[test]
@@ -1793,6 +2028,7 @@ mod tests {
                 .into_iter()
                 .collect(),
             ),
+            config_rev: None,
         };
         let v = serde_json::to_value(&base).unwrap();
         assert_eq!(v["pool"], serde_json::json!("Finland"));
@@ -1820,6 +2056,7 @@ mod tests {
             service_protocol: Some("awg".to_string()),
             service_type: Some(share::SHARE_SERVICE_TYPE.to_string()),
             node_ips: Some(vec!["78.17.28.66".to_string(), "78.17.28.67".to_string()]),
+            config_rev: Some("abc".to_string()),
         };
         let v = serde_json::to_value(&resp).unwrap();
         assert_eq!(v["share_label"], "Android Mama");
@@ -1832,6 +2069,7 @@ mod tests {
             v["node_ips"],
             serde_json::json!(["78.17.28.66", "78.17.28.67"])
         );
+        assert_eq!(v["config_rev"], "abc");
 
         // Owner branch: display fields are omitted entirely.
         let owner = GatewayConfigResponse {
@@ -1845,6 +2083,7 @@ mod tests {
             service_protocol: None,
             service_type: None,
             node_ips: None,
+            config_rev: None,
         };
         let v = serde_json::to_value(&owner).unwrap();
         for field in [
@@ -1854,6 +2093,7 @@ mod tests {
             "service_protocol",
             "service_type",
             "node_ips",
+            "config_rev",
         ] {
             assert!(v.get(field).is_none(), "{} must be omitted", field);
         }
@@ -1900,6 +2140,125 @@ mod tests {
             connection_title("", "vps.example", "203.0.113.7", "nl", false, None),
             "NL"
         );
+    }
+
+    #[test]
+    fn pool_collapses_to_one_card_and_drops_offline_ips() {
+        use fcore::{Connection, NodeStatus, NodeType, Proto};
+        use std::collections::HashMap;
+
+        fn inbound() -> fcore::Inbound {
+            fcore::Inbound {
+                tag: Tag::VlessTcpReality,
+                port: 443,
+                stream_settings: None,
+                wg: None,
+                awg: None,
+                h2: None,
+                mtproto_secret: None,
+            }
+        }
+        fn node(
+            id: &str,
+            addr: &str,
+            extra: Option<&str>,
+            pool: Option<&str>,
+            status: NodeStatus,
+        ) -> fcore::Node {
+            let mut ips = vec![addr.parse().unwrap()];
+            if let Some(extra) = extra {
+                ips.push(extra.parse().unwrap());
+            }
+            fcore::Node {
+                uuid: uuid::Uuid::parse_str(id).unwrap(),
+                env: Env::Ru,
+                hostname: addr.into(),
+                address: addr.parse().unwrap(),
+                status,
+                label: "PL".into(),
+                interface: "eth0".into(),
+                created_at: chrono::Utc::now(),
+                modified_at: chrono::Utc::now(),
+                inbounds: [(Tag::VlessTcpReality, inbound())].into_iter().collect(),
+                cores: 1,
+                max_bandwidth_bps: 1,
+                country: "PL".into(),
+                r#type: NodeType::Node,
+                cluster: None,
+                node_ips: Some(ips),
+                pool: pool.map(|s| s.to_string()),
+                pool_translation: None,
+            }
+        }
+
+        let pl = node(
+            "11111111-1111-1111-1111-111111111111",
+            "1.1.1.1",
+            Some("1.1.1.2"),
+            Some("EU Рилзопровод"),
+            NodeStatus::Online,
+        );
+        let fi = node(
+            "22222222-2222-2222-2222-222222222222",
+            "2.2.2.1",
+            Some("2.2.2.2"),
+            Some("EU Рилзопровод"),
+            NodeStatus::Online,
+        );
+        let mut nodes: HashMap<Env, Vec<fcore::Node>> = HashMap::new();
+        nodes.insert(Env::Ru, vec![pl, fi]);
+        let conn_id = uuid::Uuid::new_v4();
+        let conn = Connection::new(&Env::Ru, None, Proto::new_xray(&Tag::VlessTcpReality), None);
+        let conns = [(conn_id, conn)];
+        let labels = HashMap::<uuid::Uuid, String>::new();
+        let pins = HashMap::<uuid::Uuid, uuid::Uuid>::new();
+        let real = |cards: Vec<GatewayConnection>| {
+            cards
+                .into_iter()
+                .filter(|c| c.connection_uuid != uuid::Uuid::nil())
+                .collect::<Vec<_>>()
+        };
+
+        let cards = real(connections_for_protocol(
+            &nodes, &pins, &labels, "vless", Some(&conns), true,
+        ));
+        assert_eq!(cards.len(), 1);
+        assert_eq!(cards[0].connection_label, "EU Рилзопровод · VLESS TCP Reality");
+        assert_eq!(
+            cards[0].node_ips.as_deref(),
+            Some(
+                ["1.1.1.1", "1.1.1.2", "2.2.2.1", "2.2.2.2"]
+                    .map(str::to_string)
+                    .as_slice()
+            )
+        );
+
+        nodes.get_mut(&Env::Ru).unwrap()[1].status = NodeStatus::Offline;
+        let cards = real(connections_for_protocol(
+            &nodes, &pins, &labels, "vless", Some(&conns), true,
+        ));
+        assert_eq!(cards.len(), 1);
+        assert_eq!(
+            cards[0].node_ips.as_deref(),
+            Some(["1.1.1.1", "1.1.1.2"].map(str::to_string).as_slice())
+        );
+
+        for n in nodes.get_mut(&Env::Ru).unwrap() {
+            n.pool = None;
+            n.status = NodeStatus::Online;
+        }
+        let cards = real(connections_for_protocol(
+            &nodes, &pins, &labels, "vless", Some(&conns), true,
+        ));
+        assert_eq!(cards.len(), 2);
+
+        for n in nodes.get_mut(&Env::Ru).unwrap() {
+            n.pool = Some("EU Рилзопровод".into());
+        }
+        let cards = real(connections_for_protocol(
+            &nodes, &pins, &labels, "vless", Some(&conns), false,
+        ));
+        assert_eq!(cards.len(), 2);
     }
 }
 

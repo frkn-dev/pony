@@ -37,6 +37,15 @@ impl PgNode {
         Self { manager }
     }
 
+    pub async fn ensure_pool_column(&self) -> Result<()> {
+        let mut manager = self.manager.lock().await;
+        let client = manager.get_client().await?;
+        client
+            .batch_execute("ALTER TABLE nodes ADD COLUMN IF NOT EXISTS pool TEXT;")
+            .await?;
+        Ok(())
+    }
+
     pub async fn upsert(&self, node_id: uuid::Uuid, node: Node) -> Result<()> {
         let mut manager = self.manager.lock().await;
         let client = manager.get_client().await?;

@@ -1,13 +1,16 @@
 pub mod admin;
 pub mod amnezia;
+pub mod catalog;
 pub mod cluster;
 pub mod connection;
 pub mod iap;
 pub mod key;
+pub mod mesh;
 pub mod metrics;
 pub mod node;
 pub mod premium;
 pub mod private;
+pub mod score;
 pub mod share;
 pub mod subscription;
 

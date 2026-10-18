@@ -15,8 +15,8 @@ use super::{
     super::{iap::AppleIapClient, service::Service, sync::MemSync},
     filters::*,
     handlers::{
-        admin::*, amnezia::*, cluster::*, connection::*, healthcheck_handler, iap::*, key::*,
-        metrics::*, node::*, premium::*, private::*, share::*, subscription::*,
+        admin::*, amnezia::*, catalog::*, cluster::*, connection::*, healthcheck_handler, iap::*, key::*,
+        mesh::*, metrics::*, node::*, premium::*, private::*, score::*, share::*, subscription::*,
     },
     param::*,
     rejection,
@@ -294,6 +294,14 @@ where
             }))
             .and_then(subscription_link_handler);
 
+        let get_catalog_version_route = warp::get()
+            .and(warp::path("v1"))
+            .and(warp::path("catalog"))
+            .and(warp::path("version"))
+            .and(warp::path::end())
+            .and(with_sync(self.sync.clone()))
+            .and_then(get_catalog_version_handler);
+
         let get_subscription_info_route = warp::get()
             .and(warp::path!("subscription" / Uuid))
             .and(warp::path::end())
@@ -475,7 +483,31 @@ where
             .and(warp::header::optional::<String>("authorization"))
             .and_then(admin_api_delete_connection_handler);
 
+        let score_cfg = self.settings.score.clone();
+        let admin_score_route = warp::get()
+            .and(warp::path!("v1" / "admin" / "nodes" / "score"))
+            .and(warp::path::end())
+            .and(with_sync(self.sync.clone()))
+            .and(with_param_bool(admin_enabled))
+            .and(with_param_string(admin_token.clone()))
+            .and(warp::header::optional::<String>("authorization"))
+            .and(with_metrics(self.metrics.clone()))
+            .and(warp::any().map(move || score_cfg.clone()))
+            .and_then(score_list_handler);
+
+        let admin_score_history_route = warp::get()
+            .and(warp::path!("v1" / "admin" / "nodes" / "score" / "history"))
+            .and(warp::path::end())
+            .and(warp::query::<crate::http::handlers::score::ScoreHistoryQuery>())
+            .and(with_param_bool(admin_enabled))
+            .and(with_param_string(admin_token.clone()))
+            .and(warp::header::optional::<String>("authorization"))
+            .and(with_metrics(self.metrics.clone()))
+            .and_then(score_history_handler);
+
         let admin_routes = admin_page_route
+            .or(admin_score_history_route)
+            .or(admin_score_route)
             .or(admin_api_state_route)
             .or(admin_api_nodes_route)
             .or(admin_api_node_metrics_route)
@@ -981,6 +1013,73 @@ where
             .and(warp::any().map(move || share_feed_rate_limiter.clone()))
             .and_then(share_feed_handler);
 
+        // Mesh relay (/v1/mesh/*): UIN registry + sealed-slot inbox for the
+        // last-mile E2E messenger. Public, no Bearer auth — send/pull are
+        // authorized by the sender's/recipient's Ed25519 signature; the POST
+        // routes share a coarse per-IP rate limit.
+        let mesh_rate_limiter = Arc::new(RateLimiter::new(60, std::time::Duration::from_secs(60)));
+        let with_mesh_registry = warp::any().map({
+            let mesh = self.mesh.clone();
+            move || mesh.clone()
+        });
+        let with_mesh_limiter = warp::any().map({
+            let limiter = mesh_rate_limiter.clone();
+            move || limiter.clone()
+        });
+
+        let post_mesh_register_route = warp::post()
+            .and(warp::path("v1"))
+            .and(warp::path("mesh"))
+            .and(warp::path("register"))
+            .and(warp::path::end())
+            .and(body_limit())
+            .and(warp::body::json::<MeshRegisterRequest>())
+            .and(with_mesh_registry.clone())
+            .and(warp::addr::remote())
+            .and(warp::header::optional::<String>("x-forwarded-for"))
+            .and(with_mesh_limiter.clone())
+            .and_then(mesh_register_handler);
+
+        let get_mesh_lookup_route = warp::get()
+            .and(warp::path("v1"))
+            .and(warp::path("mesh"))
+            .and(warp::path("lookup"))
+            .and(warp::path::param::<String>())
+            .and(warp::path::end())
+            .and(with_mesh_registry.clone())
+            .and_then(mesh_lookup_handler);
+
+        let post_mesh_send_route = warp::post()
+            .and(warp::path("v1"))
+            .and(warp::path("mesh"))
+            .and(warp::path("send"))
+            .and(warp::path::end())
+            .and(body_limit())
+            .and(warp::body::json::<MeshSendRequest>())
+            .and(with_mesh_registry.clone())
+            .and(warp::addr::remote())
+            .and(warp::header::optional::<String>("x-forwarded-for"))
+            .and(with_mesh_limiter.clone())
+            .and_then(mesh_send_handler);
+
+        let post_mesh_pull_route = warp::post()
+            .and(warp::path("v1"))
+            .and(warp::path("mesh"))
+            .and(warp::path("pull"))
+            .and(warp::path::end())
+            .and(body_limit())
+            .and(warp::body::json::<MeshPullRequest>())
+            .and(with_mesh_registry.clone())
+            .and(warp::addr::remote())
+            .and(warp::header::optional::<String>("x-forwarded-for"))
+            .and(with_mesh_limiter.clone())
+            .and_then(mesh_pull_handler);
+
+        let mesh_routes = post_mesh_register_route
+            .or(get_mesh_lookup_route)
+            .or(post_mesh_send_route)
+            .or(post_mesh_pull_route);
+
         // App Store IAP: the client is optional — without [service.apple] the
         // route stays mounted and answers 503.
         let apple_iap = params.apple.as_ref().and_then(|cfg| {
@@ -1062,6 +1161,7 @@ where
         let routes = get_healthcheck_route
             // Subscription
             .or(get_subscription_route)
+            .or(get_catalog_version_route)
             .or(get_share_feed_route)
             .or(get_subscription_info_route)
             .or(get_subscription_by_ref_code_route)
@@ -1104,6 +1204,8 @@ where
             .or(post_share_mint_route)
             .or(post_shares_list_route)
             .or(post_share_revoke_route)
+            // Mesh
+            .or(mesh_routes)
             // Admin
             .or(admin_routes)
             // Premium

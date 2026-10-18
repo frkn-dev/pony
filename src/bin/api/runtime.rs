@@ -99,6 +99,25 @@ where
             }
         });
 
+        spawn_task("mesh_registry_snapshot", {
+            let mesh = Arc::clone(&self.mesh);
+            let snapshot_path = self.settings.service.mesh_snapshot_path.clone();
+
+            async move {
+                let mut interval = tokio::time::interval(Duration::from_secs(60));
+
+                loop {
+                    interval.tick().await;
+
+                    mesh.gc();
+
+                    if let Err(err) = mesh.save_snapshot(&snapshot_path).await {
+                        error!("Mesh snapshot save failed: {}", err);
+                    }
+                }
+            }
+        });
+
         spawn_task("monitor_node_heartbeats", {
             let service = Arc::clone(&self);
 
@@ -192,6 +211,34 @@ where
             });
         }
 
+        spawn_task("node_score", {
+            let service = Arc::clone(&self);
+            let interval = self.settings.score.interval_secs.max(1);
+
+            async move {
+                let mut tick = tokio::time::interval(Duration::from_secs(interval));
+                let mut smooth = std::collections::HashMap::new();
+                loop {
+                    tick.tick().await;
+                    let views = {
+                        let mem = service.sync.memory.read().await;
+                        mem.nodes
+                            .iter_nodes()
+                            .map(|(_, node)| fcore::score::NodeView::from(node))
+                            .collect::<Vec<_>>()
+                    };
+                    let now = chrono::Utc::now().timestamp_millis();
+                    fcore::score::tick(
+                        &views,
+                        &service.metrics,
+                        &service.settings.score,
+                        &mut smooth,
+                        now,
+                    );
+                }
+            }
+        });
+
         spawn_task("metric_worker", {
             let metrics = Arc::clone(&self.metrics);
             let receiver = self.settings.metrics.reciever.clone();
@@ -229,6 +276,14 @@ where
                     .await
             {
                 error!("Failed to save snapshot: {}", err);
+            }
+
+            if let Err(err) = self
+                .mesh
+                .save_snapshot(&self.settings.service.mesh_snapshot_path)
+                .await
+            {
+                error!("Failed to save mesh snapshot: {}", err);
             }
 
             Ok(())

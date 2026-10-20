@@ -398,10 +398,10 @@ impl SubscriptionInfoRequest {
 
         match proto {
             Xray => [Txt, Base64, Clash].into(),
-            Proxy => [Txt, Base64].into(),
+            Proxy => [Txt, Base64, Clash].into(),
             Wireguard => [].into(),
             AmneziaWg => [].into(),
-            Hysteria2 => [Txt, Base64].into(),
+            Hysteria2 => [Txt, Base64, Clash].into(),
             VlessTcpReality => [Txt, Base64, Clash].into(),
             VlessGrpcReality => [Txt, Base64, Clash].into(),
             VlessXhttpReality => [Txt, Base64, Clash].into(),
@@ -560,6 +560,22 @@ mod tests {
         let qs = format!("id={}&format=txt&env=all&proto=proxy", id);
         let req: SubscriptionInfoRequest = serde_urlencoded::from_str(&qs).unwrap();
         assert_eq!(req.conn, None);
+    }
+
+    #[test]
+    fn test_clash_allowed_for_hysteria2_and_proxy() {
+        let id = uuid::Uuid::new_v4();
+
+        for proto in ["hysteria2", "proxy"] {
+            let qs = format!("id={}&format=clash&env=all&proto={}", id, proto);
+            let req: SubscriptionInfoRequest = serde_urlencoded::from_str(&qs).unwrap();
+            assert!(req.validate().is_ok(), "clash rejected for proto={proto}");
+        }
+
+        // Sanity: protocols without a clash renderer stay rejected.
+        let qs = format!("id={}&format=clash&env=all&proto=wireguard", id);
+        let req: SubscriptionInfoRequest = serde_urlencoded::from_str(&qs).unwrap();
+        assert!(req.validate().is_err());
     }
 
     fn node_request_json(extra: &str) -> serde_json::Value {

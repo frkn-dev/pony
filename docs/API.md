@@ -66,6 +66,9 @@
   - `200 OK application/yaml` (format=`Clash`)
   - `400/404` при ошибке
 
+Clash отдаётся для `xray`, `proxy` и `hysteria2` (VLESS/Reality/xhttp,
+VMess и Hysteria2). WG-семейство и `mtproto` в подписках не отдаются.
+
 ### `GET /subscription/{id}`
 
 Информация о подписке и агрегированный трафик.

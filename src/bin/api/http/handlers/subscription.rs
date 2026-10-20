@@ -1253,8 +1253,8 @@ where
         FormatReq::Clash => {
             let proxies: Vec<_> = inbounds_list
                 .iter()
-                .filter_map(|(inbound, conn_id, _conn, hostname, host, label)| {
-                    inbound.proxy(conn_id, hostname, host, label)
+                .filter_map(|(inbound, conn_id, conn, hostname, host, label)| {
+                    inbound.proxy(conn_id, conn, hostname, host, label)
                 })
                 .collect();
 

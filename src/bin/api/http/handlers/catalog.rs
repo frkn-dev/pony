@@ -8,6 +8,7 @@ use fcore::{
 
 use super::super::super::service::Cache;
 use super::super::super::sync::MemSync;
+use super::super::request::normalized_pool;
 
 /// Cheap change detector for the server catalog. The hash moves when an
 /// online node's server config revision changes, or when a node joins or
@@ -49,6 +50,55 @@ where
             }
         }
         hasher.update(b"\n");
+    }
+
+    // Client feeds collapse a pool into a single row whose node_ips is the union
+    // of every online member's entry addresses (see `pooled_entry_ips`). The loop
+    // above only hashes each node's OWN addresses, so a pure membership change —
+    // a node joins or leaves a pool, nothing else moves — left the version
+    // unchanged: clients kept a stale single-address row and never tried the
+    // pool's other entry address. Hash the pools as well.
+    let mut pool_groups: Vec<(String, fcore::Env, String)> = Vec::new();
+    for (_, node) in mem.nodes.iter_nodes() {
+        if node.status != fcore::NodeStatus::Online {
+            continue;
+        }
+        let Some(pool) = normalized_pool(node.pool.clone()) else {
+            continue;
+        };
+        let env_label = node.env.to_string();
+        if !pool_groups
+            .iter()
+            .any(|(e, _, p)| e == &env_label && p == &pool)
+        {
+            pool_groups.push((env_label, node.env.clone(), pool));
+        }
+    }
+    pool_groups.sort_by(|a, b| (&a.0, &a.2).cmp(&(&b.0, &b.2)));
+    for (env_label, env, pool) in &pool_groups {
+        hasher.update(b"pool\x00");
+        hasher.update(env_label.as_bytes());
+        hasher.update(pool.as_bytes());
+        // membership, not just the resulting addresses: the same address set
+        // served by a different member set is a different feed row. Sorted, so
+        // the hash stays stable across restarts (iter_nodes is a HashMap walk).
+        let mut member_ids: Vec<uuid::Uuid> = mem
+            .nodes
+            .iter_nodes()
+            .filter(|(_, node)| {
+                node.status == fcore::NodeStatus::Online
+                    && &node.env == env
+                    && normalized_pool(node.pool.clone()).as_deref() == Some(pool.as_str())
+            })
+            .map(|(id, _)| *id)
+            .collect();
+        member_ids.sort();
+        for id in &member_ids {
+            hasher.update(id.as_bytes());
+        }
+        for ip in super::amnezia::pooled_entry_ips(&mem.nodes, env, pool) {
+            hasher.update(ip.as_bytes());
+        }
     }
 
     (format!("{:x}", hasher.finalize()), nodes.len())
@@ -177,5 +227,37 @@ mod tests {
         cache.main_feed_nodes.insert(node_id);
         let (v4, _) = catalog_version(&cache);
         assert_eq!(v1, v4);
+    }
+
+    #[test]
+    fn catalog_version_changes_on_pool_membership() {
+        let mut cache = test_cache();
+
+        let mut a = test_node(Env::Ru, [(Tag::Wireguard, wg_inbound())].into_iter().collect());
+        let mut b = test_node(Env::Ru, [(Tag::Wireguard, wg_inbound())].into_iter().collect());
+        a.address = "192.168.1.100".parse().unwrap();
+        b.address = "192.168.1.101".parse().unwrap();
+        a.pool = Some("RU Рилзопровод".to_string());
+        b.pool = Some("RU Рилзопровод".to_string());
+        cache.nodes.entry(Env::Ru).or_default().push(a);
+        cache.nodes.entry(Env::Ru).or_default().push(b);
+
+        let (pooled, _) = catalog_version(&cache);
+
+        // Same online set, same addresses, same per-node configs — only the pool
+        // membership changed. Without it the client keeps the stale single-address
+        // row and has nothing to fail over to, so the version must move.
+        cache.nodes.get_mut(&Env::Ru).unwrap()[1].pool = None;
+        let (single, _) = catalog_version(&cache);
+        assert_ne!(pooled, single, "pool membership must move the catalog version");
+
+        cache.nodes.get_mut(&Env::Ru).unwrap()[1].pool = Some("RU Рилзопровод".to_string());
+        let (pooled_again, _) = catalog_version(&cache);
+        assert_eq!(pooled, pooled_again);
+
+        // A renamed pool produces different feed rows as well.
+        cache.nodes.get_mut(&Env::Ru).unwrap()[1].pool = Some("RU-2".to_string());
+        let (renamed, _) = catalog_version(&cache);
+        assert_ne!(pooled, renamed);
     }
 }

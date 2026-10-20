@@ -456,7 +456,7 @@ fn entry_ips(node: &fcore::Node) -> Vec<String> {
         .unwrap_or_else(|| vec![node.address.to_string()])
 }
 
-fn pooled_entry_ips<N: NodeStorageOperations>(nodes: &N, env: &fcore::Env, pool: &str) -> Vec<String> {
+pub(crate) fn pooled_entry_ips<N: NodeStorageOperations>(nodes: &N, env: &fcore::Env, pool: &str) -> Vec<String> {
     let mut members: Vec<&fcore::Node> = nodes
         .iter_nodes()
         .map(|(_, n)| n)

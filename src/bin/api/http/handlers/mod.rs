@@ -18,7 +18,7 @@ use warp::http::StatusCode;
 
 use fcore::{
     http::ResponseMessage, Connection, ConnectionApiOperations, ConnectionBaseOperations,
-    NodeStorageOperations, SubscriptionOperations,
+    NodeStorageOperations, SubscriptionOperations, VERSION,
 };
 
 use crate::sync::MemSync;
@@ -41,7 +41,7 @@ where
 {
     let response = ResponseMessage::<Option<uuid::Uuid>> {
         status: 200,
-        message: "Ok".to_string(),
+        message: format!("Ok (v{VERSION})"),
         response: None,
     };
 

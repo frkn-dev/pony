@@ -4,7 +4,7 @@ use std::fmt::Formatter;
 
 use crate::error::Error;
 
-#[derive(Hash, Eq, Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Hash, Eq, Default, Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Env {
     Production,
@@ -104,13 +104,46 @@ impl FromStr for Env {
             "gaming" => Ok(Env::Gaming),
             "bs" => Ok(Env::Bs),
             "bs-prem" | "bsprem" => Ok(Env::BsPrem),
-            s if s.starts_with("custom") => {
-                let name = s.strip_prefix("custom").unwrap_or(s).to_string();
-                Ok(Env::Custom(name))
-            }
+            s if s.starts_with("custom") => Ok(Env::Custom(strip_custom_prefix(s).to_string())),
             s if s.starts_with("personal") => Ok(Env::Custom(s.to_string())),
             _ => Err(Error::Custom("Wrong Env string".into())),
         }
+    }
+}
+
+/// Strip every leading `custom` marker. `as_str`/`Display` re-apply exactly
+/// one, so `customX`, `customcustomX` and `X` all denote the same env.
+fn strip_custom_prefix(s: &str) -> &str {
+    let mut name = s;
+    while let Some(rest) = name.strip_prefix("custom") {
+        name = rest;
+        // `custom` alone is the empty custom env, not an un-stripped prefix.
+        if name.is_empty() {
+            break;
+        }
+    }
+    name
+}
+
+impl<'de> Deserialize<'de> for Env {
+    /// The JSON path must normalize exactly like `FromStr`: the derived
+    /// `#[serde(untagged)] Custom(String)` used to keep the raw string and
+    /// `as_str` then prepended `custom` again, so a request carrying
+    /// `custompersonal<id>` was stored as `customcustompersonal<id>` — an env
+    /// no node serves, with a connection (and hysteria token) inside it.
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let raw = String::deserialize(deserializer)?;
+        if let Ok(env) = raw.parse::<Env>() {
+            return Ok(env);
+        }
+        let trimmed = raw.trim().to_lowercase();
+        if trimmed.is_empty() {
+            return Err(serde::de::Error::custom("empty env"));
+        }
+        Ok(Env::Custom(strip_custom_prefix(&trimmed).to_string()))
     }
 }
 impl From<&str> for Env {
@@ -170,6 +203,27 @@ mod tests {
         assert_eq!(
             Env::from_str("custom").unwrap(),
             Env::Custom("".to_string())
+        );
+
+        // A doubled prefix must collapse: the JSON path used to keep the raw
+        // string and re-apply `custom` on output, minting `customcustomX`.
+        assert_eq!(
+            Env::from_str("customcustompersonalabc").unwrap(),
+            Env::Custom("personalabc".to_string())
+        );
+        assert_eq!(
+            serde_json::from_str::<Env>("\"custompersonalabc\"").unwrap(),
+            Env::Custom("personalabc".to_string())
+        );
+        assert_eq!(
+            serde_json::from_str::<Env>("\"customcustompersonalabc\"")
+                .unwrap()
+                .to_string(),
+            "custompersonalabc"
+        );
+        assert_eq!(
+            serde_json::from_str::<Env>("\"personalabc\"").unwrap(),
+            Env::Custom("personalabc".to_string())
         );
 
         let custom = Env::Custom("777".to_string());

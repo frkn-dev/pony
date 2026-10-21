@@ -2,7 +2,7 @@ use chrono::{DateTime, Utc};
 use rkyv::to_bytes;
 use std::net::{IpAddr, Ipv4Addr};
 
-use tracing::{debug, error};
+use tracing::{debug, error, warn};
 
 use fcore::{
     http::{
@@ -151,6 +151,21 @@ where
         }
     }
 
+    // An env is servable only when at least one node lives in it and at least
+    // one of those nodes exposes this protocol's inbound.
+    if let Err(msg) = validate_env_served(mem.nodes.get_by_env(env), env, proto) {
+        return Err(msg);
+    }
+
+    // Re-creating a device connection must be idempotent, not a 500 out of
+    // `connections_single_proto_idx`. This belongs to the HTTP surface only:
+    // internal callers (tariff reissue, share mint) deliberately create a
+    // second connection while the old one is still live, so the check lives in
+    // `create_connection_handler`, not here.
+
+    // Captured before `proto` is shadowed by the credential-carrying `Proto`.
+    let proto_name = proto.to_string();
+
     let proto = match proto {
         // WG-family protocols share the allocation logic; each tag draws
         // from its own address pool.
@@ -251,10 +266,27 @@ where
         Ok(Status::AlreadyExist(id)) => Ok((id, conn)),
         Ok(Status::BadRequest(_, msg)) => Err(format!("BadRequest {} {}", conn_id, msg)),
         Ok(_) => Err("Unsupported operation status".to_string()),
-        Err(err) => Err(format!(
-            "Internal error while processing connection {}: {}",
-            conn_id, err
-        )),
+        Err(err) => {
+            let detail = err.to_string();
+            // Unique violations are a client-visible conflict, and the raw
+            // message carries the index name plus the conflicting key values —
+            // it must not leave the process.
+            if detail.contains("Unique violation") {
+                warn!(
+                    "create_connection_inner: duplicate {} · {} for sub {:?} ({}): {}",
+                    env, proto_name, subscription_id, conn_id, detail
+                );
+                return Err(format!(
+                    "Duplicate connection: a live {} already exists for this env",
+                    proto_name
+                ));
+            }
+            error!(
+                "create_connection_inner: failed to create {} ({} · {}): {}",
+                conn_id, env, proto_name, detail
+            );
+            Err(format!("Failed to create connection {}", conn_id))
+        }
     }
 }
 
@@ -304,6 +336,29 @@ pub(crate) fn validate_node_pin(
     }
     if !node.inbounds.values().any(|i| i.tag == proto) {
         return Err(format!("Node has no {} inbound", proto));
+    }
+    Ok(())
+}
+
+/// The unpinned counterpart of `validate_node_pin`: an env can hold a
+/// connection only when the env exists at all (at least one node) and at least
+/// one of its nodes exposes the requested protocol. Node *status* is ignored on
+/// purpose — an offline node still means the env exists and comes back — but a
+/// mistyped env used to mint a connection, hysteria token included, that no
+/// server could ever serve.
+pub(crate) fn validate_env_served(
+    nodes: Option<Vec<fcore::Node>>,
+    env: &fcore::Env,
+    proto: Tag,
+) -> Result<(), String> {
+    let Some(nodes) = nodes.filter(|n| !n.is_empty()) else {
+        return Err(format!("Env not served: {} has no nodes", env));
+    };
+    if !nodes.iter().any(|n| n.inbound(proto).is_some()) {
+        return Err(format!(
+            "Env not served: no node in {} exposes {}",
+            env, proto
+        ));
     }
     Ok(())
 }
@@ -503,6 +558,42 @@ where
         }
     }
 
+    // Idempotent create for the device-facing endpoint: a single-proto tag
+    // (everything but the WireGuard family) owns one live non-share connection
+    // per (sub, env, proto), so hand the existing one back instead of letting
+    // `connections_single_proto_idx` answer with a unique violation — the
+    // caller gets 200 and the same id, and retries are harmless. After a
+    // DELETE the row is marked deleted, the slot is free again and a fresh
+    // connection (fresh keys/token) is minted: deletion revokes credentials.
+    if let (Some(sub_id), true) = (conn_req.subscription_id, is_single_proto(conn_req.proto)) {
+        let existing = {
+            let mem = memory.memory.read().await;
+            mem.connections
+                .get_by_subscription_id(&sub_id)
+                .unwrap_or_default()
+                .into_iter()
+                .find(|(conn_id, conn)| {
+                    !mem.share_conns.contains(conn_id)
+                        && !conn.get_deleted()
+                        && conn.get_env() == conn_req.env
+                        && conn.get_proto().proto() == conn_req.proto
+                })
+                .map(|(conn_id, conn)| (conn_id, Connection::from(conn)))
+        };
+
+        if let Some((existing_id, existing_conn)) = existing {
+            debug!(
+                "create_connection_handler: {} · {} already exists for sub {} ({})",
+                conn_req.env, conn_req.proto, sub_id, existing_id
+            );
+            return Ok(http::success_response(
+                format!("Connection {} already exists", existing_id),
+                Some(existing_id),
+                Instance::Connection(existing_conn),
+            ));
+        }
+    }
+
     let label = conn_req.normalized_label();
     let include_in_main = label.is_none() || conn_req.include_in_main.unwrap_or(false);
     match create_connection_inner(
@@ -527,7 +618,11 @@ where
             Instance::Connection(conn),
         )),
         Err(msg) => {
-            if msg.contains("not found")
+            if msg.starts_with("Duplicate connection") {
+                Ok(http::conflict(&msg))
+            } else if msg.starts_with("Env not served") {
+                Ok(http::bad_request(&msg))
+            } else if msg.contains("not found")
                 || msg.contains("not active")
                 || msg.contains("IP out of range")
             {
@@ -1067,7 +1162,7 @@ where
 mod tests {
     use super::{
         existing_default_pairs, main_feed_connection_visible, pinned_to, sync_conn_visible,
-        validate_node_pin,
+        validate_env_served, validate_node_pin,
     };
     use chrono::Utc;
     use fcore::{Env, Inbound, Node, NodeStatus, NodeType, Tag, Topic};
@@ -1243,5 +1338,36 @@ mod tests {
             validate_node_pin(Some(&node), &Env::Ru, Tag::VlessTcpReality),
             Err("Node has no VlessTcpReality inbound".to_string())
         );
+    }
+
+    #[test]
+    fn test_validate_env_served() {
+        let env = Env::Custom("personalabc".to_string());
+
+        // The env is unknown to memory — the `customcustom…` double-prefix case
+        // and plain typos land here.
+        assert_eq!(
+            validate_env_served(None, &env, Tag::Wireguard),
+            Err(format!("Env not served: {} has no nodes", env))
+        );
+        assert!(validate_env_served(Some(Vec::new()), &env, Tag::Wireguard).is_err());
+
+        // Nodes exist, but none exposes the requested protocol.
+        let nodes = vec![test_node(env.clone(), HashMap::new())];
+        assert_eq!(
+            validate_env_served(Some(nodes), &env, Tag::Hysteria2),
+            Err(format!(
+                "Env not served: no node in {} exposes Hysteria2",
+                env
+            ))
+        );
+
+        // An offline node with the inbound still counts: the env exists and
+        // will come back, so creating here is legitimate.
+        let mut inbounds = HashMap::new();
+        inbounds.insert(Tag::Wireguard, wg_inbound());
+        let mut offline = test_node(env.clone(), inbounds);
+        offline.status = NodeStatus::Offline;
+        assert!(validate_env_served(Some(vec![offline]), &env, Tag::Wireguard).is_ok());
     }
 }

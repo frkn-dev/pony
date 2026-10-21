@@ -20,13 +20,15 @@ use warp::Reply;
 use fcore::{
     http::helpers as http, Connection, ConnectionApiOperations, ConnectionBaseOperations,
     InboundConnLink, IpAddrMask, MetricStorage, Node, NodeStatus, NodeStorageOperations,
-    Subscription, SubscriptionOperations,
+    Subscription, SubscriptionOperations, SubscriptionStorageOperations,
 };
 
 use super::super::super::{
-    postgres::share::{ShareTokenRow, ISSUED_VIA_SHARE},
+    postgres::share::{ShareTokenRow, ISSUED_VIA_SHARE, ISSUED_VIA_SHARED_SUB},
     sync::{tasks::{SyncOp, DELETE_REASON_MANUAL}, MemSync},
 };
+
+pub(crate) use super::super::super::postgres::share::{SHARE_KIND_CONN, SHARE_KIND_SUB};
 use super::super::request::{
     EnvFilter, ShareFeedQuery, SubscriptionInfoRequest, TagReq,
 };
@@ -47,6 +49,8 @@ pub(crate) const SHARE_SERVICE_TYPE: &str = "amnezia-premium";
 
 /// Crockford base32, lowercase: 16 chars = 80 bits of CSPRNG entropy.
 const TOKEN_LEN: usize = 16;
+/// Shared-subscription tokens are UUIDs (32 hex chars, dashes stripped).
+const UUID_TOKEN_LEN: usize = 32;
 const TOKEN_ALPHABET: &str = "0123456789abcdefghjkmnpqrstvwxyz";
 
 // ============================================================================
@@ -82,9 +86,12 @@ pub(crate) fn normalize_share_token(raw: &str) -> Option<String> {
         .map(|c| c.to_ascii_lowercase())
         .collect();
 
-    if normalized.len() == TOKEN_LEN
-        && normalized.chars().all(|c| TOKEN_ALPHABET.contains(c))
-    {
+    let legacy = normalized.len() == TOKEN_LEN
+        && normalized.chars().all(|c| TOKEN_ALPHABET.contains(c));
+    // Shared-subscription tokens are UUIDs written without dashes.
+    let uuid_like = normalized.len() == UUID_TOKEN_LEN
+        && normalized.chars().all(|c| c.is_ascii_hexdigit());
+    if legacy || uuid_like {
         Some(normalized)
     } else {
         None
@@ -212,17 +219,36 @@ fn fmt_ts(ts: &DateTime<Utc>) -> String {
     ts.to_rfc3339_opts(SecondsFormat::Secs, true)
 }
 
+/// Human-facing form of a token: legacy tokens get the `xxxx-xxxx-…` grouping,
+/// shared-subscription (uuid) tokens get their canonical dashed form.
+fn display_token(token: &str) -> String {
+    if token.len() == UUID_TOKEN_LEN && token.chars().all(|c| c.is_ascii_hexdigit()) {
+        return uuid::Uuid::parse_str(token)
+            .map(|u| u.to_string())
+            .unwrap_or_else(|_| token.to_string());
+    }
+    grouped_token(token)
+}
+
 fn mint_response(
     base_url: &str,
     token: &str,
     label: &str,
     created_at: &DateTime<Utc>,
+    kind: &str,
 ) -> warp::reply::Response {
-    let grouped = grouped_token(token);
+    let shown = display_token(token);
+    // A shared subscription is imported like a normal subscription link
+    // (services + per-node configs), not as one connection.
+    let share_url = if kind == SHARE_KIND_SUB {
+        format!("frkn://sub/shared/{}", shown)
+    } else {
+        format!("frkn://conn/{}", shown)
+    };
     warp::reply::json(&serde_json::json!({
         "share_token": token,
-        "share_url": format!("frkn://conn/{}", grouped),
-        "share_feed_url": format!("{}/sub/{}", base_url.trim_end_matches('/'), grouped),
+        "share_url": share_url,
+        "share_feed_url": format!("{}/sub/{}", base_url.trim_end_matches('/'), shown),
         "label": label,
         "created_at": fmt_ts(created_at),
     }))
@@ -286,6 +312,17 @@ pub struct MgmtShareMintRequest {
 }
 
 /// POST /share/revoke (mgmt, service token).
+/// POST /share/sub (mgmt) — share a whole env+protocol as a subscription
+/// link (`frkn://sub/shared/<uuid>`): the recipient gets every server of
+/// that region for that protocol, like a normal subscription.
+#[derive(Debug, Deserialize)]
+pub struct MgmtSharedSubRequest {
+    pub subscription_id: uuid::Uuid,
+    pub env: String,
+    pub proto: String,
+    pub label: String,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct MgmtShareRevokeRequest {
     pub share_token: String,
@@ -411,18 +448,25 @@ where
     match mint_share_inner(
         &memory,
         sub_id,
-        req.connection_uuid,
+        Some(req.connection_uuid),
         Some(req.node_id),
         env,
         proto,
         label,
+        SHARE_KIND_CONN,
         &wg_network,
         &awg_network,
         &awg_mobile_network,
     )
     .await
     {
-        Ok(row) => Ok(mint_response(&base_url, &row.token, &row.label, &row.created_at)),
+        Ok(row) => Ok(mint_response(
+            &base_url,
+            &row.token,
+            &row.label,
+            &row.created_at,
+            SHARE_KIND_CONN,
+        )),
         Err(resp) => Ok(resp),
     }
 }
@@ -439,11 +483,12 @@ where
 pub(crate) async fn mint_share_inner<N, C, S>(
     memory: &MemSync<N, C, S>,
     sub_id: uuid::Uuid,
-    source_connection_id: uuid::Uuid,
+    source_connection_id: Option<uuid::Uuid>,
     node_id: Option<uuid::Uuid>,
     env: fcore::Env,
     proto: fcore::Tag,
     label: String,
+    kind: &str,
     wg_network: &IpAddrMask,
     awg_network: &IpAddrMask,
     awg_mobile_network: &Option<IpAddrMask>,
@@ -463,7 +508,17 @@ where
 {
     let db = memory.db.share();
 
-    let existing = match db.find_active(&source_connection_id, node_id.as_ref(), &label).await {
+    let existing = if kind == SHARE_KIND_SUB {
+        db.find_active_sub(&sub_id, &label).await
+    } else {
+        match source_connection_id {
+            Some(src) => db.find_active(&src, node_id.as_ref(), &label).await,
+            // `conn` tokens always have a source; treat a missing one as "no
+            // existing token" rather than guessing.
+            None => Ok(None),
+        }
+    };
+    let existing = match existing {
         Ok(v) => v,
         Err(e) => {
             error!("share mint: lookup failed for sub {}: {}", sub_id, e);
@@ -502,7 +557,11 @@ where
         None,
         Some(label.clone()),
         None,
-        Some(ISSUED_VIA_SHARE.to_string()),
+        Some(if kind == SHARE_KIND_SUB {
+            ISSUED_VIA_SHARED_SUB.to_string()
+        } else {
+            ISSUED_VIA_SHARE.to_string()
+        }),
         false,
         memory,
         wg_network,
@@ -529,11 +588,19 @@ where
     // token, on a primary-key collision retry with fresh entropy.
     for _ in 0..3 {
         let row = ShareTokenRow {
-            token: generate_share_token(),
+            // Shared subscriptions are addressed by a UUID link
+            // (frkn://sub/shared/<uuid>); connection shares keep the
+            // short readable token.
+            token: if kind == SHARE_KIND_SUB {
+                uuid::Uuid::new_v4().simple().to_string()
+            } else {
+                generate_share_token()
+            },
             subscription_id: sub_id,
             connection_id: child_id,
             node_id,
             source_connection_id,
+            kind: kind.to_string(),
             label: label.clone(),
             created_at: Utc::now(),
             last_used_at: None,
@@ -543,7 +610,15 @@ where
         match db.insert(&row).await {
             Ok(true) => return Ok(row),
             Ok(false) => {
-                match db.find_active(&source_connection_id, node_id.as_ref(), &label).await {
+                let reread = if kind == SHARE_KIND_SUB {
+                    db.find_active_sub(&sub_id, &label).await
+                } else {
+                    match source_connection_id {
+                        Some(src) => db.find_active(&src, node_id.as_ref(), &label).await,
+                        None => Ok(None),
+                    }
+                };
+                match reread {
                     Ok(Some(winner)) => {
                         delete_child_connection(memory, &child_id, child).await;
                         return Ok(winner);
@@ -793,6 +868,25 @@ where
     // (country, node_ips) must describe the config actually handed out.
     let node_id = match row.node_id {
         Some(id) => Some(id),
+        // A shared-subscription recipient picked a server from the
+        // /v1/services list: serve that node when it belongs to the
+        // token's env and exposes its protocol.
+        None if row.kind == SHARE_KIND_SUB && req.node_id.is_some() => {
+            let requested = req.node_id.unwrap_or_default();
+            let mem = memory.memory.read().await;
+            mem.connections.get(&row.connection_id).and_then(|conn| {
+                let env = conn.get_env();
+                let proto = conn.get_proto().proto();
+                mem.nodes
+                    .get_by_id(&requested)
+                    .filter(|n| {
+                        n.env == env
+                            && n.status == NodeStatus::Online
+                            && n.inbounds.contains_key(&proto)
+                    })
+                    .map(|n| n.uuid)
+            })
+        }
         None => {
             let mem = memory.memory.read().await;
             mem.connections
@@ -1006,18 +1100,145 @@ where
     match mint_share_inner(
         &memory,
         sub_id,
-        req.connection_id,
+        Some(req.connection_id),
         node_id,
         env,
         proto,
         label,
+        SHARE_KIND_CONN,
         &wg_network,
         &awg_network,
         &awg_mobile_network,
     )
     .await
     {
-        Ok(row) => Ok(mint_response(&base_url, &row.token, &row.label, &row.created_at)),
+        Ok(row) => Ok(mint_response(
+            &base_url,
+            &row.token,
+            &row.label,
+            &row.created_at,
+            SHARE_KIND_CONN,
+        )),
+        Err(resp) => Ok(resp),
+    }
+}
+
+/// Concrete connection tag for a shared-subscription request. Accepts the
+/// names the cabinet uses; unknown names are rejected by the caller.
+pub(crate) fn shared_sub_tag(raw: &str) -> Option<fcore::Tag> {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "wireguard" | "wg" => Some(fcore::Tag::Wireguard),
+        "amneziawg" | "awg" => Some(fcore::Tag::AmneziaWg),
+        "amneziawgmobile" | "awg-mobile" | "awgmobile" => Some(fcore::Tag::AmneziaWgMobile),
+        "hysteria2" | "h2" => Some(fcore::Tag::Hysteria2),
+        "vlesstcpreality" => Some(fcore::Tag::VlessTcpReality),
+        "vlessgrpcreality" => Some(fcore::Tag::VlessGrpcReality),
+        "vlessxhttpreality" => Some(fcore::Tag::VlessXhttpReality),
+        "vlessxhttpcdn" => Some(fcore::Tag::VlessXhttpCdn),
+        "vmess" => Some(fcore::Tag::Vmess),
+        "shadowsocks" | "ss" => Some(fcore::Tag::Shadowsocks),
+        "mtproto" => Some(fcore::Tag::Mtproto),
+        _ => None,
+    }
+}
+
+/// POST /share/sub — mint (idempotently) a shared subscription for one
+/// env+protocol. The token is a UUID; the recipient imports
+/// `frkn://sub/shared/<uuid>` and gets every online node of that env.
+pub async fn mgmt_share_sub_mint_handler<N, C, S>(
+    req: MgmtSharedSubRequest,
+    memory: MemSync<N, C, S>,
+    base_url: String,
+    wg_network: IpAddrMask,
+    awg_network: IpAddrMask,
+    awg_mobile_network: Option<IpAddrMask>,
+) -> Result<warp::reply::Response, warp::Rejection>
+where
+    N: NodeStorageOperations + Sync + Send + Clone + 'static,
+    C: ConnectionApiOperations
+        + ConnectionBaseOperations
+        + Sync
+        + Send
+        + Clone
+        + 'static
+        + From<Connection>
+        + PartialEq,
+    Connection: From<C>,
+    S: SubscriptionOperations + Send + Sync + Clone + 'static + PartialEq + From<Subscription>,
+{
+    let label = match normalize_share_label(&req.label) {
+        Ok(l) => l,
+        Err(msg) => return Ok(http::bad_request(msg).into_response()),
+    };
+    let env: fcore::Env = match req.env.trim().parse() {
+        Ok(env) => env,
+        Err(_) => return Ok(http::bad_request("unknown_env").into_response()),
+    };
+    let Some(proto) = shared_sub_tag(&req.proto) else {
+        return Ok(http::bad_request("unknown_protocol").into_response());
+    };
+
+    {
+        let mem = memory.memory.read().await;
+        if mem.subscriptions.find_by_id(&req.subscription_id).is_none() {
+            return Ok(http::not_found("subscription_not_found").into_response());
+        }
+        // Nothing to share if the region cannot serve this protocol at all.
+        let servable = mem
+            .nodes
+            .get_by_env(&env)
+            .map(|nodes| env_serving_node(&nodes, proto).is_some())
+            .unwrap_or(false);
+        if !servable {
+            return Ok(http::not_found("node_not_found").into_response());
+        }
+    }
+
+    // Idempotent: the same region+protocol returns the live link.
+    match memory
+        .db
+        .share()
+        .find_active_sub(&req.subscription_id, &label)
+        .await
+    {
+        Ok(Some(row)) => {
+            return Ok(mint_response(
+                &base_url,
+                &row.token,
+                &row.label,
+                &row.created_at,
+                SHARE_KIND_SUB,
+            ))
+        }
+        Ok(None) => {}
+        Err(e) => {
+            error!("share sub mint: lookup failed for sub {}: {}", req.subscription_id, e);
+            return Ok(http::internal_error("share lookup failed").into_response());
+        }
+    }
+
+    match mint_share_inner(
+        &memory,
+        req.subscription_id,
+        None,
+        None,
+        env,
+        proto,
+        label,
+        SHARE_KIND_SUB,
+        &wg_network,
+        &awg_network,
+        &awg_mobile_network,
+    )
+    .await
+    {
+        Ok(row) => Ok(mint_response(
+            &base_url,
+            &row.token,
+            &row.label,
+            &row.created_at,
+            SHARE_KIND_SUB,
+        )),
         Err(resp) => Ok(resp),
     }
 }
@@ -1256,6 +1477,39 @@ mod tests {    use super::*;
         let a = generate_share_token();
         let b = generate_share_token();
         assert_ne!(a, b);
+    }
+
+    #[test]
+    fn shared_sub_tokens_are_uuids() {
+        let id = uuid::Uuid::new_v4();
+        let compact = id.simple().to_string();
+        let dashed = id.to_string();
+
+        // Both the compact and the dashed form resolve to the stored token.
+        assert_eq!(normalize_share_token(&compact).as_deref(), Some(compact.as_str()));
+        assert_eq!(normalize_share_token(&dashed).as_deref(), Some(compact.as_str()));
+        assert_eq!(normalize_share_feed_token(&dashed).as_deref(), Some(compact.as_str()));
+
+        // The link shows the canonical dashed form.
+        assert_eq!(display_token(&compact), dashed);
+        assert_eq!(display_token("75a28cavdpb7ch2x"), "75a2-8cav-dpb7-ch2x");
+
+        // Junk still fails closed.
+        assert_eq!(normalize_share_token("not-a-token"), None);
+        assert_eq!(normalize_share_token(&compact[..30]), None);
+    }
+
+    #[test]
+    fn shared_sub_tag_accepts_cabinet_names() {
+        assert_eq!(shared_sub_tag("Wireguard"), Some(fcore::Tag::Wireguard));
+        assert_eq!(shared_sub_tag("AmneziaWg"), Some(fcore::Tag::AmneziaWg));
+        assert_eq!(
+            shared_sub_tag("AmneziaWgMobile"),
+            Some(fcore::Tag::AmneziaWgMobile)
+        );
+        assert_eq!(shared_sub_tag(" hysteria2 "), Some(fcore::Tag::Hysteria2));
+        assert_eq!(shared_sub_tag("VlessTcpReality"), Some(fcore::Tag::VlessTcpReality));
+        assert_eq!(shared_sub_tag("nonsense"), None);
     }
 
     #[test]

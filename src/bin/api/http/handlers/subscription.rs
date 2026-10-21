@@ -574,7 +574,9 @@ where
         Ok(shares) => {
             let by_source: HashMap<uuid::Uuid, &crate::postgres::share::ShareTokenRow> = shares
                 .iter()
-                .map(|s| (s.source_connection_id, s))
+                // Shared-subscription tokens have no source connection, so
+                // they never show up as a device share.
+                .filter_map(|s| s.source_connection_id.map(|src| (src, s)))
                 .collect();
             for c in connections.iter_mut() {
                 if let Some(share) = by_source.get(&c.id) {

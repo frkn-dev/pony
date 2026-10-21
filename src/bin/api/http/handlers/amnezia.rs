@@ -1159,19 +1159,45 @@ where
     S: SubscriptionOperations + Send + Sync + Clone + 'static + PartialEq,
     Connection: From<C>,
 {
-    // A share token authorizes /v1/config and nothing else.
-    if req
+    // A `conn` share token authorizes /v1/config and nothing else. A
+    // shared-subscription token (`sub`) is a subscription credential: the
+    // importer needs this list to build one card per server, so it is
+    // served here, scoped to the token's own connection (env + protocol).
+    let share_row = match req
         .auth_data
         .as_ref()
-        .is_some_and(share::auth_data_has_share_token)
+        .and_then(|a| a.get("share_token"))
+        .and_then(|v| v.as_str())
     {
-        return Ok(share::forbidden("share_token is only valid for /v1/config"));
+        Some(raw) => {
+            let Some(token) = share::normalize_share_token(raw) else {
+                return Ok(http::not_found("share_not_found").into_response());
+            };
+            match memory.db.share().get(&token).await {
+                Ok(Some(row)) if row.revoked_at.is_none() => Some(row),
+                Ok(_) => return Ok(http::not_found("share_not_found").into_response()),
+                Err(e) => {
+                    tracing::error!("services: share lookup failed: {}", e);
+                    return Ok(http::internal_error("share lookup failed").into_response());
+                }
+            }
+        }
+        None => None,
+    };
+    if let Some(row) = &share_row {
+        if row.kind != share::SHARE_KIND_SUB {
+            return Ok(share::forbidden("share_token is only valid for /v1/config"));
+        }
     }
 
     let mem = memory.memory.read().await;
 
-    // If subscription_id is provided, use the real subscription end_date and its connections.
-    let sub_id = req.auth_data.as_ref().and_then(extract_subscription_id);
+    // A shared subscription is identified by its token, not by auth_data's
+    // subscription id; its child connection defines the env+protocol scope.
+    let sub_id = match &share_row {
+        Some(row) => Some(row.subscription_id),
+        None => req.auth_data.as_ref().and_then(extract_subscription_id),
+    };
     let sub = sub_id.and_then(|sub_id| mem.subscriptions.find_by_id(&sub_id));
 
     // Expired/revoked subscription: paywall signal, same as /v1/config.
@@ -1192,17 +1218,28 @@ where
     let end_date = sub
         .as_ref()
         .and_then(|sub| sub.expires_at().map(|d| d.to_rfc3339()));
-    let conns = sub_id
-        .and_then(|sub_id| mem.connections.get_by_subscription_id(&sub_id))
-        .map(|cs| {
-            // Share-issued child connections are not the owner's devices.
-            cs.into_iter()
-                .filter(|(conn_id, _)| {
-                    !share::is_share_connection(&mem.share_conns, conn_id)
-                        && main_feed_connection_visible(&mem.main_feed_excluded_conns, conn_id, true)
-                })
-                .collect::<Vec<_>>()
-        });
+    let conns = match &share_row {
+        Some(row) => mem
+            .connections
+            .get(&row.connection_id)
+            .filter(|c| !c.get_deleted())
+            .map(|c| vec![(row.connection_id, c.clone())]),
+        None => sub_id
+            .and_then(|sub_id| mem.connections.get_by_subscription_id(&sub_id))
+            .map(|cs| {
+                // Share-issued child connections are not the owner's devices.
+                cs.into_iter()
+                    .filter(|(conn_id, _)| {
+                        !share::is_share_connection(&mem.share_conns, conn_id)
+                            && main_feed_connection_visible(
+                                &mem.main_feed_excluded_conns,
+                                conn_id,
+                                true,
+                            )
+                    })
+                    .collect::<Vec<_>>()
+            }),
+    };
     let conns_slice = conns.as_deref();
 
     let vless_connections = connections_for_protocol(&mem.nodes, &mem.conn_nodes, &mem.conn_labels, "vless", conns_slice, !req.pool_off);

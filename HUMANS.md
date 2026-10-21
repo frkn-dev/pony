@@ -2,12 +2,13 @@
 
 ## Current
 - **Repo:** ffcore
-- **Branch:** `main` (синхронно с `origin/main`, тег `v0.6.59`)
-- **Task:** DEVICES-ENV — env-wide устройства + статистика своих нод для ЛК
-- **Status:** v0.6.59 собрана и задеплоена на прод-api
+- **Branch:** `main` (синхронно с `origin/main`, тег `v0.6.60`)
+- **Task:** env-wide share-токены — выкачено
+- **Status:** v0.6.60 на проде (api обновлён 2026-10-21 17:26)
 - **Updated:** 2026-10-21
 
 ## Done
+- 2026-10-21 — v0.6.60: env-wide share-токены (`share_tokens.node_id` nullable, `/sub/<token>` отдаёт все онлайн-ноды env, `/v1/config` для env-токена = конфиг выбранной ноды + `node_ips` пула).
 - 2026-10-21 — v0.6.59: `GET /private/nodes/stats?subscription_id=` (живые CPU/RAM/диск/сеть + inbound трафик/коннекты) и `GET /private/nodes/{uuid}/series` (даунсемпл ~240 бакетов, 24ч/7д), владение проверяется по personal env.
 - 2026-10-21 — имена серверов в `/v1/services`: `Устройство (NL4)`, для пулов `Устройство (Finland)`; безымянные коннекшены — лейбл ноды, как раньше. ` · ` остаётся под суффикс протокола.
 - 2026-10-21 — тег `v0.6.59`, GitHub Release, api на `141.133.173.16` (`Ok (v0.6.59)`), бэкап `api.bak-0.6.58-*`.
@@ -16,13 +17,14 @@
 - 2026-10-20 — v0.6.57: Clash + Hysteria2, собран на us.frkn.org.
 
 ## Next
-- [ ] env-wide share-токен: `share_tokens.node_id` → nullable, уникальный индекс `(source_connection_id, label) WHERE node_id IS NULL`; минт без пина для unpinned-коннекшенов; `/sub/<token>` отдаёт все онлайн-ноды env.
-- [ ] `/v1/config` с share-токеном: для env-токена отдавать конфиг одной ноды + `node_ips` пула (фейловер только внутри пула, ключи per-node).
 - [ ] решить, персистить ли метрики (сейчас рестарт api обнуляет историю графиков).
 - [ ] патч `src/bin/node/tasks.rs` (`SUB: Failed to handle messages`) — применять или нет.
+- [ ] dopamine: показать в импортированной по env-токену строке все серверы env (сейчас — один конфиг + фейловер внутри пула).
 
 ## Blockers / Notes
 - Один конфиг = один сервер: у каждой ноды свои ключи (AWG pubkey / Reality), поэтому env-wide «одна карточка с фейловером» невозможна вне пула.
+- `/subscription/{id}` (mrkting) отдаёт `connections[].id`, но `node_id` там нет — для тестов брать id оттуда.
+- SSH на прод: ключ `~/.ssh/ed25519_frkn`; GitHub — `~/.ssh/id_rsa_gh_2pizza` (после рестарта агента добавлять `ssh-add`.
 - Мерджи только `--no-ff`, версия бампается на ветке.
 - Секреты не коммитить.
 

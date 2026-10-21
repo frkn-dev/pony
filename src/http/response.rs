@@ -60,6 +60,10 @@ pub struct SubscriptionResponse {
     pub remaining_bytes: Option<i64>,
     pub env_traffic: Vec<EnvTrafficInfo>,
     pub connections: Vec<ConnectionInfo>,
+    /// Live whole-region share links (`frkn://sub/shared/<uuid>`), one per
+    /// shared env+protocol. Older backends omit the field.
+    #[serde(default)]
+    pub shared_subs: Vec<SharedSubInfo>,
     /// Private scope of the subscription (a dedicated env serving only its
     /// owner); null for regular subscriptions.
     pub scope: Option<ScopeInfo>,
@@ -124,6 +128,17 @@ pub struct ConnectionInfo {
     /// front checks share_token first.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub share_node_id: Option<uuid::Uuid>,
+}
+
+/// One live whole-region share (`frkn://sub/shared/<uuid>`).
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct SharedSubInfo {
+    pub share_token: String,
+    pub share_url: String,
+    pub share_feed_url: String,
+    pub env: Env,
+    pub proto: Tag,
+    pub created_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]

@@ -19,7 +19,7 @@ use warp::Reply;
 
 use fcore::{
     http::helpers as http, Connection, ConnectionApiOperations, ConnectionBaseOperations,
-    InboundConnLink, IpAddrMask, MetricStorage, Node, NodeStatus, NodeStorageOperations,
+    ConnectionStorageApiOperations, InboundConnLink, IpAddrMask, MetricStorage, Node, NodeStatus, NodeStorageOperations,
     Subscription, SubscriptionOperations, SubscriptionStorageOperations,
 };
 
@@ -221,7 +221,7 @@ fn fmt_ts(ts: &DateTime<Utc>) -> String {
 
 /// Human-facing form of a token: legacy tokens get the `xxxx-xxxx-…` grouping,
 /// shared-subscription (uuid) tokens get their canonical dashed form.
-fn display_token(token: &str) -> String {
+pub(crate) fn display_token(token: &str) -> String {
     if token.len() == UUID_TOKEN_LEN && token.chars().all(|c| c.is_ascii_hexdigit()) {
         return uuid::Uuid::parse_str(token)
             .map(|u| u.to_string())
@@ -320,7 +320,6 @@ pub struct MgmtSharedSubRequest {
     pub subscription_id: uuid::Uuid,
     pub env: String,
     pub proto: String,
-    pub label: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -550,12 +549,19 @@ where
     // The child connection inherits the subscription lifetime (days=None),
     // carries the share label like a named device, and stays UNPINNED
     // (env-wide): the serving pin lives on the share_tokens row.
+    // A shared subscription keeps the child unnamed: its entries are plain
+    // server names, not "label (pool)".
+    let child_label = if kind == SHARE_KIND_SUB {
+        None
+    } else {
+        Some(label.clone())
+    };
     let (child_id, child) = match create_connection_inner(
         &env,
         proto,
         Some(sub_id),
         None,
-        Some(label.clone()),
+        child_label,
         None,
         Some(if kind == SHARE_KIND_SUB {
             ISSUED_VIA_SHARED_SUB.to_string()
@@ -1166,10 +1172,6 @@ where
     Connection: From<C>,
     S: SubscriptionOperations + Send + Sync + Clone + 'static + PartialEq + From<Subscription>,
 {
-    let label = match normalize_share_label(&req.label) {
-        Ok(l) => l,
-        Err(msg) => return Ok(http::bad_request(msg).into_response()),
-    };
     let env: fcore::Env = match req.env.trim().parse() {
         Ok(env) => env,
         Err(_) => return Ok(http::bad_request("unknown_env").into_response()),
@@ -1177,10 +1179,40 @@ where
     let Some(proto) = shared_sub_tag(&req.proto) else {
         return Ok(http::bad_request("unknown_protocol").into_response());
     };
+    // The label is the idempotency key ("dev · AmneziaWgMobile"); the child
+    // connection stays unnamed so the recipient sees plain server names.
+    let label = format!("{env} · {proto:?}");
+    let Ok(label) = normalize_share_label(&label) else {
+        return Ok(http::bad_request("unknown_env").into_response());
+    };
 
     {
         let mem = memory.memory.read().await;
         if mem.subscriptions.find_by_id(&req.subscription_id).is_none() {
+            return Ok(http::not_found("subscription_not_found").into_response());
+        }
+        // Only an env the subscription actually lives in may be shared —
+        // otherwise anyone could hand out another account's private region.
+        // A personal/selfhosted env belongs to the subscription outright (it is
+        // derived from its id), so having any live connection there is not
+        // required; shared envs (dev/prod/…) still need a connection as proof.
+        let owns_env = {
+            let by_scope = mem
+                .subscriptions
+                .find_by_id(&req.subscription_id)
+                .and_then(|s| s.scope_env().cloned())
+                .is_some_and(|scope| scope == env);
+            by_scope
+                || mem
+                    .connections
+                    .get_by_subscription_id(&req.subscription_id)
+                    .map(|cs| {
+                        cs.iter()
+                            .any(|(_, c)| !c.get_deleted() && c.get_env() == env)
+                    })
+                    .unwrap_or(false)
+        };
+        if !owns_env {
             return Ok(http::not_found("subscription_not_found").into_response());
         }
         // Nothing to share if the region cannot serve this protocol at all.

@@ -10,7 +10,8 @@ use fcore::http::{
     helpers as http,
     response::{
         ConnectionInfo, EnvInfo, EnvTrafficHistoryBucket, EnvTrafficInfo, Instance, ScopeInfo,
-        ScopeKind, SubscriptionResponse, SubscriptionTrafficHistoryResponse, TrafficHistoryBucket,
+        ScopeKind, SharedSubInfo, SubscriptionResponse, SubscriptionTrafficHistoryResponse,
+        TrafficHistoryBucket,
     },
     ResponseMessage,
 };
@@ -32,7 +33,7 @@ use super::super::{
     request::{AddTrafficReq, FormatReq, Subscription as SubReq, SubscriptionInfoRequest},
 };
 use super::{resolve_serving_access, serving_access, ServingAccess};
-use super::share::{grouped_token, is_share_connection};
+use super::share::{display_token, grouped_token, is_share_connection};
 use super::connection::{main_feed_connection_visible, pinned_to};
 
 #[derive(Debug, Deserialize)]
@@ -527,6 +528,18 @@ where
         }
     });
 
+    // env+proto of every connection, including share-issued children: the
+    // whole-region share links below are described by their child connection.
+    let conn_envs: HashMap<uuid::Uuid, (Env, Tag)> = mem
+        .connections
+        .get_by_subscription_id(&sub_id)
+        .map(|cs| {
+            cs.iter()
+                .map(|(id, c)| (*id, (c.get_env(), c.get_proto().proto())))
+                .collect()
+        })
+        .unwrap_or_default();
+
     drop(mem);
 
     let used_bytes = match memory.db.traffic().total_for_subscription(sub_id).await {
@@ -570,6 +583,7 @@ where
     // frkn://conn/... link per device). Best-effort like the traffic read:
     // on failure devices simply show nulls. Latest share wins when a device
     // somehow has several live ones.
+    let mut shared_subs: Vec<SharedSubInfo> = Vec::new();
     match memory.db.share().list_active(&subscription_id).await {
         Ok(shares) => {
             let by_source: HashMap<uuid::Uuid, &crate::postgres::share::ShareTokenRow> = shares
@@ -587,6 +601,26 @@ where
                     c.share_token = Some(share.token.clone());
                     c.share_node_id = share.node_id;
                 }
+            }
+
+            // Whole-region links: one per shared env+protocol, described by
+            // the token's child connection.
+            for share in &shares {
+                if share.kind != crate::postgres::share::SHARE_KIND_SUB {
+                    continue;
+                }
+                let Some((env, proto)) = conn_envs.get(&share.connection_id).cloned() else {
+                    continue;
+                };
+                let shown = display_token(&share.token);
+                shared_subs.push(SharedSubInfo {
+                    share_token: share.token.clone(),
+                    share_url: format!("frkn://sub/shared/{}", shown),
+                    share_feed_url: format!("{}/sub/{}", base_url.trim_end_matches('/'), shown),
+                    env,
+                    proto,
+                    created_at: share.created_at,
+                });
             }
         }
         Err(e) => {
@@ -666,6 +700,7 @@ where
         remaining_bytes: limit.map(|l| l - used_bytes),
         env_traffic,
         connections,
+        shared_subs,
         scope,
     };
 

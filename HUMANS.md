@@ -2,12 +2,15 @@
 
 ## Current
 - **Repo:** ffcore
-- **Branch:** `main` (синхронно с `origin/main`, тег `v0.6.60`)
-- **Task:** env-wide share-токены — выкачено
-- **Status:** v0.6.60 на проде (api обновлён 2026-10-21 17:26)
+- **Branch:** `feature/share-node-pick` (локально 0.6.62, shared subscriptions), не запушено
+- **Task:** «поделиться всем env» — ссылка-подписка `frkn://sub/shared/<uuid>`
+- **Status:** код готов и собран, тесты 99+96 зелёные; на прод не выкачено
 - **Updated:** 2026-10-21
 
 ## Done
+- 2026-10-21 — проверка вторым прогоном: шарить personal/selfhosted env теперь можно и без живого коннекшена — `owns_env = scope_env == env || есть коннекшен в env` (env принадлежит подписке по построению). Общие env по-прежнему требуют коннекшен. `cargo test --lib` 99, `cargo test --bin api` 96 — зелёные.
+- 2026-10-21 — 0.6.62 (локально): shared subscriptions. `share_tokens.kind` (`conn`/`sub`), `source_connection_id` nullable; `POST /share/sub` (mgmt) `{subscription_id, env, proto}` → `frkn://sub/shared/<uuid>`, child-коннекшен `issued_via='shared_sub'` без метки, мят идемпотентен по `(subscription, "env · proto")`, шарить можно только env, который реально есть у подписки; `/v1/services` с `sub`-токеном отдаёт все серверы env+proto; `/v1/config` с `sub`-токеном уважает payload `node_id` в рамках env; в `GET /subscription/{id}` добавлен `shared_subs[]`.
+- 2026-10-21 — AGENTS.md переписан: карта кода/доков, build-флаги (api/auth без default-features, node с xray/wireguard/amnezia-wg), миграции только на деплое, релиз через server-release.sh, грабли; не закоммичено.
 - 2026-10-21 — v0.6.60: env-wide share-токены (`share_tokens.node_id` nullable, `/sub/<token>` отдаёт все онлайн-ноды env, `/v1/config` для env-токена = конфиг выбранной ноды + `node_ips` пула).
 - 2026-10-21 — v0.6.59: `GET /private/nodes/stats?subscription_id=` (живые CPU/RAM/диск/сеть + inbound трафик/коннекты) и `GET /private/nodes/{uuid}/series` (даунсемпл ~240 бакетов, 24ч/7д), владение проверяется по personal env.
 - 2026-10-21 — имена серверов в `/v1/services`: `Устройство (NL4)`, для пулов `Устройство (Finland)`; безымянные коннекшены — лейбл ноды, как раньше. ` · ` остаётся под суффикс протокола.
@@ -19,7 +22,8 @@
 ## Next
 - [ ] решить, персистить ли метрики (сейчас рестарт api обнуляет историю графиков).
 - [ ] патч `src/bin/node/tasks.rs` (`SUB: Failed to handle messages`) — применять или нет.
-- [ ] dopamine: показать в импортированной по env-токену строке все серверы env (сейчас — один конфиг + фейловер внутри пула).
+- [ ] выкатить 0.6.62 api + mrkting 0.2.39 (после «мержим»), проверить шар одной ноды и шара региона на `dev`.
+- [ ] dopamine: сборка с `frkn://sub/shared/` (локально собирается, не закоммичено).
 
 ## Blockers / Notes
 - Один конфиг = один сервер: у каждой ноды свои ключи (AWG pubkey / Reality), поэтому env-wide «одна карточка с фейловером» невозможна вне пула.

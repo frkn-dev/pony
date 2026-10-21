@@ -10,16 +10,17 @@ use super::pg::PgClientManager;
 /// recipient of a `frkn://conn/<token>` link. NULL means a normal connection.
 pub const ISSUED_VIA_SHARE: &str = "share";
 
-/// One minted share token row. The token is a scoped credential that
-/// authorizes exactly one operation: fetching the config of its child
-/// connection (`connection_id`) on `node_id` via POST /v1/config.
+/// One minted share token row. The token is a scoped credential for exactly
+/// one child connection (`connection_id`). `node_id` set = the token is
+/// pinned to that node (app share of one server); `node_id` null = the token
+/// is env-wide and every online node of the child's env serves it.
 #[derive(Debug, Clone)]
 pub struct ShareTokenRow {
     pub token: String,
     pub subscription_id: uuid::Uuid,
     /// Child connection created at mint time (issued_via = 'share').
     pub connection_id: uuid::Uuid,
-    pub node_id: uuid::Uuid,
+    pub node_id: Option<uuid::Uuid>,
     pub source_connection_id: uuid::Uuid,
     pub label: String,
     pub created_at: DateTime<Utc>,
@@ -61,10 +62,20 @@ impl PgShare {
                     revoked_at TIMESTAMPTZ
                 );
 
+                -- Env-wide tokens (node_id IS NULL) predate this column being
+                -- nullable in the schema; keep the migration idempotent.
+                ALTER TABLE share_tokens ALTER COLUMN node_id DROP NOT NULL;
+
                 -- Idempotent mint: one active token per (source, node, label).
                 CREATE UNIQUE INDEX IF NOT EXISTS share_tokens_active_triple
                     ON share_tokens (source_connection_id, node_id, label)
                     WHERE revoked_at IS NULL;
+
+                -- Same for env-wide tokens: NULLs never collide in a plain
+                -- unique index, so they need their own predicate.
+                CREATE UNIQUE INDEX IF NOT EXISTS share_tokens_active_pair
+                    ON share_tokens (source_connection_id, label)
+                    WHERE revoked_at IS NULL AND node_id IS NULL;
                 "#,
             )
             .await?;
@@ -87,11 +98,12 @@ impl PgShare {
     }
 
     /// The live (non-revoked) token for an exact (source, node, label)
-    /// triple, if one exists — the idempotency hook of mint.
+    /// triple, if one exists — the idempotency hook of mint. `node_id: None`
+    /// matches the env-wide row (`IS NOT DISTINCT FROM` treats NULL = NULL).
     pub async fn find_active(
         &self,
         source_connection_id: &uuid::Uuid,
-        node_id: &uuid::Uuid,
+        node_id: Option<&uuid::Uuid>,
         label: &str,
     ) -> Result<Option<ShareTokenRow>> {
         let mut manager = self.manager.lock().await;
@@ -103,10 +115,12 @@ impl PgShare {
                 SELECT token, subscription_id, connection_id, node_id,
                        source_connection_id, label, created_at, last_used_at, revoked_at
                 FROM share_tokens
-                WHERE source_connection_id = $1 AND node_id = $2 AND label = $3
+                WHERE source_connection_id = $1
+                  AND node_id IS NOT DISTINCT FROM $2
+                  AND label = $3
                   AND revoked_at IS NULL
                 "#,
-                &[source_connection_id, node_id, &label],
+                &[source_connection_id, &node_id, &label],
             )
             .await?;
 

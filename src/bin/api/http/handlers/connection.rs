@@ -351,6 +351,17 @@ pub(crate) fn validate_env_served(
     env: &fcore::Env,
     proto: Tag,
 ) -> Result<(), String> {
+    // Only custom envs (personal / premium nodes) are gated. Built-in shared
+    // envs are regions we operate: `ru` or `bs-prem` can be retired and hold no
+    // nodes while the ensure step keeps running over their entitlements, and
+    // failing there would turn telemetry into noise (and stop the reissue of
+    // connections those regions may get back). A custom env, by contrast, only
+    // exists because a specific node was registered, so a name no node carries
+    // is a typo (the `custom` + `custompersonal…` double-prefix case) and must
+    // not mint a connection that nothing can serve.
+    if env.is_frkn_shared() {
+        return Ok(());
+    }
     let Some(nodes) = nodes.filter(|n| !n.is_empty()) else {
         return Err(format!("Env not served: {} has no nodes", env));
     };
@@ -1369,5 +1380,11 @@ mod tests {
         let mut offline = test_node(env.clone(), inbounds);
         offline.status = NodeStatus::Offline;
         assert!(validate_env_served(Some(vec![offline]), &env, Tag::Wireguard).is_ok());
+
+        // Built-in shared envs are regions we operate: an empty one must not
+        // fail the ensure step (ru/bs-prem can be retired while entitlements
+        // still reference them).
+        assert!(validate_env_served(None, &Env::Ru, Tag::Wireguard).is_ok());
+        assert!(validate_env_served(None, &Env::Dev, Tag::Hysteria2).is_ok());
     }
 }

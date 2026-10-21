@@ -48,7 +48,7 @@ pub struct AdminNodeList {
     pub nodes: Vec<AdminNode>,
 }
 
-#[derive(Serialize, Default)]
+#[derive(Debug, Serialize, Default)]
 pub struct NodeMetricsSnapshot {
     pub memory_used_bytes: Option<u64>,
     pub memory_total_bytes: Option<u64>,

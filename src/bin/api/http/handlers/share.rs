@@ -275,10 +275,14 @@ pub struct ShareRevokeRequest {
 }
 
 /// POST /share (mgmt, service token) — the site's per-device share link.
+/// `node_id` set = the cabinet user picked one server; absent = share the
+/// whole env (the default, and the only option for env-wide devices).
 #[derive(Debug, Deserialize)]
 pub struct MgmtShareMintRequest {
     pub connection_id: uuid::Uuid,
     pub label: String,
+    #[serde(default)]
+    pub node_id: Option<uuid::Uuid>,
 }
 
 /// POST /share/revoke (mgmt, service token).
@@ -963,25 +967,36 @@ where
         let proto = conn.get_proto().proto();
 
         let pin = mem.conn_nodes.get(&req.connection_id).copied();
-        // A pinned source conn is served only by its own node: verify that
-        // node directly instead of auto-picking. An offline or inbound-less
-        // pinned node gets the same error as the no-candidate path.
-        let serving = match pin {
-            Some(pin) => mem
-                .nodes
-                .get_by_id(&pin)
+        // Usable = online node of this env exposing the connection's protocol.
+        let usable = |id: &uuid::Uuid| {
+            mem.nodes
+                .get_by_id(id)
                 .filter(|n| {
                     n.env == env
                         && n.status == NodeStatus::Online
                         && n.inbounds.contains_key(&proto)
                 })
-                .map(|n| n.uuid),
-            None => mem
+                .map(|n| n.uuid)
+        };
+        // A cabinet-picked node wins; a node-pinned conn can only go out from
+        // its own node, so a mismatched pick answers the uniform not-found.
+        let serving = match (req.node_id, pin) {
+            (Some(requested), Some(pinned)) if requested != pinned => None,
+            (Some(requested), _) => usable(&requested),
+            // No pick: a pinned conn keeps its node, an env-wide one is
+            // checked for any usable node before the token is minted.
+            (None, Some(pinned)) => usable(&pinned),
+            (None, None) => mem
                 .nodes
                 .get_by_env(&env)
                 .and_then(|nodes| env_serving_node(&nodes, proto)),
         };
-        let Some(node_id) = share_mint_node(pin, serving) else {
+        let node_id = if req.node_id.is_some() {
+            serving.map(Some)
+        } else {
+            share_mint_node(pin, serving)
+        };
+        let Some(node_id) = node_id else {
             return Ok(http::not_found("node_not_found").into_response());
         };
 

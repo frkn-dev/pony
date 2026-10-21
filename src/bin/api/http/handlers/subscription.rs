@@ -499,6 +499,7 @@ where
             share_token: None,
             share_url: None,
             share_feed_url: None,
+            share_node_id: None,
         })
         .collect();
 
@@ -571,17 +572,18 @@ where
     // somehow has several live ones.
     match memory.db.share().list_active(&subscription_id).await {
         Ok(shares) => {
-            let by_source: HashMap<uuid::Uuid, String> = shares
+            let by_source: HashMap<uuid::Uuid, &crate::postgres::share::ShareTokenRow> = shares
                 .iter()
-                .map(|s| (s.source_connection_id, s.token.clone()))
+                .map(|s| (s.source_connection_id, s))
                 .collect();
             for c in connections.iter_mut() {
-                if let Some(token) = by_source.get(&c.id) {
-                    let grouped = grouped_token(token);
+                if let Some(share) = by_source.get(&c.id) {
+                    let grouped = grouped_token(&share.token);
                     c.share_url = Some(format!("frkn://conn/{}", grouped));
                     c.share_feed_url =
                         Some(format!("{}/sub/{}", base_url.trim_end_matches('/'), grouped));
-                    c.share_token = Some(token.clone());
+                    c.share_token = Some(share.token.clone());
+                    c.share_node_id = share.node_id;
                 }
             }
         }

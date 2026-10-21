@@ -119,6 +119,11 @@ pub struct ConnectionInfo {
     /// Public feed of just the shared server (GET /sub/<token>) for
     /// third-party clients (Happ/Streisand/Clash); null like share_token.
     pub share_feed_url: Option<String>,
+    /// Node the active share is pinned to; null = env-wide share (every
+    /// online node of the env serves it). Null without a share too, so the
+    /// front checks share_token first.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub share_node_id: Option<uuid::Uuid>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -183,6 +188,7 @@ mod tests {
             share_token: Some("k7f29mxq4tvzabcd".to_string()),
             share_url: Some("frkn://conn/k7f2-9mxq-4tvz-abcd".to_string()),
             share_feed_url: Some("https://api.frkn.org/sub/k7f2-9mxq-4tvz-abcd".to_string()),
+            share_node_id: Some(uuid::Uuid::nil()),
         };
 
         let value = serde_json::to_value(&info).unwrap();
@@ -198,7 +204,7 @@ mod tests {
             keys,
             [
                 "downlink", "env", "id", "include_in_main", "is_deleted", "label", "proto",
-                "share_feed_url", "share_token", "share_url", "uplink"
+                "share_feed_url", "share_node_id", "share_token", "share_url", "uplink"
             ]
         );
 
@@ -218,6 +224,7 @@ mod tests {
             obj["share_feed_url"],
             serde_json::json!("https://api.frkn.org/sub/k7f2-9mxq-4tvz-abcd")
         );
+        assert_eq!(obj["share_node_id"], serde_json::json!(uuid::Uuid::nil()));
     }
 
     #[test]
@@ -234,6 +241,7 @@ mod tests {
             share_token: None,
             share_url: None,
             share_feed_url: None,
+            share_node_id: None,
         };
 
         let value = serde_json::to_value(&info).unwrap();
@@ -241,6 +249,9 @@ mod tests {
         assert_eq!(value["share_token"], serde_json::Value::Null);
         assert_eq!(value["share_url"], serde_json::Value::Null);
         assert_eq!(value["share_feed_url"], serde_json::Value::Null);
+        // No share, no scope key at all (skip_serializing_if), so an old
+        // cabinet never has to tell "no share" from "env-wide share".
+        assert!(value.get("share_node_id").is_none());
         assert_eq!(value["proto"], serde_json::json!("AmneziaWgMobile"));
         assert_eq!(value["is_deleted"], serde_json::json!(true));
     }

@@ -334,6 +334,12 @@ fn label_is_host(label: &str, hostname: &str, address: &str) -> bool {
         || label == address
 }
 
+/// Title of one (device, node) entry in the app's server list.
+///
+/// A named device keeps its name as the prefix and the node label in brackets
+/// ("Мама (NL4)"): the same device now lives on every node of its env, so a bare
+/// device name would produce a list of identical rows. ` · ` stays reserved for
+/// the protocol suffix the client splits on, hence the brackets.
 fn connection_title(
     node_label: &str,
     hostname: &str,
@@ -343,8 +349,12 @@ fn connection_title(
     conn_label: Option<&str>,
 ) -> String {
     let node_label = node_label.trim();
+    let device = conn_label.map(str::trim).filter(|l| !l.is_empty());
+
+    // A personal node whose label is just its host has no name of its own: the
+    // device is the only meaningful title, the country is the fallback.
     if personal && label_is_host(node_label, hostname, address) {
-        if let Some(label) = conn_label.map(str::trim).filter(|l| !l.is_empty()) {
+        if let Some(label) = device {
             return label.to_string();
         }
         let code = country.trim();
@@ -353,15 +363,18 @@ fn connection_title(
         }
         return format!("{}| Private", code.to_uppercase());
     }
-    if !personal {
-        if let Some(label) = conn_label.map(str::trim).filter(|l| !l.is_empty()) {
-            return label.to_string();
-        }
+
+    let node_title = if node_label.is_empty() {
+        country.trim().to_uppercase()
+    } else {
+        node_label.to_string()
+    };
+
+    match device {
+        Some(label) if node_title.is_empty() || node_title == label => label.to_string(),
+        Some(label) => format!("{} ({})", label, node_title),
+        None => node_title,
     }
-    if node_label.is_empty() {
-        return country.trim().to_uppercase();
-    }
-    node_label.to_string()
 }
 
 pub(crate) fn config_rev(node: &fcore::Node, tag: Tag, ips: &[String]) -> Option<String> {
@@ -526,6 +539,16 @@ where
                             continue;
                         }
                         pool_index.insert(key, result.len());
+                        // Same rule as single nodes: a named device prefixes the
+                        // entry, the pool name tells the nodes apart.
+                        let pool_title = match conn_labels
+                            .get(conn_id)
+                            .map(|l| l.trim())
+                            .filter(|l| !l.is_empty())
+                        {
+                            Some(device) => format!("{device} ({pool})"),
+                            None => pool.clone(),
+                        };
                         result.push(GatewayConnection {
                             connection_uuid: *conn_id,
                             node_id: node.uuid,
@@ -533,7 +556,7 @@ where
                             country_name: code.clone(),
                             service_protocol: proto_label(tag).to_string(),
                             env: conn.get_env().to_string(),
-                            connection_label: format!("{pool} · {}", inbound_label(tag)),
+                            connection_label: format!("{pool_title} · {}", inbound_label(tag)),
                             node_ips: None,
                             pool: Some(pool.clone()),
                             pool_translation: node.pool_translation.clone(),
@@ -2121,9 +2144,11 @@ mod tests {
             connection_title("203.0.113.7", "vps.example", "203.0.113.7", "FI", true, Some("Кухня")),
             "Кухня"
         );
+        // A named device prefixes the node it lives on: with an env-wide device
+        // the same name would otherwise repeat on every server.
         assert_eq!(
             connection_title("Kitchen", "vps.example", "203.0.113.7", "FI", true, Some("Кухня")),
-            "Kitchen"
+            "Кухня (Kitchen)"
         );
         assert_eq!(
             connection_title(
@@ -2134,7 +2159,11 @@ mod tests {
                 false,
                 Some("Телефон")
             ),
-            "Телефон"
+            "Телефон (Premium-a65e52c6af0e)"
+        );
+        assert_eq!(
+            connection_title("NL4", "nl4.example", "203.0.113.7", "NL", false, Some("Мама")),
+            "Мама (NL4)"
         );
         assert_eq!(
             connection_title("", "vps.example", "203.0.113.7", "nl", false, None),

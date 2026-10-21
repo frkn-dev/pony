@@ -822,6 +822,341 @@ where
     .into_response())
 }
 
+/// Live gauges of one own node plus its inbound totals. The cabinet shows them
+/// as "my server" statistics — the same numbers the admin dashboard renders,
+/// scoped to nodes the subscription actually owns.
+#[derive(Debug, Serialize)]
+pub struct PrivateNodeTraffic {
+    /// Cumulative bytes passed through the node's inbounds.
+    pub uplink: u64,
+    pub downlink: u64,
+    /// Connections reported by the inbounds right now (AWG reports peers).
+    pub connections: u64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PrivateNodeStats {
+    #[serde(flatten)]
+    pub node: PrivateNodeResponse,
+    pub metrics: super::admin::NodeMetricsSnapshot,
+    pub traffic: PrivateNodeTraffic,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PrivateNodeSeriesQuery {
+    pub subscription_id: Uuid,
+    pub from: Option<i64>,
+    pub to: Option<i64>,
+}
+
+/// Downsampled history for one node: averages per time bucket, so a 24h chart
+/// is a few hundred points instead of every raw sample.
+#[derive(Debug, Default, Serialize)]
+pub struct PrivateNodeSeries {
+    pub cpu_percent: Vec<(i64, f64)>,
+    pub memory_percent: Vec<(i64, f64)>,
+    pub network_rx_bps: Vec<(i64, f64)>,
+    pub network_tx_bps: Vec<(i64, f64)>,
+}
+
+#[derive(Default)]
+struct BucketAcc {
+    sum: f64,
+    count: usize,
+}
+
+impl BucketAcc {
+    fn add(&mut self, value: f64) {
+        self.sum += value;
+        self.count += 1;
+    }
+
+    fn avg(&self) -> f64 {
+        if self.count == 0 {
+            0.0
+        } else {
+            (self.sum / self.count as f64 * 100.0).round() / 100.0
+        }
+    }
+}
+
+/// Node of this subscription, or `None` when the uuid is not one of its own.
+/// Ownership is env-based: a personal env holds exactly the account's nodes.
+async fn owned_node<N, C, S>(
+    memory: &MemSync<N, C, S>,
+    subscription_id: Uuid,
+    node_id: Uuid,
+) -> Option<Node>
+where
+    N: NodeStorageOperations + Sync + Send + Clone + 'static,
+    C: ConnectionApiOperations + ConnectionBaseOperations + Sync + Send + Clone + 'static + From<Connection> + PartialEq,
+    Connection: From<C>,
+    S: SubscriptionOperations + Send + Sync + Clone + 'static + PartialEq + From<Subscription>,
+{
+    {
+        let mem = memory.memory.read().await;
+        let sub = mem.subscriptions.find_by_id(&subscription_id)?;
+        if sub.is_deleted() {
+            return None;
+        }
+    }
+    let env = personal_env(subscription_id);
+    let mem = memory.memory.read().await;
+    mem.nodes
+        .get_by_env(&env)
+        .unwrap_or_default()
+        .into_iter()
+        .find(|n| n.uuid == node_id)
+}
+
+fn inbound_totals(metrics: &MetricStorage, node_id: &Uuid) -> PrivateNodeTraffic {
+    let (mut up, mut down, mut conns) = (0.0_f64, 0.0_f64, 0.0_f64);
+    if let Some(node_map) = metrics.inner.get(node_id) {
+        for entry in node_map.iter() {
+            let Some(meta) = metrics.metadata.get(entry.key()) else {
+                continue;
+            };
+            let name = &meta.value().0;
+            if !name.starts_with("net.inbound.") {
+                continue;
+            }
+            let Some(last) = entry.value().back() else {
+                continue;
+            };
+            if name.ends_with(".uplink") {
+                up += last.value;
+            } else if name.ends_with(".downlink") {
+                down += last.value;
+            } else if name.ends_with(".connections") {
+                conns += last.value;
+            }
+        }
+    }
+    PrivateNodeTraffic {
+        uplink: up.max(0.0) as u64,
+        downlink: down.max(0.0) as u64,
+        connections: conns.max(0.0) as u64,
+    }
+}
+
+fn snapshot(metrics: &MetricStorage, node_id: &Uuid) -> super::admin::NodeMetricsSnapshot {
+    let (mem_used, mem_total) = metrics.node_memory(node_id);
+    let (net_rx, net_tx) = metrics.node_network_traffic(node_id);
+    let cpu_percent = metrics.node_cpu_avg(node_id);
+    let memory_percent = match (mem_used, mem_total) {
+        (Some(used), Some(total)) if total > 0 => {
+            Some(((used as f64 / total as f64) * 10000.0).round() / 100.0)
+        }
+        _ => None,
+    };
+    let disk_usage_percent = metrics.node_disk_usage(node_id, "root");
+    let load_percent = [cpu_percent, memory_percent, disk_usage_percent]
+        .iter()
+        .filter_map(|v| *v)
+        .reduce(f64::max);
+    super::admin::NodeMetricsSnapshot {
+        memory_used_bytes: mem_used,
+        memory_total_bytes: mem_total,
+        memory_percent,
+        cpu_percent,
+        disk_usage_percent,
+        network_rx_bps: net_rx,
+        network_tx_bps: net_tx,
+        load_percent,
+    }
+}
+
+/// `GET /private/nodes/stats?subscription_id=` — own nodes with live gauges.
+/// Same ownership rule as the list above; nothing about shared envs leaks.
+pub async fn private_node_stats_handler<N, C, S>(
+    query: PrivateNodesQuery,
+    memory: MemSync<N, C, S>,
+    metrics: Arc<MetricStorage>,
+) -> Result<impl Reply, warp::Rejection>
+where
+    N: NodeStorageOperations + Sync + Send + Clone + 'static,
+    C: ConnectionApiOperations
+        + ConnectionBaseOperations
+        + Sync
+        + Send
+        + Clone
+        + 'static
+        + From<Connection>
+        + PartialEq,
+    Connection: From<C>,
+    S: SubscriptionOperations + Send + Sync + Clone + 'static + PartialEq + From<Subscription>,
+{
+    {
+        let mem = memory.memory.read().await;
+        let Some(sub) = mem.subscriptions.find_by_id(&query.subscription_id) else {
+            return Ok(http::not_found("subscription not found").into_response());
+        };
+        if sub.is_deleted() {
+            return Ok(http::not_found("subscription not found").into_response());
+        }
+    }
+
+    let env = personal_env(query.subscription_id);
+    let nodes: Vec<PrivateNodeStats> = {
+        let mem = memory.memory.read().await;
+        mem.nodes
+            .get_by_env(&env)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|n| {
+                let res = n.as_node_response();
+                let node_id = res.uuid;
+                PrivateNodeStats {
+                    node: PrivateNodeResponse {
+                        uuid: res.uuid,
+                        hostname: res.hostname,
+                        address: res.address.to_string(),
+                        label: res.label,
+                        country: res.country,
+                        status: res.status,
+                        env: res.env,
+                        inbounds: res.inbounds.iter().map(|i| i.tag.to_string()).collect(),
+                    },
+                    metrics: snapshot(&metrics, &node_id),
+                    traffic: inbound_totals(&metrics, &node_id),
+                }
+            })
+            .collect()
+    };
+
+    Ok(warp::reply::with_status(
+        warp::reply::json(&ResponseMessage {
+            status: StatusCode::OK.as_u16(),
+            message: "Ok".to_string(),
+            response: Some(nodes),
+        }),
+        StatusCode::OK,
+    )
+    .into_response())
+}
+
+/// `GET /private/nodes/{uuid}/series?subscription_id=&from=&to=` — CPU, RAM and
+/// network history of an own node, downsampled to ~240 buckets.
+pub async fn private_node_series_handler<N, C, S>(
+    node_id: Uuid,
+    query: PrivateNodeSeriesQuery,
+    memory: MemSync<N, C, S>,
+    metrics: Arc<MetricStorage>,
+) -> Result<impl Reply, warp::Rejection>
+where
+    N: NodeStorageOperations + Sync + Send + Clone + 'static,
+    C: ConnectionApiOperations
+        + ConnectionBaseOperations
+        + Sync
+        + Send
+        + Clone
+        + 'static
+        + From<Connection>
+        + PartialEq,
+    Connection: From<C>,
+    S: SubscriptionOperations + Send + Sync + Clone + 'static + PartialEq + From<Subscription>,
+{
+    if owned_node(&memory, query.subscription_id, node_id)
+        .await
+        .is_none()
+    {
+        return Ok(http::not_found("node not found").into_response());
+    }
+
+    let now = chrono::Utc::now().timestamp_millis();
+    let to = query.to.unwrap_or(now).min(now);
+    // A week is the metrics retention; anything wider is clamped, not refused.
+    let from = query
+        .from
+        .unwrap_or(to - 24 * 60 * 60 * 1000)
+        .max(to - 7 * 24 * 60 * 60 * 1000);
+    let series = node_series(&metrics, &node_id, from, to);
+
+    Ok(warp::reply::with_status(
+        warp::reply::json(&ResponseMessage {
+            status: StatusCode::OK.as_u16(),
+            message: "Ok".to_string(),
+            response: Some(series),
+        }),
+        StatusCode::OK,
+    )
+    .into_response())
+}
+
+/// Bucketed CPU / RAM / network history of one node. Pure (metrics only), so
+/// the downsampling can be tested without a running api.
+fn node_series(metrics: &MetricStorage, node_id: &Uuid, from: i64, to: i64) -> PrivateNodeSeries {
+    let bucket_ms = ((to - from) / 240).max(10_000);
+    let bucket_of = |ts: i64| from + (ts - from) / bucket_ms * bucket_ms;
+
+    let mut cpu: BTreeMap<i64, BucketAcc> = BTreeMap::new();
+    let mut mem_used: BTreeMap<i64, f64> = BTreeMap::new();
+    let mut mem_total: BTreeMap<i64, f64> = BTreeMap::new();
+    // Interfaces are summed per timestamp, buckets then average those sums.
+    let mut rx_ts: BTreeMap<i64, f64> = BTreeMap::new();
+    let mut tx_ts: BTreeMap<i64, f64> = BTreeMap::new();
+
+    if let Some(node_map) = metrics.inner.get(node_id) {
+        for entry in node_map.iter() {
+            let Some(meta) = metrics.metadata.get(entry.key()) else {
+                continue;
+            };
+            let name = meta.value().0.as_str();
+            let is_cpu = name.starts_with("sys.cpu.");
+            let is_rx = name.starts_with("net.") && name.ends_with(".rx_bps");
+            let is_tx = name.starts_with("net.") && name.ends_with(".tx_bps");
+            let is_mem_used = name == "sys.mem_used";
+            let is_mem_total = name == "sys.mem_total";
+            if !(is_cpu || is_rx || is_tx || is_mem_used || is_mem_total) {
+                continue;
+            }
+            for point in entry.value().iter() {
+                if point.timestamp < from || point.timestamp > to {
+                    continue;
+                }
+                let key = bucket_of(point.timestamp);
+                if is_cpu {
+                    cpu.entry(key).or_default().add(point.value);
+                } else if is_rx {
+                    *rx_ts.entry(point.timestamp).or_insert(0.0) += point.value;
+                } else if is_tx {
+                    *tx_ts.entry(point.timestamp).or_insert(0.0) += point.value;
+                } else if is_mem_used {
+                    mem_used.insert(key, point.value);
+                } else if is_mem_total {
+                    mem_total.insert(key, point.value);
+                }
+            }
+        }
+    }
+
+    let memory_percent = mem_used
+        .iter()
+        .filter_map(|(ts, used)| {
+            let total = mem_total.get(ts)?;
+            if *total <= 0.0 {
+                return None;
+            }
+            Some((*ts, ((used / total) * 10000.0).round() / 100.0))
+        })
+        .collect();
+
+    let into_buckets = |points: BTreeMap<i64, f64>| -> Vec<(i64, f64)> {
+        let mut buckets: BTreeMap<i64, BucketAcc> = BTreeMap::new();
+        for (ts, value) in points {
+            buckets.entry(bucket_of(ts)).or_default().add(value);
+        }
+        buckets.iter().map(|(ts, acc)| (*ts, acc.avg())).collect()
+    };
+
+    PrivateNodeSeries {
+        cpu_percent: cpu.iter().map(|(ts, acc)| (*ts, acc.avg())).collect(),
+        memory_percent,
+        network_rx_bps: into_buckets(rx_ts),
+        network_tx_bps: into_buckets(tx_ts),
+    }
+}
+
 /// `GET /private/state?subscription_id=` — used / limit / remaining for the
 /// account's servers (own nodes, offline included) and users (child
 /// subscriptions that are not deleted). Public like the rest of the cabinet
@@ -1644,5 +1979,94 @@ mod tests {
     fn user_subscription_url_shape() {
         let id = Uuid::parse_str("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee").unwrap();
         assert_eq!(user_subscription_url(id), format!("frkn://sub/{}", id));
+    }
+
+    /// Metrics fixture: one series per (name), points at `ts`.
+    fn metrics_with(node_id: Uuid, series: &[(&str, i64, f64)]) -> MetricStorage {
+        let storage = MetricStorage::new(1000, 604_800);
+        {
+            let node = storage.inner.entry(node_id).or_default();
+            for (idx, (name, ts, value)) in series.iter().enumerate() {
+                let hash = idx as u64 + 1;
+                node.insert(
+                    hash,
+                    std::collections::VecDeque::from(vec![fcore::MetricPoint {
+                        timestamp: *ts,
+                        value: *value,
+                    }]),
+                );
+                storage
+                    .metadata
+                    .insert(hash, (name.to_string(), BTreeMap::new()));
+            }
+        }
+        storage
+    }
+
+    #[test]
+    fn node_series_averages_cpu_and_sums_interfaces() {
+        let node_id = Uuid::parse_str("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee").unwrap();
+        let ts = 1_700_000_000_000;
+        let storage = metrics_with(
+            node_id,
+            &[
+                ("sys.cpu.0", ts, 10.0),
+                ("sys.cpu.1", ts, 30.0),
+                ("sys.mem_used", ts, 512.0),
+                ("sys.mem_total", ts, 1024.0),
+                ("net.eth0.rx_bps", ts, 100.0),
+                ("net.eth1.rx_bps", ts, 20.0),
+                ("net.eth0.tx_bps", ts, 40.0),
+                // Not a chart series: must not leak into the buckets.
+                ("net.inbound.AmneziaWg.uplink", ts, 999.0),
+            ],
+        );
+
+        let series = node_series(&storage, &node_id, ts - 1, ts + 1);
+        let values = |points: &[(i64, f64)]| -> Vec<f64> { points.iter().map(|p| p.1).collect() };
+        assert_eq!(values(&series.cpu_percent), vec![20.0]);
+        assert_eq!(values(&series.memory_percent), vec![50.0]);
+        assert_eq!(values(&series.network_rx_bps), vec![120.0]);
+        assert_eq!(values(&series.network_tx_bps), vec![40.0]);
+        // Buckets are anchored at the window start and stay inside it.
+        assert!(series.cpu_percent[0].0 >= ts - 1 && series.cpu_percent[0].0 <= ts + 1);
+    }
+
+    #[test]
+    fn node_series_ignores_points_outside_the_window() {
+        let node_id = Uuid::parse_str("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee").unwrap();
+        let storage = metrics_with(
+            node_id,
+            &[
+                ("sys.cpu.0", 1_000, 5.0),
+                ("sys.cpu.0", 5_000, 90.0),
+            ],
+        );
+        // Only the point inside the window survives the filter.
+        let series = node_series(&storage, &node_id, 4_000, 6_000);
+        let values: Vec<f64> = series.cpu_percent.iter().map(|p| p.1).collect();
+        assert_eq!(values, vec![90.0]);
+    }
+
+    #[test]
+    fn inbound_totals_sum_uplink_downlink_and_connections() {
+        let node_id = Uuid::parse_str("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee").unwrap();
+        let storage = metrics_with(
+            node_id,
+            &[
+                ("net.inbound.AmneziaWg.uplink", 1, 1_000.0),
+                ("net.inbound.AmneziaWg.downlink", 1, 2_000.0),
+                ("net.inbound.AmneziaWg.connections", 1, 3.0),
+                ("net.inbound.Xray.uplink", 1, 500.0),
+                ("net.inbound.Xray.downlink", 1, 700.0),
+                ("net.inbound.Xray.connections", 1, 2.0),
+                ("sys.cpu.0", 1, 42.0),
+            ],
+        );
+
+        let totals = inbound_totals(&storage, &node_id);
+        assert_eq!(totals.uplink, 1_500);
+        assert_eq!(totals.downlink, 2_700);
+        assert_eq!(totals.connections, 5);
     }
 }

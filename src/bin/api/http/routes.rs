@@ -191,6 +191,30 @@ where
             .and(with_sync(self.sync.clone()))
             .and_then(list_private_nodes_handler);
 
+        // Live gauges of the account's own nodes (CPU/RAM/disk/network plus
+        // inbound totals) — the cabinet's "server" card.
+        let private_node_stats_route = warp::get()
+            .and(warp::path("private"))
+            .and(warp::path("nodes"))
+            .and(warp::path("stats"))
+            .and(warp::path::end())
+            .and(warp::query::<PrivateNodesQuery>())
+            .and(with_sync(self.sync.clone()))
+            .and(with_metrics(self.metrics.clone()))
+            .and_then(private_node_stats_handler);
+
+        // Downsampled 24h/7d history for one own node (per-server chart).
+        let private_node_series_route = warp::get()
+            .and(warp::path("private"))
+            .and(warp::path("nodes"))
+            .and(warp::path::param::<Uuid>())
+            .and(warp::path("series"))
+            .and(warp::path::end())
+            .and(warp::query::<PrivateNodeSeriesQuery>())
+            .and(with_sync(self.sync.clone()))
+            .and(with_metrics(self.metrics.clone()))
+            .and_then(private_node_series_handler);
+
         // Cabinet counters: used/limit/remaining for servers and users.
         let private_state_route = warp::get()
             .and(warp::path("private"))
@@ -258,6 +282,8 @@ where
             .or(private_create_account_route)
             .or(private_register_node_route)
             .or(private_list_nodes_route)
+            .or(private_node_stats_route)
+            .or(private_node_series_route)
             .or(private_state_route)
             .or(private_feed_route)
             .or(private_delete_node_route)

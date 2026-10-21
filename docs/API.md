@@ -212,6 +212,8 @@ VMess и Hysteria2). WG-семейство и `mtproto` в подписках н
   Доступные значения `proto`: `Wireguard`, `AmneziaWg`, `VlessTcpReality`, `VlessGrpcReality`, `VlessXhttpReality`, `VlessXhttpCdn`, `Vmess`, `Shadowsocks`, `Hysteria2`, `Mtproto`.
 - **Response:** `200 OK` с обёрткой `Instance::Connection`
 - **Примечание:** для `Wireguard`/`AmneziaWg` IP выделяется автоматически из `wireguard_network` / `amnezia_wireguard_network`.
+- **Идемпотентность:** для протоколов-одиночек (всё, кроме семейства WireGuard) на пару `(subscription, env, proto)` живёт один коннект. Повторный `POST` с той же парой возвращает `200 OK` и **существующий** id, а не создаёт второй. Удалённый коннект идемпотентности не мешает: после `DELETE` создаётся новый (новые ключи/токен — удаление отзывает старые).
+- **Ошибки:** `400` — env не обслуживается (`Env not served: … нет нод` / ни одна нода env не отдаёт этот протокол), подписка не найдена или истекла, IP вне пула; `409` — живой коннект уже есть, но пара занята особым образом (plan-issued); `500` — прочее (детали только в логе).
 
 ### `DELETE /connection?id={id}`
 

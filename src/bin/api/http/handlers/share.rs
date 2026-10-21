@@ -578,7 +578,14 @@ where
     {
         Ok(v) => v,
         Err(msg) => {
-            if msg.contains("not found") || msg.contains("not active") || msg.contains("IP out of range") {
+            if msg.starts_with("Duplicate connection") {
+                return Err(http::conflict(&msg).into_response());
+            }
+            if msg.starts_with("Env not served")
+                || msg.contains("not found")
+                || msg.contains("not active")
+                || msg.contains("IP out of range")
+            {
                 return Err(http::bad_request(&msg).into_response());
             }
             return Err(http::internal_error(&msg).into_response());

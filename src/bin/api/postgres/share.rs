@@ -10,6 +10,15 @@ use super::pg::PgClientManager;
 /// recipient of a `frkn://conn/<token>` link. NULL means a normal connection.
 pub const ISSUED_VIA_SHARE: &str = "share";
 
+/// Marks a connection as the carrier of an env-wide shared subscription
+/// (`frkn://sub/shared/<uuid>`): the recipient gets the whole env/proto.
+pub const ISSUED_VIA_SHARED_SUB: &str = "shared_sub";
+
+/// Token kinds. `conn` = one connection (app share of a single server);
+/// `sub` = a whole env+proto shared as a subscription.
+pub const SHARE_KIND_CONN: &str = "conn";
+pub const SHARE_KIND_SUB: &str = "sub";
+
 /// One minted share token row. The token is a scoped credential for exactly
 /// one child connection (`connection_id`). `node_id` set = the token is
 /// pinned to that node (app share of one server); `node_id` null = the token
@@ -18,10 +27,15 @@ pub const ISSUED_VIA_SHARE: &str = "share";
 pub struct ShareTokenRow {
     pub token: String,
     pub subscription_id: uuid::Uuid,
-    /// Child connection created at mint time (issued_via = 'share').
+    /// Child connection created at mint time (issued_via = 'share' /
+    /// 'shared_sub'). It defines the env and protocol the token serves.
     pub connection_id: uuid::Uuid,
     pub node_id: Option<uuid::Uuid>,
-    pub source_connection_id: uuid::Uuid,
+    /// Connection the link was minted from; NULL for shared subscriptions
+    /// (they are minted per env+proto, not from one device).
+    pub source_connection_id: Option<uuid::Uuid>,
+    /// SHARE_KIND_CONN or SHARE_KIND_SUB.
+    pub kind: String,
     pub label: String,
     pub created_at: DateTime<Utc>,
     pub last_used_at: Option<DateTime<Utc>>,
@@ -66,6 +80,19 @@ impl PgShare {
                 -- nullable in the schema; keep the migration idempotent.
                 ALTER TABLE share_tokens ALTER COLUMN node_id DROP NOT NULL;
 
+                -- Shared subscriptions are minted per env+proto, not from a
+                -- device, so there is no source connection to point at.
+                ALTER TABLE share_tokens ALTER COLUMN source_connection_id DROP NOT NULL;
+
+                ALTER TABLE share_tokens
+                    ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'conn';
+
+                -- One live shared subscription per (subscription, label):
+                -- the label carries "region · protocol".
+                CREATE UNIQUE INDEX IF NOT EXISTS share_tokens_active_sub
+                    ON share_tokens (subscription_id, label)
+                    WHERE revoked_at IS NULL AND kind = 'sub';
+
                 -- Idempotent mint: one active token per (source, node, label).
                 CREATE UNIQUE INDEX IF NOT EXISTS share_tokens_active_triple
                     ON share_tokens (source_connection_id, node_id, label)
@@ -90,6 +117,7 @@ impl PgShare {
             connection_id: row.get("connection_id"),
             node_id: row.get("node_id"),
             source_connection_id: row.get("source_connection_id"),
+            kind: row.get("kind"),
             label: row.get("label"),
             created_at: row.get("created_at"),
             last_used_at: row.get("last_used_at"),
@@ -113,7 +141,7 @@ impl PgShare {
             .query_opt(
                 r#"
                 SELECT token, subscription_id, connection_id, node_id,
-                       source_connection_id, label, created_at, last_used_at, revoked_at
+                       source_connection_id, label, kind, created_at, last_used_at, revoked_at
                 FROM share_tokens
                 WHERE source_connection_id = $1
                   AND node_id IS NOT DISTINCT FROM $2
@@ -121,6 +149,32 @@ impl PgShare {
                   AND revoked_at IS NULL
                 "#,
                 &[source_connection_id, &node_id, &label],
+            )
+            .await?;
+
+        Ok(row.map(Self::map_row))
+    }
+
+    /// The live shared-subscription token for (subscription, label) — the
+    /// idempotency hook of `POST /share/sub`.
+    pub async fn find_active_sub(
+        &self,
+        subscription_id: &uuid::Uuid,
+        label: &str,
+    ) -> Result<Option<ShareTokenRow>> {
+        let mut manager = self.manager.lock().await;
+        let client = manager.get_client().await?;
+
+        let row = client
+            .query_opt(
+                r#"
+                SELECT token, subscription_id, connection_id, node_id,
+                       source_connection_id, label, kind, created_at, last_used_at, revoked_at
+                FROM share_tokens
+                WHERE subscription_id = $1 AND label = $2 AND kind = 'sub'
+                  AND revoked_at IS NULL
+                "#,
+                &[subscription_id, &label],
             )
             .await?;
 
@@ -154,8 +208,8 @@ impl PgShare {
             .execute(
                 r#"
                 INSERT INTO share_tokens
-                (token, subscription_id, connection_id, node_id, source_connection_id, label)
-                VALUES ($1, $2, $3, $4, $5, $6)
+                (token, subscription_id, connection_id, node_id, source_connection_id, label, kind)
+                VALUES ($1, $2, $3, $4, $5, $6, $7)
                 ON CONFLICT DO NOTHING
                 "#,
                 &[
@@ -165,6 +219,7 @@ impl PgShare {
                     &row.node_id,
                     &row.source_connection_id,
                     &row.label,
+                    &row.kind,
                 ],
             )
             .await?;
@@ -180,7 +235,7 @@ impl PgShare {
             .query_opt(
                 r#"
                 SELECT token, subscription_id, connection_id, node_id,
-                       source_connection_id, label, created_at, last_used_at, revoked_at
+                       source_connection_id, label, kind, created_at, last_used_at, revoked_at
                 FROM share_tokens
                 WHERE token = $1
                 "#,
@@ -199,7 +254,7 @@ impl PgShare {
             .query(
                 r#"
                 SELECT token, subscription_id, connection_id, node_id,
-                       source_connection_id, label, created_at, last_used_at, revoked_at
+                       source_connection_id, label, kind, created_at, last_used_at, revoked_at
                 FROM share_tokens
                 WHERE subscription_id = $1 AND revoked_at IS NULL
                 ORDER BY created_at

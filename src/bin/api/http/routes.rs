@@ -769,6 +769,26 @@ where
             }))
             .and_then(mgmt_share_mint_handler);
 
+        // Shared subscription (env+protocol, `frkn://sub/shared/<uuid>`):
+        // same service-token auth, minted from the cabinet's region picker.
+        let post_share_sub_mgmt_route = warp::post()
+            .and(warp::path("share"))
+            .and(warp::path("sub"))
+            .and(warp::path::end())
+            .and(mgmt_auth.clone())
+            .and(warp::body::json::<MgmtSharedSubRequest>())
+            .and(with_sync(self.sync.clone()))
+            .and(with_param_string(api_base.clone()))
+            .and(with_param_ipaddrmask(params.wireguard_network.clone()))
+            .and(with_param_ipaddrmask(
+                params.amnezia_wireguard_network.clone(),
+            ))
+            .and(warp::any().map({
+                let net = params.amnezia_wireguard_mobile_network.clone();
+                move || net.clone()
+            }))
+            .and_then(mgmt_share_sub_mint_handler);
+
         let post_share_revoke_mgmt_route = warp::post()
             .and(warp::path("share"))
             .and(warp::path("revoke"))
@@ -1215,6 +1235,7 @@ where
             .or(get_awg_connections_info_route)
             .or(get_a_connection_route)
             // Share (mgmt)
+            .or(post_share_sub_mgmt_route)
             .or(post_share_mgmt_route)
             .or(post_share_revoke_mgmt_route)
             // Key

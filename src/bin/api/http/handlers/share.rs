@@ -19,8 +19,8 @@ use warp::Reply;
 
 use fcore::{
     http::helpers as http, Connection, ConnectionApiOperations, ConnectionBaseOperations,
-    InboundConnLink, IpAddrMask, MetricStorage, NodeStatus, NodeStorageOperations, Subscription,
-    SubscriptionOperations,
+    InboundConnLink, IpAddrMask, MetricStorage, Node, NodeStatus, NodeStorageOperations,
+    Subscription, SubscriptionOperations,
 };
 
 use super::super::super::{
@@ -408,7 +408,7 @@ where
         &memory,
         sub_id,
         req.connection_uuid,
-        req.node_id,
+        Some(req.node_id),
         env,
         proto,
         label,
@@ -428,11 +428,15 @@ where
 /// MAX_SHARES_PER_SUBSCRIPTION active tokens per subscription. Callers
 /// validate that the source connection and node are legit; `env`/`proto`
 /// come from the source connection.
+///
+/// `node_id: None` mints an env-wide token: the child is served by every
+/// online node of its env instead of one pinned node. Pinning stays for the
+/// app's "share this server" flow, where the user picked a server on purpose.
 pub(crate) async fn mint_share_inner<N, C, S>(
     memory: &MemSync<N, C, S>,
     sub_id: uuid::Uuid,
     source_connection_id: uuid::Uuid,
-    node_id: uuid::Uuid,
+    node_id: Option<uuid::Uuid>,
     env: fcore::Env,
     proto: fcore::Tag,
     label: String,
@@ -455,7 +459,7 @@ where
 {
     let db = memory.db.share();
 
-    let existing = match db.find_active(&source_connection_id, &node_id, &label).await {
+    let existing = match db.find_active(&source_connection_id, node_id.as_ref(), &label).await {
         Ok(v) => v,
         Err(e) => {
             error!("share mint: lookup failed for sub {}: {}", sub_id, e);
@@ -535,7 +539,7 @@ where
         match db.insert(&row).await {
             Ok(true) => return Ok(row),
             Ok(false) => {
-                match db.find_active(&source_connection_id, &node_id, &label).await {
+                match db.find_active(&source_connection_id, node_id.as_ref(), &label).await {
                     Ok(Some(winner)) => {
                         delete_child_connection(memory, &child_id, child).await;
                         return Ok(winner);
@@ -730,8 +734,8 @@ where
 }
 
 /// The share_token branch of POST /v1/config: the config is built strictly
-/// for the token's child connection on its node — connection_id/node_id in
-/// the payload are ignored.
+/// for the token's child connection on its (pinned or picked) node —
+/// connection_id/node_id in the payload are ignored.
 pub async fn gateway_share_config_handler<N, C, S>(
     req: GatewayConfigRequest,
     raw_token: &str,
@@ -780,6 +784,30 @@ where
         }
     };
 
+    // A pinned token serves exactly its node. An env-wide token lets the
+    // gateway choose, but the node is resolved here: the display fields
+    // (country, node_ips) must describe the config actually handed out.
+    let node_id = match row.node_id {
+        Some(id) => Some(id),
+        None => {
+            let mem = memory.memory.read().await;
+            mem.connections
+                .get(&row.connection_id)
+                .and_then(|conn| {
+                    let env = conn.get_env();
+                    let proto = conn.get_proto().proto();
+                    mem.nodes
+                        .get_by_env(&env)
+                        .and_then(|nodes| env_serving_node(&nodes, proto))
+                })
+        }
+    };
+    let Some(node_id) = node_id else {
+        // No online node left in the env: same uniform answer as an unknown
+        // token, the recipient cannot use it either way.
+        return http::not_found("node_not_found").into_response();
+    };
+
     // Under share auth the token pins connection+node, so the client's
     // service_type/service_protocol are unused (and may be absent). The
     // recipient still needs a service_type to render the card — report the
@@ -790,7 +818,7 @@ where
         user_country_code: req.user_country_code.as_deref(),
         server_country_code: req.server_country_code.as_deref(),
         connection_id: Some(row.connection_id),
-        node_id: Some(row.node_id),
+        node_id: Some(node_id),
     };
 
     match build_gateway_config_response(&memory, &row.subscription_id, &params, false, &[]).await {
@@ -800,7 +828,7 @@ where
             let country = {
                 let mem = memory.memory.read().await;
                 mem.nodes
-                    .get_by_id(&row.node_id)
+                    .get_by_id(&node_id)
                     .map(|n| n.country.to_uppercase())
             };
             resp.share_label = Some(row.label.clone());
@@ -841,9 +869,54 @@ pub(crate) fn pick_share_node(candidates: &[(uuid::Uuid, bool, bool)]) -> Option
         .map(|(id, _, _)| *id)
 }
 
-/// POST /share — mint a share token via mgmt (service token) auth. Unlike
-/// /v1/share the node is auto-picked: the first online node of the source
-/// connection's env with a matching inbound.
+/// Which node a freshly minted token points at. A pinned source connection
+/// can only be served by its own node, so its token stays pinned; an
+/// unpinned one gets an env-wide token (`None`). The outer `None` means the
+/// env cannot serve the share at all right now (nothing online with the
+/// inbound) — the mint answers `node_not_found`.
+pub(crate) fn share_mint_node(
+    pin: Option<uuid::Uuid>,
+    serving: Option<uuid::Uuid>,
+) -> Option<Option<uuid::Uuid>> {
+    match pin {
+        Some(_) => serving.map(Some),
+        None => serving.map(|_| None),
+    }
+}
+
+/// Serving node of an env-wide share: the first online node exposing the
+/// child's protocol. A single-config endpoint (/v1/config, WG-family inline
+/// feed) can only carry one node, so one has to be chosen; the list feed
+/// needs no choice and serves all of them.
+pub(crate) fn env_serving_node(nodes: &[Node], proto: fcore::Tag) -> Option<uuid::Uuid> {
+    pick_share_node(&node_candidates(nodes, proto))
+}
+
+/// Flattens nodes into the (uuid, is_online, has_inbound) triples the
+/// selection rules are written against.
+pub(crate) fn node_candidates(
+    nodes: &[Node],
+    proto: fcore::Tag,
+) -> Vec<(uuid::Uuid, bool, bool)> {
+    nodes
+        .iter()
+        .map(|n| {
+            (
+                n.uuid,
+                n.status == NodeStatus::Online,
+                n.inbounds.contains_key(&proto),
+            )
+        })
+        .collect()
+}
+
+/// POST /share — mint a share token via mgmt (service token) auth.
+///
+/// A node-pinned source connection gets a node-pinned token (it exists on
+/// one node only). An unpinned (env-wide) connection gets an env-wide token:
+/// the recipient's feed then carries every online node of the env instead of
+/// one arbitrary server. The mint still fails with `node_not_found` when the
+/// env has no online node with a matching inbound at all.
 pub async fn mgmt_share_mint_handler<N, C, S>(
     req: MgmtShareMintRequest,
     memory: MemSync<N, C, S>,
@@ -889,36 +962,26 @@ where
         let env = conn.get_env();
         let proto = conn.get_proto().proto();
 
-        let node_id = match mem.conn_nodes.get(&req.connection_id) {
-            // A pinned source conn is served only by its own node: skip
-            // the auto-pick and verify that node directly. An offline or
-            // inbound-less pinned node gets the same error as the
-            // no-candidate path.
+        let pin = mem.conn_nodes.get(&req.connection_id).copied();
+        // A pinned source conn is served only by its own node: verify that
+        // node directly instead of auto-picking. An offline or inbound-less
+        // pinned node gets the same error as the no-candidate path.
+        let serving = match pin {
             Some(pin) => mem
                 .nodes
-                .get_by_id(pin)
+                .get_by_id(&pin)
                 .filter(|n| {
                     n.env == env
                         && n.status == NodeStatus::Online
                         && n.inbounds.contains_key(&proto)
                 })
                 .map(|n| n.uuid),
-            None => mem.nodes.get_by_env(&env).and_then(|nodes| {
-                pick_share_node(
-                    &nodes
-                        .iter()
-                        .map(|n| {
-                            (
-                                n.uuid,
-                                n.status == NodeStatus::Online,
-                                n.inbounds.contains_key(&proto),
-                            )
-                        })
-                        .collect::<Vec<_>>(),
-                )
-            }),
+            None => mem
+                .nodes
+                .get_by_env(&env)
+                .and_then(|nodes| env_serving_node(&nodes, proto)),
         };
-        let Some(node_id) = node_id else {
+        let Some(node_id) = share_mint_node(pin, serving) else {
             return Ok(http::not_found("node_not_found").into_response());
         };
 
@@ -1066,8 +1129,17 @@ where
     if share_feed_is_raw_ini(proto) {
         let ini = {
             let mem = memory.memory.read().await;
+            // One inline config only: a pinned token uses its node, an
+            // env-wide one any online node of the env.
+            let node_id = match row.node_id {
+                Some(id) => Some(id),
+                None => mem
+                    .nodes
+                    .get_by_env(&child.get_env())
+                    .and_then(|nodes| env_serving_node(&nodes, proto)),
+            };
             let conn: Connection = child.into();
-            match mem.nodes.get_by_id(&row.node_id) {
+            match node_id.and_then(|id| mem.nodes.get_by_id(&id)) {
                 Some(node) if node.status == NodeStatus::Online => match node.inbounds.get(&proto)
                 {
                     Some(inbound) => {
@@ -1106,6 +1178,8 @@ where
         )));
     }
 
+    // Env-wide token: no node pin, the feed serves every online node of the
+    // child's env (one entry per node, "Device | Node" labels).
     let scope = ShareFeedScope {
         conn_id: row.connection_id,
         node_id: row.node_id,
@@ -1167,6 +1241,22 @@ mod tests {    use super::*;
         let a = generate_share_token();
         let b = generate_share_token();
         assert_ne!(a, b);
+    }
+
+    #[test]
+    fn share_mint_node_pins_only_pinned_connections() {
+        let a = uuid::Uuid::new_v4();
+        let b = uuid::Uuid::new_v4();
+
+        // Pinned source conn: the token stays pinned to its own node.
+        assert_eq!(share_mint_node(Some(a), Some(a)), Some(Some(a)));
+        // Pinned but nothing online with the inbound: mint fails.
+        assert_eq!(share_mint_node(Some(a), None), None);
+
+        // Unpinned source conn: env-wide token, the auto-picked node is only
+        // a liveness check and must not end up in the row.
+        assert_eq!(share_mint_node(None, Some(b)), Some(None));
+        assert_eq!(share_mint_node(None, None), None);
     }
 
     #[test]

@@ -777,17 +777,28 @@ pub(crate) fn conn_link_label(
     }
 }
 
-/// Internal scope for the public per-share feed (GET /sub/<token>): pins
-/// the feed to the token's child connection on the token's node and
-/// overrides the profile title with the share label. Never constructed
-/// from public query params.
+/// Internal scope for the public per-share feed (GET /sub/<token>): limits
+/// the feed to the token's child connection and overrides the profile title
+/// with the share label. `node_id` set = the token is pinned to one node;
+/// `None` = env-wide token, every online node of the child's env serves it.
+/// Never constructed from public query params.
 pub(crate) struct ShareFeedScope {
     pub conn_id: uuid::Uuid,
-    pub node_id: uuid::Uuid,
+    pub node_id: Option<uuid::Uuid>,
     pub title: String,
     /// Self URL for #profile-web-page-url — the owner's
     /// /subscription?id=<uuid> URL would leak the subscription id.
     pub feed_url: String,
+}
+
+/// Whether a share-scoped feed may emit an entry for this node. A pinned
+/// token serves its node only; an env-wide token (`node_id = None`) serves
+/// every node of the child's env.
+pub(crate) fn share_scope_allows(share: Option<&ShareFeedScope>, node_id: &uuid::Uuid) -> bool {
+    match share.and_then(|s| s.node_id) {
+        Some(pinned) => *node_id == pinned,
+        None => true,
+    }
 }
 
 pub async fn subscription_link_handler<N, C, S>(
@@ -991,11 +1002,8 @@ where
                     if node.status != NodeStatus::Online {
                         continue;
                     }
-                    // A share feed is pinned to the token's node.
-                    if let Some(scope) = &share {
-                        if node.uuid != scope.node_id {
-                            continue;
-                        }
+                    if !share_scope_allows(share.as_ref(), &node.uuid) {
+                        continue;
                     }
                     // A node-pinned conn exists only on its node.
                     if !pinned_to(&mem.conn_nodes, conn_id, &node.uuid) {
@@ -1040,11 +1048,8 @@ where
                     if node.status != NodeStatus::Online {
                         continue;
                     }
-                    // A share feed is pinned to the token's node.
-                    if let Some(scope) = &share {
-                        if node.uuid != scope.node_id {
-                            continue;
-                        }
+                    if !share_scope_allows(share.as_ref(), &node.uuid) {
+                        continue;
                     }
                     // A node-pinned conn exists only on its node.
                     if !pinned_to(&mem.conn_nodes, conn_id, &node.uuid) {
@@ -1488,6 +1493,29 @@ mod tests {
             conn_link_label(&labels, &uuid::Uuid::new_v4(), "NL-1".to_string()),
             "NL-1"
         );
+    }
+
+    #[test]
+    fn share_scope_serves_one_node_or_the_whole_env() {
+        let node = uuid::Uuid::new_v4();
+        let other = uuid::Uuid::new_v4();
+        let scope = |node_id| super::ShareFeedScope {
+            conn_id: uuid::Uuid::new_v4(),
+            node_id,
+            title: "Мама".to_string(),
+            feed_url: "https://example.test/sub/x".to_string(),
+        };
+
+        // Pinned token: only its own node passes.
+        assert!(super::share_scope_allows(Some(&scope(Some(node))), &node));
+        assert!(!super::share_scope_allows(Some(&scope(Some(node))), &other));
+
+        // Env-wide token: every node of the env passes.
+        assert!(super::share_scope_allows(Some(&scope(None)), &node));
+        assert!(super::share_scope_allows(Some(&scope(None)), &other));
+
+        // No share scope at all (the owner's feed): nothing is filtered out.
+        assert!(super::share_scope_allows(None, &node));
     }
 
     #[test]

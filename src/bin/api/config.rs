@@ -254,6 +254,16 @@ pub struct TasksConfig {
     /// connections (heals nodes that missed the one-shot delete).
     #[serde(default = "default_tombstone_republish_interval_sec")]
     pub tombstone_republish_interval_sec: u64,
+    /// How often the premium worker runs: expired offers, expired terms, and
+    /// offers for slots that just freed up (default 300).
+    #[serde(default = "default_premium_expire_interval_sec")]
+    pub premium_expire_interval_sec: u64,
+    /// How long a waitlist offer holds a slot before it moves on (default 48).
+    #[serde(default = "default_premium_offer_ttl_hours")]
+    pub premium_offer_ttl_hours: u64,
+    /// Missed offers before a request is dropped for good (default 3).
+    #[serde(default = "default_premium_offer_max_attempts")]
+    pub premium_offer_max_attempts: i16,
 }
 
 impl ServiceConfig {
@@ -344,6 +354,18 @@ fn default_conns_reconcile_interval_sec() -> u64 {
 
 fn default_mesh_snapshot_path() -> String {
     "/var/lib/fcore/api/mesh-registry.bin".to_string()
+}
+
+fn default_premium_expire_interval_sec() -> u64 {
+    300
+}
+
+fn default_premium_offer_ttl_hours() -> u64 {
+    48
+}
+
+fn default_premium_offer_max_attempts() -> i16 {
+    3
 }
 
 fn default_tombstone_republish_interval_sec() -> u64 {

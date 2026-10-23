@@ -15,6 +15,7 @@ use super::super::super::{
 };
 use super::admin::AdminSubscriptionTraffic;
 use super::subscription::build_subscription_traffic;
+use crate::postgres::premium_requests::{ConvertOutcome, CreateOutcome};
 
 use fcore::{
     http::helpers as http, Connection, ConnectionApiOperations, ConnectionBaseOperations,
@@ -78,6 +79,71 @@ pub struct PremiumState {
     pub active_children: usize,
     pub connections_count: usize,
     pub total_traffic: AdminSubscriptionTraffic,
+    /// Premium env the account is anchored to (`custompremium-prem02-4`).
+    pub env: Option<String>,
+    /// Term end; `null` means indefinite (the pre-registry behaviour).
+    pub premium_until: Option<DateTime<Utc>>,
+    /// Slot the account sits on, when it is in the registry.
+    pub slot: Option<PremiumSlotInfo>,
+}
+
+/// Slot identity as a client may see it: pool and number plus the address it
+/// connects to. No owner ids, no internal notes.
+#[derive(Debug, Serialize)]
+pub struct PremiumSlotInfo {
+    pub pool: String,
+    pub slot_no: i16,
+    pub domain: Option<String>,
+    pub address: Option<String>,
+    pub country: Option<String>,
+}
+
+/// `GET /premium/availability` — counters only, no addresses.
+#[derive(Debug, Serialize)]
+pub struct PremiumAvailability {
+    pub free: i64,
+    pub total: i64,
+    pub out_of_stock: bool,
+    /// The account already holds a premium slot.
+    pub has_premium: bool,
+    /// Term of that premium; `null` means indefinite.
+    pub premium_until: Option<DateTime<Utc>>,
+    /// Slot the account sits on, when it is in the registry.
+    pub slot: Option<PremiumSlotInfo>,
+    /// Position in the queue (1-based) when the account is waiting.
+    pub waitlist_position: Option<i64>,
+    /// `true` when a request can be left (stock is zero and none is active yet).
+    pub can_request: bool,
+    /// The active request, when there is one.
+    pub request: Option<PremiumRequestView>,
+}
+
+/// What the client sees about its own request.
+#[derive(Debug, Serialize)]
+pub struct PremiumRequestView {
+    pub id: Uuid,
+    pub status: String,
+    pub months: i16,
+    pub position: Option<i64>,
+    pub offered_env: Option<String>,
+    pub offer_expires_at: Option<DateTime<Utc>>,
+    pub created_at: DateTime<Utc>,
+}
+
+/// `?subscription_id=…` on the client-facing premium endpoints. Auth is the
+/// service token, so the id is what says whose request it is.
+#[derive(Debug, Clone, Deserialize)]
+pub struct PremiumSubscriptionQuery {
+    pub subscription_id: Uuid,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PremiumRequestCreateBody {
+    pub subscription_id: Uuid,
+    #[serde(default)]
+    pub months: Option<i16>,
+    #[serde(default)]
+    pub contact: Option<String>,
 }
 
 fn ensure_scope<S: SubscriptionOperations>(parent: &S, env: &Env) -> Result<(), Rejection> {
@@ -137,6 +203,41 @@ where
     }
 
     let active_children = children.iter().filter(|c| c.is_active()).count();
+    let env = parent.scope_env().cloned();
+    drop(mem);
+
+    // Slot details and the term live in the registry, which the cache does not
+    // carry; one small query per premium client is fine here.
+    let (slot, premium_until) = match &env {
+        Some(env) => match memory
+            .db
+            .premium_slots()
+            .find_by_env(&env.to_string())
+            .await
+        {
+            Ok(slot) => {
+                let until = memory
+                    .db
+                    .premium_slots()
+                    .premium_until_of(parent.id())
+                    .await
+                    .ok()
+                    .flatten();
+                (
+                    slot.map(|slot| PremiumSlotInfo {
+                        pool: slot.pool,
+                        slot_no: slot.slot_no,
+                        domain: slot.domain,
+                        address: slot.address.map(|addr| addr.to_string()),
+                        country: slot.country,
+                    }),
+                    until,
+                )
+            }
+            Err(_) => (None, None),
+        },
+        None => (None, None),
+    };
 
     Ok(warp::reply::json(&PremiumState {
         children_count: children.len(),
@@ -146,6 +247,9 @@ where
             uplink: total_uplink,
             downlink: total_downlink,
         },
+        env: env.map(|env| env.to_string()),
+        premium_until,
+        slot,
     }))
 }
 
@@ -578,4 +682,463 @@ where
 
     let traffic = build_subscription_traffic(&memory.db, &metrics, child_id, created_at).await?;
     Ok(warp::reply::json(&traffic))
+}
+
+/// Priority given to a request when the account has paid for premium.
+///
+/// The api cannot work this out by itself: payments live in the `payment`
+/// database, which this service does not read. Until phase 3 wires the SKU,
+/// priority is set by hand through `POST /admin/api/premium/requests/{id}/priority`;
+/// the payment-gw will call the same endpoint when a premium payment is
+/// confirmed.
+#[allow(dead_code)]
+const PRIORITY_PAYING: i16 = 10;
+
+fn request_view(request: &fcore::PremiumRequest, position: Option<i64>) -> PremiumRequestView {
+    PremiumRequestView {
+        id: request.id,
+        status: request.status.to_string(),
+        months: request.months,
+        position,
+        offered_env: request.offered_env.clone(),
+        offer_expires_at: request.offer_expires_at,
+        created_at: request.created_at,
+    }
+}
+
+/// `GET /premium/availability?subscription_id=…` — can this account get premium
+/// right now, and if not, where is it in the queue?
+///
+/// Auth is the service token with an explicit subscription id, like `/share/sub`:
+/// the whole point of the endpoint is to serve accounts that have **no** premium
+/// token yet, so premium auth cannot apply. The ЛК reaches it through the
+/// mrkting proxy.
+pub async fn premium_availability_handler<N, C, S>(
+    query: PremiumSubscriptionQuery,
+    memory: MemSync<N, C, S>,
+) -> Result<warp::reply::Response, Rejection>
+where
+    N: NodeStorageOperations + Sync + Send + Clone + 'static,
+    C: ConnectionApiOperations
+        + ConnectionBaseOperations
+        + Sync
+        + Send
+        + Clone
+        + 'static
+        + From<Connection>
+        + PartialEq,
+    S: SubscriptionOperations + Send + Sync + Clone + 'static + PartialEq,
+{
+    let subscription_id = query.subscription_id;
+
+    {
+        let mem = memory.memory.read().await;
+        match mem.subscriptions.find_by_id(&subscription_id) {
+            Some(sub) if !sub.is_deleted() => {}
+            _ => return Err(warp::reject::not_found()),
+        }
+    }
+
+    let stock = match memory.db.premium_slots().stock().await {
+        Ok(stock) => stock,
+        Err(e) => {
+            return Ok(warp::reply::with_status(
+                warp::reply::json(&serde_json::json!({
+                    "error": "stock_unavailable",
+                    "message": format!("{e}"),
+                })),
+                StatusCode::INTERNAL_SERVER_ERROR,
+            )
+            .into_response())
+        }
+    };
+
+    let active = memory
+        .db
+        .premium_requests()
+        .active_for(subscription_id)
+        .await
+        .unwrap_or(None);
+
+    let (position, request) = match &active {
+        Some(request) => {
+            let position = memory
+                .db
+                .premium_requests()
+                .position(request.id)
+                .await
+                .ok()
+                .flatten();
+            (position, Some(request_view(request, position)))
+        }
+        None => (None, None),
+    };
+
+    // An account may already hold premium: then the answer is "you have it",
+    // not "join the queue". The env lives in the cache, the slot and the term in
+    // the registry.
+    let scope_env = {
+        let mem = memory.memory.read().await;
+        mem.subscriptions
+            .find_by_id(&subscription_id)
+            .and_then(|sub| sub.scope_env().cloned())
+    };
+
+    let (has_premium, premium_until, slot) = match &scope_env {
+        Some(env) => {
+            let env = env.to_string();
+            let slot = memory
+                .db
+                .premium_slots()
+                .find_by_env(&env)
+                .await
+                .ok()
+                .flatten();
+            let until = memory
+                .db
+                .premium_slots()
+                .premium_until_of(subscription_id)
+                .await
+                .ok()
+                .flatten();
+            let info = slot.map(|slot| PremiumSlotInfo {
+                pool: slot.pool,
+                slot_no: slot.slot_no,
+                domain: slot.domain,
+                address: slot.address.map(|addr| addr.to_string()),
+                country: slot.country,
+            });
+            (true, until, info)
+        }
+        None => (false, None, None),
+    };
+
+    let availability = PremiumAvailability {
+        free: stock.free,
+        total: stock.total,
+        out_of_stock: stock.is_out_of_stock(),
+        has_premium,
+        premium_until,
+        slot,
+        waitlist_position: position,
+        // A request only makes sense when there is nothing to hand out.
+        can_request: !has_premium && stock.is_out_of_stock() && active.is_none(),
+        request,
+    };
+
+    Ok(warp::reply::json(&availability).into_response())
+}
+
+/// `POST /premium/request` — leave the waitlist.
+pub async fn premium_request_create_handler<N, C, S>(
+    body: PremiumRequestCreateBody,
+    memory: MemSync<N, C, S>,
+) -> Result<warp::reply::Response, Rejection>
+where
+    N: NodeStorageOperations + Sync + Send + Clone + 'static,
+    C: ConnectionApiOperations
+        + ConnectionBaseOperations
+        + Sync
+        + Send
+        + Clone
+        + 'static
+        + From<Connection>
+        + PartialEq,
+    S: SubscriptionOperations + Send + Sync + Clone + 'static + PartialEq,
+{
+    let months = body.months.unwrap_or(1);
+    if !(1..=120).contains(&months) {
+        return Ok(warp::reply::with_status(
+            warp::reply::json(&serde_json::json!({
+                "error": "bad_months",
+                "message": "months must be between 1 and 120",
+            })),
+            StatusCode::BAD_REQUEST,
+        )
+        .into_response());
+    }
+
+    {
+        let mem = memory.memory.read().await;
+        match mem.subscriptions.find_by_id(&body.subscription_id) {
+            Some(sub) if !sub.is_deleted() => {}
+            _ => return Err(warp::reject::not_found()),
+        }
+    }
+
+    let stock = match memory.db.premium_slots().stock().await {
+        Ok(stock) => stock,
+        Err(e) => {
+            return Ok(warp::reply::with_status(
+                warp::reply::json(&serde_json::json!({
+                    "error": "stock_unavailable",
+                    "message": format!("{e}"),
+                })),
+                StatusCode::INTERNAL_SERVER_ERROR,
+            )
+            .into_response())
+        }
+    };
+
+    // Everyone enters at priority 0. A confirmed premium payment (phase 3) or a
+    // support decision bumps it via the admin endpoint — the api cannot see the
+    // payment database, so it must not guess.
+    let priority: i16 = 0;
+
+    match memory
+        .db
+        .premium_requests()
+        .create(body.subscription_id, months, body.contact.clone(), priority)
+        .await
+    {
+        Ok(CreateOutcome::Created(request)) => {
+            let position = memory
+                .db
+                .premium_requests()
+                .position(request.id)
+                .await
+                .ok()
+                .flatten();
+            Ok(warp::reply::json(&serde_json::json!({
+                "status": 200,
+                "request": request_view(&request, position),
+                "free": stock.free,
+            }))
+            .into_response())
+        }
+        // Idempotent: the same account asking twice keeps its place in line.
+        Ok(CreateOutcome::AlreadyWaiting(request)) => {
+            let position = memory
+                .db
+                .premium_requests()
+                .position(request.id)
+                .await
+                .ok()
+                .flatten();
+            Ok(warp::reply::json(&serde_json::json!({
+                "status": 200,
+                "existing": true,
+                "request": request_view(&request, position),
+            }))
+            .into_response())
+        }
+        Err(e) => Ok(warp::reply::with_status(
+            warp::reply::json(&serde_json::json!({
+                "error": "request_failed",
+                "message": format!("{e}"),
+            })),
+            StatusCode::INTERNAL_SERVER_ERROR,
+        )
+        .into_response()),
+    }
+}
+
+/// `GET /premium/request?subscription_id=…` — the account's own request.
+pub async fn premium_request_get_handler<N, C, S>(
+    query: PremiumSubscriptionQuery,
+    memory: MemSync<N, C, S>,
+) -> Result<warp::reply::Response, Rejection>
+where
+    N: NodeStorageOperations + Sync + Send + Clone + 'static,
+    C: ConnectionApiOperations
+        + ConnectionBaseOperations
+        + Sync
+        + Send
+        + Clone
+        + 'static
+        + From<Connection>
+        + PartialEq,
+    S: SubscriptionOperations + Send + Sync + Clone + 'static + PartialEq,
+{
+    match memory
+        .db
+        .premium_requests()
+        .active_for(query.subscription_id)
+        .await
+    {
+        Ok(Some(request)) => {
+            let position = memory
+                .db
+                .premium_requests()
+                .position(request.id)
+                .await
+                .ok()
+                .flatten();
+            Ok(warp::reply::json(&serde_json::json!({
+                "request": request_view(&request, position),
+            }))
+            .into_response())
+        }
+        Ok(None) => Ok(warp::reply::with_status(
+            warp::reply::json(&serde_json::json!({
+                "error": "no_request",
+                "request": serde_json::Value::Null,
+            })),
+            StatusCode::NOT_FOUND,
+        )
+        .into_response()),
+        Err(e) => Ok(warp::reply::with_status(
+            warp::reply::json(&serde_json::json!({
+                "error": "request_failed",
+                "message": format!("{e}"),
+            })),
+            StatusCode::INTERNAL_SERVER_ERROR,
+        )
+        .into_response()),
+    }
+}
+
+/// `DELETE /premium/request/{id}?subscription_id=…` — cancel your own request.
+pub async fn premium_request_cancel_handler<N, C, S>(
+    request_id: Uuid,
+    query: PremiumSubscriptionQuery,
+    memory: MemSync<N, C, S>,
+) -> Result<warp::reply::Response, Rejection>
+where
+    N: NodeStorageOperations + Sync + Send + Clone + 'static,
+    C: ConnectionApiOperations
+        + ConnectionBaseOperations
+        + Sync
+        + Send
+        + Clone
+        + 'static
+        + From<Connection>
+        + PartialEq,
+    S: SubscriptionOperations + Send + Sync + Clone + 'static + PartialEq,
+{
+    match memory
+        .db
+        .premium_requests()
+        .cancel(request_id, query.subscription_id)
+        .await
+    {
+        Ok(true) => Ok(warp::reply::json(&serde_json::json!({
+            "status": 200,
+            "cancelled": true,
+            "request_id": request_id,
+        }))
+        .into_response()),
+        Ok(false) => Ok(warp::reply::with_status(
+            warp::reply::json(&serde_json::json!({
+                "error": "request_not_found",
+                "request_id": request_id,
+            })),
+            StatusCode::NOT_FOUND,
+        )
+        .into_response()),
+        Err(e) => Ok(warp::reply::with_status(
+            warp::reply::json(&serde_json::json!({
+                "error": "request_failed",
+                "message": format!("{e}"),
+            })),
+            StatusCode::INTERNAL_SERVER_ERROR,
+        )
+        .into_response()),
+    }
+}
+
+/// `POST /premium/confirm?subscription_id=…` — accept the offered slot.
+///
+/// The client cannot call the admin convert endpoint, and it does not choose the
+/// term: the request carries the months the person asked for.
+pub async fn premium_request_confirm_handler<N, C, S>(
+    query: PremiumSubscriptionQuery,
+    memory: MemSync<N, C, S>,
+) -> Result<warp::reply::Response, Rejection>
+where
+    N: NodeStorageOperations + Sync + Send + Clone + 'static,
+    C: ConnectionApiOperations
+        + ConnectionBaseOperations
+        + Sync
+        + Send
+        + Clone
+        + 'static
+        + From<Connection>
+        + PartialEq,
+    S: SubscriptionOperations + Send + Sync + Clone + 'static + PartialEq,
+{
+    let Some(request) = memory
+        .db
+        .premium_requests()
+        .active_for(query.subscription_id)
+        .await
+        .unwrap_or(None)
+    else {
+        return Ok(warp::reply::with_status(
+            warp::reply::json(&serde_json::json!({"error": "no_request"})),
+            StatusCode::NOT_FOUND,
+        )
+        .into_response());
+    };
+
+    // Only an actual offer can be accepted: a waiting request has nothing to
+    // confirm yet.
+    if request.status != fcore::RequestStatus::Offered {
+        return Ok(warp::reply::with_status(
+            warp::reply::json(&serde_json::json!({
+                "error": "no_offer",
+                "message": "Nothing to confirm yet",
+            })),
+            StatusCode::CONFLICT,
+        )
+        .into_response());
+    }
+
+    let days = (request.months as i64).saturating_mul(30);
+    let premium_until = chrono::Utc::now() + chrono::Duration::days(days);
+
+    match memory
+        .db
+        .premium_requests()
+        .convert(request.id, Some(premium_until))
+        .await
+    {
+        Ok(ConvertOutcome::Converted {
+            request,
+            env,
+            slot_key,
+            token,
+            premium_until,
+        }) => {
+            {
+                let mut mem = memory.memory.write().await;
+                if let Some(sub) = mem.subscriptions.find_by_id_mut(&request.subscription_id) {
+                    if let Ok(parsed) = Env::parse_lenient(&env) {
+                        sub.set_scope_env(parsed);
+                    }
+                    sub.set_premium_token(token);
+                }
+            }
+
+            crate::subscription_audit::log_premium_converted(
+                request.id,
+                request.subscription_id,
+                &env,
+                &slot_key,
+            );
+
+            Ok(warp::reply::json(&serde_json::json!({
+                "status": 200,
+                "env": env,
+                "slot_key": slot_key,
+                "premium_until": premium_until,
+            }))
+            .into_response())
+        }
+        Ok(ConvertOutcome::NotActive) => Ok(warp::reply::with_status(
+            warp::reply::json(&serde_json::json!({"error": "request_not_active"})),
+            StatusCode::CONFLICT,
+        )
+        .into_response()),
+        Ok(ConvertOutcome::OutOfStock) => Ok(warp::reply::with_status(
+            warp::reply::json(&serde_json::json!({"error": "out_of_stock"})),
+            StatusCode::CONFLICT,
+        )
+        .into_response()),
+        Err(e) => Ok(warp::reply::with_status(
+            warp::reply::json(&serde_json::json!({"error": format!("{e}")})),
+            StatusCode::INTERNAL_SERVER_ERROR,
+        )
+        .into_response()),
+    }
 }

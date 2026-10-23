@@ -148,6 +148,14 @@ where
             }
         });
 
+        spawn_task("expire_premium", {
+            let interval = self.settings.tasks.premium_expire_interval_sec;
+            let service = Arc::clone(&self);
+            async move {
+                service.expire_premium(interval).await;
+            }
+        });
+
         spawn_task("restore_subscriptions", {
             let interval = self.settings.tasks.subscription_restore_interval;
             let service = Arc::clone(&self);

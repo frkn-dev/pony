@@ -17,6 +17,7 @@ mod iap;
 mod metrics;
 mod mrkting;
 mod postgres;
+mod premium_ops;
 mod runtime;
 mod service;
 mod subscription_audit;

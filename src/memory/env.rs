@@ -125,6 +125,24 @@ fn strip_custom_prefix(s: &str) -> &str {
     name
 }
 
+impl Env {
+    /// Lenient parse for API boundaries: a known env by name, otherwise a
+    /// custom env. `premium-prem02-4`, `custompremium-prem02-4` and
+    /// `customcustompremium-prem02-4` all denote the same env, which is what
+    /// the JSON path has always done.
+    pub fn parse_lenient(raw: &str) -> crate::Result<Self> {
+        let trimmed = raw.trim();
+        if trimmed.is_empty() {
+            return Err(Error::Custom("empty env".into()));
+        }
+        if let Ok(env) = trimmed.parse::<Env>() {
+            return Ok(env);
+        }
+        let lower = trimmed.to_lowercase();
+        Ok(Env::Custom(strip_custom_prefix(&lower).to_string()))
+    }
+}
+
 impl<'de> Deserialize<'de> for Env {
     /// The JSON path must normalize exactly like `FromStr`: the derived
     /// `#[serde(untagged)] Custom(String)` used to keep the raw string and
@@ -136,14 +154,7 @@ impl<'de> Deserialize<'de> for Env {
         D: serde::Deserializer<'de>,
     {
         let raw = String::deserialize(deserializer)?;
-        if let Ok(env) = raw.parse::<Env>() {
-            return Ok(env);
-        }
-        let trimmed = raw.trim().to_lowercase();
-        if trimmed.is_empty() {
-            return Err(serde::de::Error::custom("empty env"));
-        }
-        Ok(Env::Custom(strip_custom_prefix(&trimmed).to_string()))
+        Env::parse_lenient(&raw).map_err(serde::de::Error::custom)
     }
 }
 impl From<&str> for Env {
@@ -162,6 +173,22 @@ impl From<String> for Env {
 mod tests {
     use super::*;
     use serde_json;
+
+    #[test]
+    fn test_parse_lenient_accepts_bare_custom_name() {
+        let expected = Env::Custom("premium-prem02-4".to_string());
+        assert_eq!(Env::parse_lenient("premium-prem02-4").unwrap(), expected);
+        assert_eq!(
+            Env::parse_lenient("custompremium-prem02-4").unwrap(),
+            expected
+        );
+        assert_eq!(
+            Env::parse_lenient("customcustompremium-prem02-4").unwrap(),
+            expected
+        );
+        assert_eq!(Env::parse_lenient("GAMING").unwrap(), Env::Gaming);
+        assert!(Env::parse_lenient("   ").is_err());
+    }
 
     #[test]
     fn test_env_from_str() {

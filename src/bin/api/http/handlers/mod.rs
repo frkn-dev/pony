@@ -9,6 +9,7 @@ pub mod mesh;
 pub mod metrics;
 pub mod node;
 pub mod premium;
+pub mod premium_admin;
 pub mod private;
 pub mod score;
 pub mod share;
@@ -137,15 +138,27 @@ mod tests {
     fn test_serving_access_flag_off_is_legacy() {
         // Active: full access; expired: expired — never a DB check.
         assert_eq!(serving_access(&sub(1, None), false), ServingAccess::Full);
-        assert_eq!(serving_access(&sub(1, Some(100)), false), ServingAccess::Full);
-        assert_eq!(serving_access(&sub(-1, None), false), ServingAccess::Expired);
-        assert_eq!(serving_access(&sub(-1, Some(100)), false), ServingAccess::Expired);
+        assert_eq!(
+            serving_access(&sub(1, Some(100)), false),
+            ServingAccess::Full
+        );
+        assert_eq!(
+            serving_access(&sub(-1, None), false),
+            ServingAccess::Expired
+        );
+        assert_eq!(
+            serving_access(&sub(-1, Some(100)), false),
+            ServingAccess::Expired
+        );
     }
 
     #[test]
     fn test_serving_access_flag_on() {
         // Active paid time: full access regardless of the limit.
-        assert_eq!(serving_access(&sub(1, Some(100)), true), ServingAccess::Full);
+        assert_eq!(
+            serving_access(&sub(1, Some(100)), true),
+            ServingAccess::Full
+        );
         // Expired with a limit: needs the DB balance check.
         assert_eq!(
             serving_access(&sub(-1, Some(100)), true),

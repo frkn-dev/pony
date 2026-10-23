@@ -114,6 +114,12 @@ traffic_persist_interval_sec = 3600
 # any missing (env, proto) connection (default 3600).
 # conns_reconcile_interval_sec = 3600
 # device_limit_max_ticks = 3
+# Premium slots: how often the worker runs (expired offers, expired terms,
+# offers for freed slots), how long an offer holds a slot, and how many missed
+# offers drop a waitlist request for good. Defaults: 300 / 48 / 3.
+# premium_expire_interval_sec = 300
+# premium_offer_ttl_hours = 48
+# premium_offer_max_attempts = 3
 connection_expire_interval = 600
 monitor_nodes_interval = 60
 heartbeat_node_offline_threshold_sec = 120

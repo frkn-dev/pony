@@ -14,6 +14,9 @@
 - [Trial](#trial)
 - [Amnezia gateway](#amnezia-gateway)
 - [Admin panel](#admin-panel)
+- [Premium slots (registry)](#premium-slots-registry)
+- [Premium waitlist](#premium-waitlist)
+- [Premium requests (admin)](#premium-requests-admin)
 - [Premium panel](#premium-panel)
 - [WebSocket метрики](#websocket-метрики)
 
@@ -639,18 +642,209 @@ Endpoint'ы `/v1/*` используют шифрование RSA+AES, когд�
 
 ### `POST /admin/api/subscriptions/{id}/premium`
 
-Назначить подписке премиум-env и сгенерировать `premium_token`.
+Выдать премиум: взять слот из реестра (`premium_slots`) и привязать подписку к его
+env. Без `env` реестр отдаёт самый младший свободный пуловый слот.
+
+- **Auth:** admin token
+- **Body** (все поля опциональны):
+  ```json
+  { "env": "premium-prem02-4", "pool": "prem02", "days": 30 }
+  ```
+  - `env` — конкретный слот; принимается и `premium-…`, и `custompremium-…`.
+  - `pool` — ограничить выбор одним пулом (`prem02`, `prem03`, `prem-nl-01`).
+  - `days` — срок; без него премиум бессрочный (`premium_until = NULL`).
+- **Response:** `200 OK`
+  ```json
+  {
+    "status": 200,
+    "env": "custompremium-prem02-4",
+    "premium_token": "prem_xxxxxxxxxxxx",
+    "premium_until": "2026-11-21T15:20:44Z",
+    "slot": { "slot_key": "prem02-4", "pool": "prem02", "slot_no": 4 }
+  }
+  ```
+- **Ошибки:** `403` admin disabled, `401` unauthorized, `404` подписка не найдена
+  или `unknown_slot` (env вида `premium-prem*`, которого нет в реестре), `409`
+  `out_of_stock` / `slot_busy` / `already_assigned`, `400` плохой env или `days`.
+- **Совместимость:** env вне `premium-prem*` (легаси и выделенные машины, которых
+  нет в реестре) выдаются как раньше — `scope_env` + `premium_token`, без строки
+  слота.
+
+### `DELETE /admin/api/subscriptions/{id}/premium`
+
+Отвязать премиум: погасить коннекты в премиум-env, обнулить
+`scope_env`/`premium_token`/`premium_until`, вернуть слот в сток.
+
+- **Auth:** admin token
+- **Response:** `200 OK`
+  ```json
+  {
+    "status": 200, "detached": true,
+    "env": "custompremium-prem02-4", "slot_key": "prem02-4",
+    "connections_deleted": 3, "connections_failed": 0
+  }
+  ```
+- **Ошибки:** `404` подписка не найдена или `no_premium` (премиума нет).
+- Коннекты удаляются с `deleted_reason = 'premium_detached'` и **не**
+  восстанавливаются реконсайлером: слот может уйти другому.
+
+### `POST /admin/api/subscriptions/{id}/premium/extend`
+
+Продлить срок, не трогая слот и коннекты.
+
+- **Auth:** admin token
+- **Body:** `{ "days": 30 }` (положительное число)
+- **Response:** `200 OK` → `{ "status": 200, "premium_until": "2026-12-21T…Z" }`
+- Без `premium_until` (бессрочный премиум) отсчёт начинается с текущего момента.
+
+---
+
+## Premium slots (registry)
+
+Сток премиума — таблица `premium_slots` (миграция `0005_premium_slots.sql`).
+Слот бывает `pool` (адрес на общем премиум-хосте, участвует в стоке) и
+`dedicated` (выделенная машина, в стоке не участвует). Статусы:
+`free` → `reserved` (держится под оффер заявки) → `assigned`, плюс `disabled`.
+
+### `GET /admin/api/premium/slots`
+
+- **Auth:** admin token
+- **Query:** `?status=free|reserved|assigned|disabled&pool=prem02&kind=pool|dedicated`
+- **Response:** `200 OK` → `{ "slots": [ … ], "count": 21 }`
+
+### `GET /admin/api/premium/stock`
+
+- **Auth:** admin token
+- **Response:** `200 OK`
+  ```json
+  {
+    "free": 0, "reserved": 0, "assigned": 11, "disabled": 1, "total": 12,
+    "by_pool": { "prem02": { "free": 0, "assigned": 5, "total": 5 } },
+    "out_of_stock": true
+  }
+  ```
+- `free` считается только по `kind='pool'`, `status='free'` **и** без
+  `reserved_for`: слот под оффер в стоке не виден.
+
+### `POST /admin/api/premium/slots`
+
+Регистрация слота после провижининга. Идемпотентно по `slot_key`.
 
 - **Auth:** admin token
 - **Body:**
   ```json
-  { "env": "production" }
+  {
+    "slot_key": "prem02-5", "env": "premium-prem02-5", "kind": "pool",
+    "pool": "prem02", "slot_no": 5, "address": "195.133.80.166",
+    "domain": "prem02-5.frkn.org", "country": "PL"
+  }
   ```
+- **Ошибки:** `400` `bad_slot` (у пулового слота нет env), `bad env`, `bad address`.
+
+### `DELETE /admin/api/premium/slots/{slot_key}`
+
+Удалить слот из реестра. `409 slot_busy`, если слот занят; `404 slot_not_found`.
+
+### `POST /admin/api/premium/slots/{slot_key}/disable` · `/enable`
+
+Вывести слот из стока (ремонт, деградация) или вернуть. `409 slot_busy` для
+занятого слота: сначала `DELETE …/premium`.
+
+---
+
+## Premium waitlist
+
+Заявки на премиум, когда стока нет. Очередь: `priority DESC, created_at ASC`.
+
+> **Auth:** service token (`with_service_or_admin_auth`) + явный `subscription_id`.
+> Premium token здесь не подходит: заявку оставляет как раз тот, у кого премиума
+> ещё нет. ЛК ходит сюда через прокси mrkting.
+
+### `GET /premium/availability?subscription_id={uuid}`
+
 - **Response:** `200 OK`
   ```json
-  { "premium_token": "prem_xxxxxxxxxxxx" }
+  {
+    "free": 0, "total": 12, "out_of_stock": true,
+    "has_premium": false,
+    "premium_until": null,
+    "slot": null,
+    "waitlist_position": 2, "can_request": false,
+    "request": {
+      "id": "…", "status": "offered", "months": 1, "position": 2,
+      "offered_env": "custompremium-prem02-5",
+      "offer_expires_at": "2026-10-24T19:17:35Z",
+      "created_at": "2026-10-22T19:17:00Z"
+    }
+  }
   ```
-- **Ошибки:** `403` admin disabled, `401` unauthorized, `404` подписка не найдена, `500` ошибка БД.
+- Без чужих адресов и владельцев — счётчики, своя заявка и свой слот.
+- `has_premium` — у аккаунта уже есть слот; тогда `slot` и `premium_until`
+  заполнены, а очередь не предлагается.
+- `can_request` = премиума нет, сток 0 **и** активной заявки нет.
+
+### `POST /premium/request`
+
+- **Body:** `{ "subscription_id": "…", "months": 1, "contact": "…" }`
+- **Response:** `200 OK` → `{ "status": 200, "request": { … } }`
+- Идемпотентно: повторная заявка возвращает существующую (`"existing": true`),
+  место в очереди не теряется.
+- **Ошибки:** `400 bad_months` (1…120), `404` подписка не найдена.
+
+### `GET /premium/request?subscription_id={uuid}`
+
+- **Response:** `200 OK` → `{ "request": { … } }`; `404 no_request`, если заявки нет.
+
+### `DELETE /premium/request/{id}?subscription_id={uuid}`
+
+- **Response:** `200 OK` → `{ "status": 200, "cancelled": true }`
+- Слот, который был зарезервирован под заявку, возвращается в сток.
+
+### `POST /premium/confirm?subscription_id={uuid}`
+
+Принять предложенный слот (кнопка «Подтвердить слот» в ЛК). Срок берётся из
+заявки: `months × 30` дней.
+
+- **Response:** `200 OK` → `{ "status": 200, "env": "…", "slot_key": "prem02-4",
+  "premium_until": "2026-11-21T…Z" }`
+- **Ошибки:** `404 no_request` (активной заявки нет), `409 no_offer` (заявка ещё
+  в очереди, подтверждать нечего), `409 out_of_stock`.
+- Подтвердить может только владелец заявки: `subscription_id` — её подписка.
+
+---
+
+## Premium requests (admin)
+
+### `GET /admin/api/premium/requests?status=waiting`
+
+- **Auth:** admin token
+- **Response:** `200 OK` → `{ "requests": [ … ], "count": N }`
+
+### `POST /admin/api/premium/requests/{id}/offer`
+
+Зарезервировать слот под заявку.
+
+- **Body:** `{ "slot_key": "prem02-5", "ttl_hours": 48 }` (оба опциональны)
+- **Response:** `200 OK` → заявка со `status: "offered"`, `offered_env`,
+  `offer_expires_at`.
+- **Ошибки:** `409 request_not_active` / `out_of_stock` / `slot_unavailable`.
+
+### `POST /admin/api/premium/requests/{id}/convert`
+
+Выдать премиум по заявке: слот → `assigned`, подписка получает
+`scope_env`/`premium_token`/`premium_until`, заявка → `converted`.
+
+- **Body:** `{ "days": 30 }` (опционально)
+- **Ошибки:** `409 request_not_active` / `out_of_stock`.
+
+### `POST /admin/api/premium/requests/{id}/decline`
+
+Отклонить заявку, слот вернуть в сток. **Body:** `{ "note": "…" }` (опционально).
+
+### `POST /admin/api/premium/requests/{id}/priority`
+
+Поднять/опустить приоритет в очереди. **Body:** `{ "priority": 10 }`.
+Платившим ставит поддержка; после появления SKU это будет делать payment-gw.
 
 ---
 
@@ -667,9 +861,17 @@ Endpoint'ы `/v1/*` используют шифрование RSA+AES, когд�
     "children_count": 5,
     "active_children": 4,
     "connections_count": 12,
-    "total_traffic": { "uplink": 0, "downlink": 0 }
+    "total_traffic": { "uplink": 0, "downlink": 0 },
+    "env": "custompremium-prem02-4",
+    "premium_until": "2026-11-21T15:20:44Z",
+    "slot": {
+      "pool": "prem02", "slot_no": 4, "domain": "prem02-4.frkn.org",
+      "address": "195.133.80.165", "country": "PL"
+    }
   }
   ```
+- `premium_until: null` — премиум бессрочный. `slot: null` — env вне реестра
+  (легаси или выделенная машина).
 
 ### `GET /premium/child`
 

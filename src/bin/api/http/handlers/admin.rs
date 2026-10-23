@@ -6,14 +6,18 @@ use tracing::error;
 use warp::http::StatusCode;
 
 use fcore::{
-    Connection, ConnectionApiOperations, ConnectionBaseOperations, Env, MetricStorage, Node,
-    NodeStatus, NodeStorageOperations, Status, Subscription, SubscriptionOperations, SubscriptionStorageOperations,
+    Connection, ConnectionApiOperations, ConnectionBaseOperations,
+    Env, MetricStorage, Node, NodeStatus, NodeStorageOperations, Status, Subscription,
+    SubscriptionOperations, SubscriptionStorageOperations,
 };
 
+use crate::postgres::premium_slots::{AssignOutcome, AssignTarget};
 use crate::sync::{
-    tasks::{SyncOp, DELETE_REASON_MANUAL},
+    tasks::{SyncOp, DELETE_REASON_MANUAL, DELETE_REASON_PREMIUM_DETACHED},
     MemSync,
 };
+
+use super::premium_admin::{assign_target as premium_assign_target, premium_until_from_days};
 
 const ADMIN_HTML: &str = include_str!("../admin.html");
 
@@ -307,14 +311,10 @@ where
         };
         let disk_usage_percent = metrics.node_disk_usage(&node.uuid, "root");
 
-        let load_percent = [
-            cpu_percent,
-            memory_percent,
-            disk_usage_percent,
-        ]
-        .iter()
-        .filter_map(|v| *v)
-        .reduce(f64::max);
+        let load_percent = [cpu_percent, memory_percent, disk_usage_percent]
+            .iter()
+            .filter_map(|v| *v)
+            .reduce(f64::max);
 
         admin_node.metrics = NodeMetricsSnapshot {
             memory_used_bytes: mem_used,
@@ -551,9 +551,24 @@ where
     })))
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Default)]
 pub struct AdminAssignPremiumRequest {
-    pub env: Env,
+    /// Slot env (`premium-prem02-4` or `custompremium-prem02-4`). Without it
+    /// the registry hands out the lowest free pool slot.
+    #[serde(default)]
+    pub env: Option<Env>,
+    /// Restrict the pick to one pool (`prem02`).
+    #[serde(default)]
+    pub pool: Option<String>,
+    /// Term in days; without it the premium is indefinite.
+    #[serde(default)]
+    pub days: Option<i64>,
+}
+
+/// `POST /admin/api/subscriptions/{uuid}/premium/extend`
+#[derive(Debug, Deserialize)]
+pub struct AdminExtendPremiumRequest {
+    pub days: i64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -595,8 +610,9 @@ pub async fn admin_api_node_metrics_handler(
     let to = query.to.unwrap_or(now);
 
     let Some(node_map) = metrics.inner.get(&node_id) else {
-        return Ok(Box::new(warp::reply::json(&AdminNodeMetricsResponse { metrics: vec![] },
-        )));
+        return Ok(Box::new(warp::reply::json(&AdminNodeMetricsResponse {
+            metrics: vec![],
+        })));
     };
 
     let mut result = Vec::new();
@@ -632,15 +648,12 @@ pub async fn admin_api_node_metrics_handler(
             continue;
         }
 
-        result.push(AdminNodeMetricSeries {
-            name,
-            tags,
-            points,
-        });
+        result.push(AdminNodeMetricSeries { name, tags, points });
     }
 
-    Ok(Box::new(warp::reply::json(&AdminNodeMetricsResponse { metrics: result },
-    )))
+    Ok(Box::new(warp::reply::json(&AdminNodeMetricsResponse {
+        metrics: result,
+    })))
 }
 
 pub async fn admin_api_assign_premium_handler<N, C, S>(
@@ -676,26 +689,175 @@ where
         )));
     }
 
+    // The subscription must exist and be live before a slot is taken: otherwise
+    // an out-of-stock 409 could be reported for an id that cannot hold premium
+    // at all.
+    {
+        let mem = memory.memory.read().await;
+        match mem.subscriptions.find_by_id(&subscription_id) {
+            Some(sub) if !sub.is_deleted() => {}
+            _ => {
+                return Ok(Box::new(warp::reply::with_status(
+                    "Subscription not found",
+                    StatusCode::NOT_FOUND,
+                )))
+            }
+        }
+    }
+
+    let env_raw = req.env.as_ref().map(|env| env.to_string());
+    let target = match premium_assign_target(env_raw.as_deref(), req.pool.as_deref()) {
+        Ok(target) => target,
+        Err(message) => {
+            return Ok(Box::new(warp::reply::with_status(
+                warp::reply::json(&serde_json::json!({
+                    "status": 400,
+                    "message": message,
+                })),
+                StatusCode::BAD_REQUEST,
+            )))
+        }
+    };
+
+    let premium_until = match premium_until_from_days(req.days) {
+        Ok(until) => until,
+        Err(message) => {
+            return Ok(Box::new(warp::reply::with_status(
+                warp::reply::json(&serde_json::json!({
+                    "status": 400,
+                    "message": message,
+                })),
+                StatusCode::BAD_REQUEST,
+            )))
+        }
+    };
+
+    match memory
+        .db
+        .premium_slots()
+        .assign(subscription_id, &target, premium_until)
+        .await
+    {
+        Ok(AssignOutcome::Assigned { slot, token }) => {
+            let env = slot.env.clone();
+
+            if let Some(env) = env.clone() {
+                let mut mem = memory.memory.write().await;
+                if let Some(sub) = mem.subscriptions.find_by_id_mut(&subscription_id) {
+                    sub.set_scope_env(env);
+                    sub.set_premium_token(token.clone());
+                }
+            }
+
+            Ok(Box::new(warp::reply::json(&serde_json::json!({
+                "status": 200,
+                "env": env.map(|env| env.to_string()),
+                "premium_token": token,
+                "premium_until": premium_until,
+                "slot": slot,
+            }))))
+        }
+        Ok(AssignOutcome::OutOfStock) => Ok(Box::new(warp::reply::with_status(
+            warp::reply::json(&serde_json::json!({
+                "status": 409,
+                "error": "out_of_stock",
+                "message": "No free premium slot; use the waitlist",
+            })),
+            StatusCode::CONFLICT,
+        ))),
+        Ok(AssignOutcome::SlotBusy(slot_key)) => Ok(Box::new(warp::reply::with_status(
+            warp::reply::json(&serde_json::json!({
+                "status": 409,
+                "error": "slot_busy",
+                "slot_key": slot_key,
+            })),
+            StatusCode::CONFLICT,
+        ))),
+        Ok(AssignOutcome::UnknownSlot(slot_key)) => {
+            // Legacy envs outside the registry (a dedicated machine, an old
+            // `custompremium-*` name) keep the pre-registry behaviour: the
+            // fields are set, no slot row exists. Only a pool-shaped env is a
+            // typo worth a 404.
+            let legacy = match &target {
+                AssignTarget::Env(env) => {
+                    let name = env.to_string();
+                    !name.starts_with("custompremium-prem") && !name.starts_with("premium-prem")
+                }
+                _ => false,
+            };
+
+            if legacy {
+                return legacy_assign_premium(memory, subscription_id, &target).await;
+            }
+
+            Ok(Box::new(warp::reply::with_status(
+                warp::reply::json(&serde_json::json!({
+                    "status": 404,
+                    "error": "unknown_slot",
+                    "slot_key": slot_key,
+                })),
+                StatusCode::NOT_FOUND,
+            )))
+        }
+        Ok(AssignOutcome::AlreadyAssigned(slot_key)) => Ok(Box::new(warp::reply::with_status(
+            warp::reply::json(&serde_json::json!({
+                "status": 409,
+                "error": "already_assigned",
+                "slot_key": slot_key,
+                "message": "Detach the current premium before assigning another slot",
+            })),
+            StatusCode::CONFLICT,
+        ))),
+        Err(e) => {
+            error!("Failed to assign premium slot: {}", e);
+            Ok(Box::new(warp::reply::with_status(
+                "Database error",
+                StatusCode::INTERNAL_SERVER_ERROR,
+            )))
+        }
+    }
+}
+
+/// Pre-registry path for envs that have no slot row: mint a token, store the
+/// env, touch nothing else.
+async fn legacy_assign_premium<N, C, S>(
+    memory: MemSync<N, C, S>,
+    subscription_id: uuid::Uuid,
+    target: &AssignTarget,
+) -> Result<Box<dyn warp::Reply + Send>, warp::Rejection>
+where
+    N: NodeStorageOperations + Sync + Send + Clone + 'static,
+    C: ConnectionApiOperations
+        + ConnectionBaseOperations
+        + Sync
+        + Send
+        + Clone
+        + 'static
+        + From<Connection>
+        + PartialEq,
+    S: SubscriptionOperations + Send + Sync + Clone + 'static + PartialEq,
+{
+    let AssignTarget::Env(env) = target else {
+        return Ok(Box::new(warp::reply::with_status(
+            "Slot not found",
+            StatusCode::NOT_FOUND,
+        )));
+    };
+
     let premium_token = format!("prem_{}", uuid::Uuid::new_v4().simple());
 
-    let env = req.env.clone();
     {
         let mut mem = memory.memory.write().await;
-        let sub = match mem.subscriptions.find_by_id_mut(&subscription_id) {
-            Some(s) => s,
-            None => return Ok(Box::new(warp::reply::with_status(
-                "Subscription not found",
-                StatusCode::NOT_FOUND,
-            ))),
-        };
-        sub.set_scope_env(env.clone());
-        sub.set_premium_token(premium_token.clone());
+        if let Some(sub) = mem.subscriptions.find_by_id_mut(&subscription_id) {
+            sub.set_scope_env(env.clone());
+            sub.set_premium_token(premium_token.clone());
+        }
     }
 
     if let Err(e) = memory
         .db
         .sub()
-        .set_premium_fields(&subscription_id, Some(&env), Some(&premium_token))
+        .set_premium_fields(&subscription_id, Some(env), Some(&premium_token))
         .await
     {
         error!("Failed to set premium fields: {}", e);
@@ -706,8 +868,157 @@ where
     }
 
     Ok(Box::new(warp::reply::json(&serde_json::json!({
-        "premium_token": premium_token
+        "premium_token": premium_token,
+        "env": env.to_string(),
+        "slot": null,
     }))))
+}
+
+/// `DELETE /admin/api/subscriptions/{uuid}/premium` — the missing half of the
+/// admin surface: until now detaching meant hand-written SQL.
+///
+/// Order matters: connections first (they are what actually keeps the VPN up),
+/// then the subscription rows, then the slot. A slot is never freed while its
+/// hysteria tokens are still valid.
+pub async fn admin_api_detach_premium_handler<N, C, S>(
+    subscription_id: uuid::Uuid,
+    memory: MemSync<N, C, S>,
+    admin_enabled: bool,
+    admin_token: String,
+    auth_header: Option<String>,
+) -> Result<Box<dyn warp::Reply + Send>, warp::Rejection>
+where
+    N: NodeStorageOperations + Sync + Send + Clone + 'static,
+    C: ConnectionApiOperations
+        + ConnectionBaseOperations
+        + Sync
+        + Send
+        + Clone
+        + 'static
+        + From<Connection>
+        + PartialEq,
+    Connection: From<C>,
+    S: SubscriptionOperations + Send + Sync + Clone + 'static + PartialEq + From<Subscription>,
+{
+    if !admin_enabled {
+        return Ok(Box::new(warp::reply::with_status(
+            "Admin disabled",
+            StatusCode::FORBIDDEN,
+        )));
+    }
+    if !check_token(auth_header, &admin_token) {
+        return Ok(Box::new(warp::reply::with_status(
+            "Unauthorized",
+            StatusCode::UNAUTHORIZED,
+        )));
+    }
+
+    // A detach on a deleted id would look like a success and free nothing.
+    {
+        let mem = memory.memory.read().await;
+        match mem.subscriptions.find_by_id(&subscription_id) {
+            Some(sub) if !sub.is_deleted() => {}
+            _ => {
+                return Ok(Box::new(warp::reply::with_status(
+                    "Subscription not found",
+                    StatusCode::NOT_FOUND,
+                )))
+            }
+        }
+    }
+
+    match crate::premium_ops::detach_premium(
+        &memory,
+        subscription_id,
+        DELETE_REASON_PREMIUM_DETACHED,
+    )
+    .await
+    {
+        Ok(Some(summary)) => Ok(Box::new(warp::reply::json(&serde_json::json!({
+            "status": 200,
+            "detached": true,
+            "env": summary.env.map(|env| env.to_string()),
+            "slot_key": summary.slot_key,
+            "connections_deleted": summary.connections_deleted,
+            "connections_failed": summary.connections_failed,
+        })))),
+        Ok(None) => Ok(Box::new(warp::reply::with_status(
+            warp::reply::json(&serde_json::json!({
+                "status": 404,
+                "error": "no_premium",
+                "message": "Subscription has no premium",
+            })),
+            StatusCode::NOT_FOUND,
+        ))),
+        Err(e) => {
+            error!("Failed to detach premium: {}", e);
+            Ok(Box::new(warp::reply::with_status(
+                "Database error",
+                StatusCode::INTERNAL_SERVER_ERROR,
+            )))
+        }
+    }
+}
+
+/// `POST /admin/api/subscriptions/{uuid}/premium/extend` — push the term
+/// forward without touching connections or the slot.
+pub async fn admin_api_extend_premium_handler<N, C, S>(
+    subscription_id: uuid::Uuid,
+    req: AdminExtendPremiumRequest,
+    memory: MemSync<N, C, S>,
+    admin_enabled: bool,
+    admin_token: String,
+    auth_header: Option<String>,
+) -> Result<Box<dyn warp::Reply + Send>, warp::Rejection>
+where
+    N: Send + Sync + Clone + 'static,
+    C: Send + Sync + Clone + 'static,
+    S: Send + Sync + Clone + 'static,
+{
+    if !admin_enabled {
+        return Ok(Box::new(warp::reply::with_status(
+            "Admin disabled",
+            StatusCode::FORBIDDEN,
+        )));
+    }
+    if !check_token(auth_header, &admin_token) {
+        return Ok(Box::new(warp::reply::with_status(
+            "Unauthorized",
+            StatusCode::UNAUTHORIZED,
+        )));
+    }
+    if req.days <= 0 {
+        return Ok(Box::new(warp::reply::with_status(
+            warp::reply::json(&serde_json::json!({
+                "status": 400,
+                "message": "days must be positive",
+            })),
+            StatusCode::BAD_REQUEST,
+        )));
+    }
+
+    match memory
+        .db
+        .premium_slots()
+        .extend(subscription_id, req.days)
+        .await
+    {
+        Ok(Some(until)) => Ok(Box::new(warp::reply::json(&serde_json::json!({
+            "status": 200,
+            "premium_until": until,
+        })))),
+        Ok(None) => Ok(Box::new(warp::reply::with_status(
+            "Subscription not found",
+            StatusCode::NOT_FOUND,
+        ))),
+        Err(e) => {
+            error!("Failed to extend premium: {}", e);
+            Ok(Box::new(warp::reply::with_status(
+                "Database error",
+                StatusCode::INTERNAL_SERVER_ERROR,
+            )))
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -859,9 +1170,7 @@ where
     let expires_at = Utc::now() + chrono::Duration::days(req.days);
     let sub = Subscription::new(sub_id, ref_code, Some(expires_at), req.limit_bytes);
 
-    match SyncOp::add_sub(&memory, sub.clone())
-        .await
-    {
+    match SyncOp::add_sub(&memory, sub.clone()).await {
         Ok(Status::Ok(_)) | Ok(Status::Updated(_)) => Ok(Box::new(warp::reply::json(
             &serde_json::json!({"id": sub_id, "ref_code": sub.refer_code()}),
         ))),
@@ -880,9 +1189,7 @@ where
         Err(e) => {
             error!("Failed to create subscription: {:?}", e);
             Ok(Box::new(warp::reply::with_status(
-                warp::reply::json(
-                    &serde_json::json!({"status": 500, "message": "Internal error"}),
-                ),
+                warp::reply::json(&serde_json::json!({"status": 500, "message": "Internal error"})),
                 StatusCode::INTERNAL_SERVER_ERROR,
             )))
         }
@@ -926,9 +1233,7 @@ where
         )));
     }
 
-    match SyncOp::add_days(&memory, &subscription_id, req.days)
-        .await
-    {
+    match SyncOp::add_days(&memory, &subscription_id, req.days).await {
         Ok(Status::Updated(_)) => Ok(Box::new(warp::reply::json(
             &serde_json::json!({"id": subscription_id, "days_added": req.days}),
         ))),
@@ -947,9 +1252,7 @@ where
         Err(e) => {
             error!("Failed to extend subscription: {:?}", e);
             Ok(Box::new(warp::reply::with_status(
-                warp::reply::json(
-                    &serde_json::json!({"status": 500, "message": "Internal error"}),
-                ),
+                warp::reply::json(&serde_json::json!({"status": 500, "message": "Internal error"})),
                 StatusCode::INTERNAL_SERVER_ERROR,
             )))
         }
@@ -987,7 +1290,9 @@ where
         let mem = memory.memory.read().await;
         mem.connections
             .iter()
-            .filter(|(_, conn)| conn.get_subscription_id() == Some(subscription_id) && !conn.get_deleted())
+            .filter(|(_, conn)| {
+                conn.get_subscription_id() == Some(subscription_id) && !conn.get_deleted()
+            })
             .map(|(id, _)| *id)
             .collect()
     };
@@ -998,8 +1303,14 @@ where
             mem.connections.get(&conn_id).cloned()
         };
         if let Some(conn) = conn_opt {
-            if let Err(e) = SyncOp::delete_connection(&memory, &conn_id, &conn, Some(DELETE_REASON_MANUAL)).await {
-                error!("Failed to delete connection {} for subscription {}: {:?}", conn_id, subscription_id, e);
+            if let Err(e) =
+                SyncOp::delete_connection(&memory, &conn_id, &conn, Some(DELETE_REASON_MANUAL))
+                    .await
+            {
+                error!(
+                    "Failed to delete connection {} for subscription {}: {:?}",
+                    conn_id, subscription_id, e
+                );
             }
         }
     }
@@ -1019,11 +1330,12 @@ where
     }
 
     if let Err(e) = memory.db.sub().delete(&subscription_id).await {
-        error!("Failed to delete subscription {} from database: {:?}", subscription_id, e);
+        error!(
+            "Failed to delete subscription {} from database: {:?}",
+            subscription_id, e
+        );
         return Ok(Box::new(warp::reply::with_status(
-            warp::reply::json(
-                &serde_json::json!({"status": 500, "message": "Database error"}),
-            ),
+            warp::reply::json(&serde_json::json!({"status": 500, "message": "Database error"})),
             StatusCode::INTERNAL_SERVER_ERROR,
         )));
     }
@@ -1083,7 +1395,9 @@ where
         )));
     }
 
-    match SyncOp::delete_connection(&memory, &connection_id, &conn, Some(DELETE_REASON_MANUAL)).await {
+    match SyncOp::delete_connection(&memory, &connection_id, &conn, Some(DELETE_REASON_MANUAL))
+        .await
+    {
         Ok(Status::Ok(_)) => Ok(Box::new(warp::reply::json(
             &serde_json::json!({"id": connection_id, "deleted": true}),
         ))),
@@ -1102,9 +1416,7 @@ where
         Err(e) => {
             error!("Failed to delete connection {}: {:?}", connection_id, e);
             Ok(Box::new(warp::reply::with_status(
-                warp::reply::json(
-                    &serde_json::json!({"status": 500, "message": "Internal error"}),
-                ),
+                warp::reply::json(&serde_json::json!({"status": 500, "message": "Internal error"})),
                 StatusCode::INTERNAL_SERVER_ERROR,
             )))
         }
@@ -1129,10 +1441,10 @@ mod tests {
     fn count_subscriptions_skips_deleted_and_counts_active() {
         let now = Utc::now();
         let subs = vec![
-            sub(Some(now + Duration::days(1)), false),  // active
-            sub(Some(now - Duration::days(1)), false),  // expired
-            sub(Some(now + Duration::days(1)), true),   // deleted
-            sub(None, false),                           // no expiry => active
+            sub(Some(now + Duration::days(1)), false), // active
+            sub(Some(now - Duration::days(1)), false), // expired
+            sub(Some(now + Duration::days(1)), true),  // deleted
+            sub(None, false),                          // no expiry => active
         ];
 
         let counts = count_subscriptions(subs.iter());

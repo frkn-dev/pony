@@ -105,6 +105,54 @@ pub fn log_subscription_expired(
     );
 }
 
+/// Logs a premium slot going back to stock because the term ran out or the
+/// subscription itself is gone. Emitted by the premium worker and by the admin
+/// detach endpoint, so every freed slot has a trail.
+pub fn log_premium_released(
+    sub_id: Uuid,
+    env: Option<&str>,
+    slot_key: Option<&str>,
+    connections_deleted: usize,
+    reason: &str,
+) {
+    tracing::info!(
+        target: "subscription.audit",
+        event = "premium_released",
+        sub_id = %sub_id,
+        env = env,
+        slot_key = slot_key,
+        connections_deleted = connections_deleted,
+        reason = reason,
+        "premium detached, slot returned to stock",
+    );
+}
+
+/// Logs a waitlist offer: a slot is held for a request until the deadline.
+pub fn log_premium_offered(request_id: Uuid, sub_id: Uuid, env: Option<&str>, expires_at: Option<DateTime<Utc>>) {
+    tracing::info!(
+        target: "subscription.audit",
+        event = "premium_offered",
+        request_id = %request_id,
+        sub_id = %sub_id,
+        env = env,
+        offer_expires_at = expires_at.map(|d| d.to_rfc3339()),
+        "premium slot offered to a waitlist request",
+    );
+}
+
+/// Logs a waitlist request becoming a real premium.
+pub fn log_premium_converted(request_id: Uuid, sub_id: Uuid, env: &str, slot_key: &str) {
+    tracing::info!(
+        target: "subscription.audit",
+        event = "premium_converted",
+        request_id = %request_id,
+        sub_id = %sub_id,
+        env = env,
+        slot_key = slot_key,
+        "waitlist request converted into premium",
+    );
+}
+
 /// Logs the moment a standalone connection expires and is deleted.
 pub fn log_connection_expired(
     conn_id: Uuid,

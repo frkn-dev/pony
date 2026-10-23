@@ -20,6 +20,8 @@ use super::{
     keys::PgKey,
     node::PgNode,
     node_access_token::PgNodeAccessToken,
+    premium_requests::PgPremiumRequests,
+    premium_slots::PgPremiumSlots,
     private_feed::PgPrivateFeed,
     share::{PgShare, ISSUED_VIA_SHARE},
     subscription::PgSubscription,
@@ -138,6 +140,14 @@ impl PgContext {
 
     pub fn private_feed(&self) -> PgPrivateFeed {
         PgPrivateFeed::new(self.manager.clone())
+    }
+
+    pub fn premium_slots(&self) -> PgPremiumSlots {
+        PgPremiumSlots::new(self.manager.clone())
+    }
+
+    pub fn premium_requests(&self) -> PgPremiumRequests {
+        PgPremiumRequests::new(self.manager.clone())
     }
 }
 

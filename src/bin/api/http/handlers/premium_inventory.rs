@@ -22,7 +22,7 @@ use warp::Reply;
 use fcore::{
     Connection, ConnectionApiOperations, ConnectionBaseOperations,
     ConnectionStorageApiOperations, NodeStatus, NodeStorageOperations, Subscription,
-    SubscriptionOperations,
+    NodeType, SubscriptionOperations,
 };
 
 use crate::http::handlers::admin::{check_token, not_found, unauthorized};
@@ -60,7 +60,10 @@ where
     let mut env_nodes: std::collections::BTreeMap<String, Vec<serde_json::Value>> =
         std::collections::BTreeMap::new();
     for (_id, node) in mem.nodes.iter_nodes() {
-        if !node.env.is_premium() {
+        // Слот — либо premium-энв, либо нода, объявленная типом premium:
+        // на prem1 пять слотов живут как personal-энвы обычного типа, и по
+        // одному env их бы не было видно.
+        if !node.env.is_premium() && !matches!(node.r#type, NodeType::PremiumNode) {
             continue;
         }
         let res = node.as_node_response();

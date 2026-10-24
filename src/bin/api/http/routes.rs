@@ -16,7 +16,7 @@ use super::{
     filters::*,
     handlers::{
         admin::*, amnezia::*, catalog::*, cluster::*, connection::*, healthcheck_handler, iap::*, key::*,
-        mesh::*, metrics::*, node::*, premium::*, private::*, score::*, share::*, subscription::*,
+        mesh::*, metrics::*, node::*, premium::*, premium_inventory::*, private::*, score::*, share::*, subscription::*,
     },
     param::*,
     rejection,
@@ -380,6 +380,15 @@ where
             .and(with_param_string(admin_token.clone()))
             .and_then(admin_page_handler);
 
+        let admin_premium_inventory_route = warp::get()
+            .and(warp::path!("admin" / "api" / "premium" / "inventory"))
+            .and(warp::path::end())
+            .and(with_sync(self.sync.clone()))
+            .and(with_param_bool(admin_enabled))
+            .and(with_param_string(admin_token.clone()))
+            .and(warp::header::optional::<String>("authorization"))
+            .and_then(admin_premium_inventory_handler);
+
         let admin_api_state_route = warp::get()
             .and(warp::path!("admin" / "api" / "state"))
             .and(warp::path::end())
@@ -535,6 +544,7 @@ where
             .or(admin_score_history_route)
             .or(admin_score_route)
             .or(admin_api_state_route)
+            .or(admin_premium_inventory_route)
             .or(admin_api_nodes_route)
             .or(admin_api_node_metrics_route)
             .or(admin_api_subscriptions_route)

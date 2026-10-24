@@ -9,6 +9,7 @@ pub mod mesh;
 pub mod metrics;
 pub mod node;
 pub mod premium;
+pub mod premium_inventory;
 pub mod private;
 pub mod score;
 pub mod share;

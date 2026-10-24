@@ -60,10 +60,13 @@ where
     let mut env_nodes: std::collections::BTreeMap<String, Vec<serde_json::Value>> =
         std::collections::BTreeMap::new();
     for (_id, node) in mem.nodes.iter_nodes() {
-        // Слот — либо premium-энв, либо нода, объявленная типом premium:
-        // на prem1 пять слотов живут как personal-энвы обычного типа, и по
-        // одному env их бы не было видно.
-        if !node.env.is_premium() && !matches!(node.r#type, NodeType::PremiumNode) {
+        // Слот — это premium-энв ИЛИ нода на премиум-хосте. На prem1 пять
+        // слотов живут personal-энвами (каждый клиент получил свой), а
+        // node_type при регистрации приходит «common» — fnode его не шлёт,
+        // поэтому единственный надёжный признак для них — имя хоста prem*.
+        let on_premium_host = node.hostname.starts_with("prem")
+            || matches!(node.r#type, NodeType::PremiumNode);
+        if !node.env.is_premium() && !on_premium_host {
             continue;
         }
         let res = node.as_node_response();

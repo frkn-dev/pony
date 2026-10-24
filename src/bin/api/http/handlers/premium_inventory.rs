@@ -90,10 +90,10 @@ where
         if sub.is_deleted() {
             continue;
         }
+        // Владельцем может быть и personal-энв: на prem1 слоты выданы именно
+        // так, поэтому привязку ищем по любому scope_env, а не только premium.
         if let Some(env) = sub.scope_env() {
-            if env.is_premium() {
-                owners.insert(env.to_string(), (*id, sub.premium_until()));
-            }
+            owners.insert(env.to_string(), (*id, sub.premium_until()));
         }
     }
 

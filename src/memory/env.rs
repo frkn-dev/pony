@@ -58,6 +58,13 @@ impl Env {
         matches!(self, Env::Custom(name) if name.starts_with("personal"))
     }
 
+    /// Premium slot env (`custompremium-…`): a dedicated node we run for the
+    /// account. It is not a personal env — the user does not create nodes
+    /// there — but it is still theirs, so the cabinet may read its nodes.
+    pub fn is_premium(&self) -> bool {
+        matches!(self, Env::Custom(name) if name.starts_with("premium"))
+    }
+
     pub fn is_frkn_shared(&self) -> bool {
         matches!(
             self,

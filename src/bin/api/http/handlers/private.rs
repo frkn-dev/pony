@@ -297,6 +297,17 @@ fn personal_env(subscription_id: Uuid) -> Env {
     Env::personal_for(subscription_id)
 }
 
+/// Env whose nodes belong to this account: a regular account owns nodes on its
+/// personal env, a premium account owns them on its premium env instead. Asking
+/// for the personal env of a premium subscription returns nothing, which is why
+/// the cabinet servers card used to hide itself for premium accounts.
+fn owned_env<S: SubscriptionOperations>(sub: &S, subscription_id: Uuid) -> Env {
+    sub.scope_env()
+        .filter(|env| env.is_personal() || env.is_premium())
+        .cloned()
+        .unwrap_or_else(|| personal_env(subscription_id))
+}
+
 fn refresh_env(existing: Option<&Env>, requested: &Env) -> Result<Env, &'static str> {
     if let Some(env) = existing {
         if !env.is_personal() {
@@ -779,7 +790,7 @@ where
     Connection: From<C>,
     S: SubscriptionOperations + Send + Sync + Clone + 'static + PartialEq + From<Subscription>,
 {
-    {
+    let env = {
         let mem = memory.memory.read().await;
         let Some(sub) = mem.subscriptions.find_by_id(&query.subscription_id) else {
             return Ok(http::not_found("subscription not found").into_response());
@@ -787,9 +798,8 @@ where
         if sub.is_deleted() {
             return Ok(http::not_found("subscription not found").into_response());
         }
-    }
-
-    let env = personal_env(query.subscription_id);
+        owned_env(sub, query.subscription_id)
+    };
     let mem = memory.memory.read().await;
     let nodes: Vec<PrivateNodeResponse> = mem
         .nodes
@@ -893,14 +903,14 @@ where
     Connection: From<C>,
     S: SubscriptionOperations + Send + Sync + Clone + 'static + PartialEq + From<Subscription>,
 {
-    {
+    let env = {
         let mem = memory.memory.read().await;
         let sub = mem.subscriptions.find_by_id(&subscription_id)?;
         if sub.is_deleted() {
             return None;
         }
-    }
-    let env = personal_env(subscription_id);
+        owned_env(sub, subscription_id)
+    };
     let mem = memory.memory.read().await;
     mem.nodes
         .get_by_env(&env)
@@ -986,7 +996,7 @@ where
     Connection: From<C>,
     S: SubscriptionOperations + Send + Sync + Clone + 'static + PartialEq + From<Subscription>,
 {
-    {
+    let env = {
         let mem = memory.memory.read().await;
         let Some(sub) = mem.subscriptions.find_by_id(&query.subscription_id) else {
             return Ok(http::not_found("subscription not found").into_response());
@@ -994,9 +1004,8 @@ where
         if sub.is_deleted() {
             return Ok(http::not_found("subscription not found").into_response());
         }
-    }
-
-    let env = personal_env(query.subscription_id);
+        owned_env(sub, query.subscription_id)
+    };
     let nodes: Vec<PrivateNodeStats> = {
         let mem = memory.memory.read().await;
         mem.nodes
@@ -1188,7 +1197,7 @@ where
         }
 
         let limits = sub.selfhosted_limits();
-        let env = personal_env(query.subscription_id);
+        let env = owned_env(sub, query.subscription_id);
         let servers_used = mem
             .nodes
             .get_by_env(&env)

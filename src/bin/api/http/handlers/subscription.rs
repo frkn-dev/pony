@@ -525,6 +525,7 @@ where
             kind: ScopeKind::from_env(env),
             env: env.clone(),
             protos,
+            premium_until: sub.premium_until(),
         }
     });
 

@@ -11,13 +11,12 @@ use fcore::{
 };
 
 use super::{
-    super::{iap::AppleIapClient, service::Service, sync::MemSync},
     crypto::{self, AesContext},
+    super::{iap::AppleIapClient, service::Service, sync::MemSync},
     filters::*,
     handlers::{
-        admin::*, amnezia::*, catalog::*, cluster::*, connection::*, healthcheck_handler, iap::*,
-        key::*, mesh::*, metrics::*, node::*, premium::*, premium_admin::*, private::*, score::*,
-        share::*, subscription::*,
+        admin::*, amnezia::*, catalog::*, cluster::*, connection::*, healthcheck_handler, iap::*, key::*,
+        mesh::*, metrics::*, node::*, premium::*, private::*, score::*, share::*, subscription::*,
     },
     param::*,
     rejection,
@@ -57,14 +56,7 @@ where
     Vec<(Uuid, fcore::Connection)>: FromIterator<(Uuid, C)>,
 {
     async fn run_http(&self) -> Result<()> {
-        let admin_token = self
-            .settings
-            .service
-            .admin_token
-            .clone()
-            .unwrap_or_default();
-        let offer_ttl_hours = self.settings.tasks.premium_offer_ttl_hours as i64;
-
+        let admin_token = self.settings.service.admin_token.clone().unwrap_or_default();
         let mgmt_auth = with_service_or_admin_auth(
             Arc::new(self.settings.service.token.clone()),
             admin_token.clone(),
@@ -427,9 +419,7 @@ where
             .and_then(admin_api_subscriptions_count_handler);
 
         let admin_api_subscription_connections_route = warp::get()
-            .and(warp::path!(
-                "admin" / "api" / "subscriptions" / Uuid / "connections"
-            ))
+            .and(warp::path!("admin" / "api" / "subscriptions" / Uuid / "connections"))
             .and(warp::path::end())
             .and(with_sync(self.sync.clone()))
             .and(with_param_bool(admin_enabled))
@@ -451,9 +441,7 @@ where
         let admin_api_node_metrics_route = warp::get()
             .and(warp::path!("admin" / "api" / "nodes" / Uuid / "metrics"))
             .and(warp::path::end())
-            .and(warp::query::<
-                crate::http::handlers::admin::AdminNodeMetricsQuery,
-            >())
+            .and(warp::query::<crate::http::handlers::admin::AdminNodeMetricsQuery>())
             .and(with_param_bool(admin_enabled))
             .and(with_param_string(admin_token.clone()))
             .and(warp::header::optional::<String>("authorization"))
@@ -461,9 +449,7 @@ where
             .and_then(admin_api_node_metrics_handler);
 
         let admin_api_assign_premium_route = warp::post()
-            .and(warp::path!(
-                "admin" / "api" / "subscriptions" / Uuid / "premium"
-            ))
+            .and(warp::path!("admin" / "api" / "subscriptions" / Uuid / "premium"))
             .and(warp::path::end())
             .and(warp::body::json())
             .and(with_sync(self.sync.clone()))
@@ -471,147 +457,6 @@ where
             .and(with_param_string(admin_token.clone()))
             .and(warp::header::optional::<String>("authorization"))
             .and_then(admin_api_assign_premium_handler);
-
-        let admin_api_detach_premium_route = warp::delete()
-            .and(warp::path!(
-                "admin" / "api" / "subscriptions" / Uuid / "premium"
-            ))
-            .and(warp::path::end())
-            .and(with_sync(self.sync.clone()))
-            .and(with_param_bool(admin_enabled))
-            .and(with_param_string(admin_token.clone()))
-            .and(warp::header::optional::<String>("authorization"))
-            .and_then(admin_api_detach_premium_handler);
-
-        let admin_api_extend_premium_route = warp::post()
-            .and(warp::path!(
-                "admin" / "api" / "subscriptions" / Uuid / "premium" / "extend"
-            ))
-            .and(warp::path::end())
-            .and(warp::body::json())
-            .and(with_sync(self.sync.clone()))
-            .and(with_param_bool(admin_enabled))
-            .and(with_param_string(admin_token.clone()))
-            .and(warp::header::optional::<String>("authorization"))
-            .and_then(admin_api_extend_premium_handler);
-
-        // Premium slot registry: inventory management only. Assignment goes
-        // through the existing POST .../subscriptions/{uuid}/premium, which
-        // now takes the slot from this registry.
-        let admin_api_premium_slots_route = warp::get()
-            .and(warp::path!("admin" / "api" / "premium" / "slots"))
-            .and(warp::path::end())
-            .and(warp::query::<
-                crate::http::handlers::premium_admin::SlotListQuery,
-            >())
-            .and(with_sync(self.sync.clone()))
-            .and(with_param_bool(admin_enabled))
-            .and(with_param_string(admin_token.clone()))
-            .and(warp::header::optional::<String>("authorization"))
-            .and_then(admin_api_premium_slots_handler);
-
-        let admin_api_premium_stock_route = warp::get()
-            .and(warp::path!("admin" / "api" / "premium" / "stock"))
-            .and(warp::path::end())
-            .and(with_sync(self.sync.clone()))
-            .and(with_param_bool(admin_enabled))
-            .and(with_param_string(admin_token.clone()))
-            .and(warp::header::optional::<String>("authorization"))
-            .and_then(admin_api_premium_stock_handler);
-
-        let admin_api_premium_register_route = warp::post()
-            .and(warp::path!("admin" / "api" / "premium" / "slots"))
-            .and(warp::path::end())
-            .and(warp::body::json())
-            .and(with_sync(self.sync.clone()))
-            .and(with_param_bool(admin_enabled))
-            .and(with_param_string(admin_token.clone()))
-            .and(warp::header::optional::<String>("authorization"))
-            .and_then(admin_api_premium_register_handler);
-
-        let admin_api_premium_delete_route = warp::delete()
-            .and(warp::path!("admin" / "api" / "premium" / "slots" / String))
-            .and(warp::path::end())
-            .and(with_sync(self.sync.clone()))
-            .and(with_param_bool(admin_enabled))
-            .and(with_param_string(admin_token.clone()))
-            .and(warp::header::optional::<String>("authorization"))
-            .and_then(admin_api_premium_delete_handler);
-
-        let admin_api_premium_disable_route = warp::post()
-            .and(warp::path!(
-                "admin" / "api" / "premium" / "slots" / String / "disable"
-            ))
-            .and(warp::path::end())
-            .and(warp::any().map(|| true))
-            .and(with_sync(self.sync.clone()))
-            .and(with_param_bool(admin_enabled))
-            .and(with_param_string(admin_token.clone()))
-            .and(warp::header::optional::<String>("authorization"))
-            .and_then(admin_api_premium_toggle_handler);
-
-        let admin_api_premium_enable_route = warp::post()
-            .and(warp::path!(
-                "admin" / "api" / "premium" / "slots" / String / "enable"
-            ))
-            .and(warp::path::end())
-            .and(warp::any().map(|| false))
-            .and(with_sync(self.sync.clone()))
-            .and(with_param_bool(admin_enabled))
-            .and(with_param_string(admin_token.clone()))
-            .and(warp::header::optional::<String>("authorization"))
-            .and_then(admin_api_premium_toggle_handler);
-
-        let admin_api_premium_requests_route = warp::get()
-            .and(warp::path!("admin" / "api" / "premium" / "requests"))
-            .and(warp::path::end())
-            .and(warp::query::<crate::http::handlers::premium_admin::RequestListQuery>())
-            .and(with_sync(self.sync.clone()))
-            .and(with_param_bool(admin_enabled))
-            .and(with_param_string(admin_token.clone()))
-            .and(warp::header::optional::<String>("authorization"))
-            .and_then(admin_api_premium_requests_handler);
-
-        let admin_api_premium_offer_route = warp::post()
-            .and(warp::path!("admin" / "api" / "premium" / "requests" / Uuid / "offer"))
-            .and(warp::path::end())
-            .and(warp::body::json())
-            .and(with_sync(self.sync.clone()))
-            .and(with_param_bool(admin_enabled))
-            .and(with_param_string(admin_token.clone()))
-            .and(warp::header::optional::<String>("authorization"))
-            .and(warp::any().map(move || offer_ttl_hours))
-            .and_then(admin_api_premium_offer_handler);
-
-        let admin_api_premium_convert_route = warp::post()
-            .and(warp::path!("admin" / "api" / "premium" / "requests" / Uuid / "convert"))
-            .and(warp::path::end())
-            .and(warp::body::json())
-            .and(with_sync(self.sync.clone()))
-            .and(with_param_bool(admin_enabled))
-            .and(with_param_string(admin_token.clone()))
-            .and(warp::header::optional::<String>("authorization"))
-            .and_then(admin_api_premium_convert_handler);
-
-        let admin_api_premium_decline_route = warp::post()
-            .and(warp::path!("admin" / "api" / "premium" / "requests" / Uuid / "decline"))
-            .and(warp::path::end())
-            .and(warp::body::json())
-            .and(with_sync(self.sync.clone()))
-            .and(with_param_bool(admin_enabled))
-            .and(with_param_string(admin_token.clone()))
-            .and(warp::header::optional::<String>("authorization"))
-            .and_then(admin_api_premium_decline_handler);
-
-        let admin_api_premium_priority_route = warp::post()
-            .and(warp::path!("admin" / "api" / "premium" / "requests" / Uuid / "priority"))
-            .and(warp::path::end())
-            .and(warp::body::json())
-            .and(with_sync(self.sync.clone()))
-            .and(with_param_bool(admin_enabled))
-            .and(with_param_string(admin_token.clone()))
-            .and(warp::header::optional::<String>("authorization"))
-            .and_then(admin_api_premium_priority_handler);
 
         let admin_api_create_subscription_route = warp::post()
             .and(warp::path!("admin" / "api" / "subscriptions"))
@@ -624,9 +469,7 @@ where
             .and_then(admin_api_create_subscription_handler);
 
         let admin_api_extend_subscription_route = warp::post()
-            .and(warp::path!(
-                "admin" / "api" / "subscriptions" / Uuid / "extend"
-            ))
+            .and(warp::path!("admin" / "api" / "subscriptions" / Uuid / "extend"))
             .and(warp::path::end())
             .and(warp::body::json())
             .and(with_sync(self.sync.clone()))
@@ -699,19 +542,6 @@ where
             .or(admin_api_subscription_connections_route)
             .or(admin_api_connections_route)
             .or(admin_api_assign_premium_route)
-            .or(admin_api_detach_premium_route)
-            .or(admin_api_extend_premium_route)
-            .or(admin_api_premium_slots_route)
-            .or(admin_api_premium_stock_route)
-            .or(admin_api_premium_register_route)
-            .or(admin_api_premium_delete_route)
-            .or(admin_api_premium_disable_route)
-            .or(admin_api_premium_enable_route)
-            .or(admin_api_premium_requests_route)
-            .or(admin_api_premium_offer_route)
-            .or(admin_api_premium_convert_route)
-            .or(admin_api_premium_decline_route)
-            .or(admin_api_premium_priority_route)
             .or(admin_api_create_subscription_route)
             .or(admin_api_extend_subscription_route)
             .or(admin_api_selfhosted_limits_route)
@@ -778,9 +608,7 @@ where
             .and(warp::body::json())
             .and(with_sync(self.sync.clone()))
             .and(with_param_ipaddrmask(params.wireguard_network.clone()))
-            .and(with_param_ipaddrmask(
-                params.amnezia_wireguard_network.clone(),
-            ))
+            .and(with_param_ipaddrmask(params.amnezia_wireguard_network.clone()))
             .and(warp::any().map({
                 let net = params.amnezia_wireguard_mobile_network.clone();
                 move || net.clone()
@@ -807,54 +635,6 @@ where
             .and(with_metrics(self.metrics.clone()))
             .and_then(premium_child_traffic_handler);
 
-        // Waitlist: service-token auth plus an explicit subscription id, because
-        // the whole point is to serve accounts that have no premium token yet.
-        let premium_availability_route = warp::get()
-            .and(warp::path("premium"))
-            .and(warp::path("availability"))
-            .and(warp::path::end())
-            .and(mgmt_auth.clone())
-            .and(warp::query::<crate::http::handlers::premium::PremiumSubscriptionQuery>())
-            .and(with_sync(self.sync.clone()))
-            .and_then(premium_availability_handler);
-
-        let premium_request_get_route = warp::get()
-            .and(warp::path("premium"))
-            .and(warp::path("request"))
-            .and(warp::path::end())
-            .and(mgmt_auth.clone())
-            .and(warp::query::<crate::http::handlers::premium::PremiumSubscriptionQuery>())
-            .and(with_sync(self.sync.clone()))
-            .and_then(premium_request_get_handler);
-
-        let premium_request_create_route = warp::post()
-            .and(warp::path("premium"))
-            .and(warp::path("request"))
-            .and(warp::path::end())
-            .and(mgmt_auth.clone())
-            .and(warp::body::json())
-            .and(with_sync(self.sync.clone()))
-            .and_then(premium_request_create_handler);
-
-        let premium_request_confirm_route = warp::post()
-            .and(warp::path("premium"))
-            .and(warp::path("confirm"))
-            .and(warp::path::end())
-            .and(mgmt_auth.clone())
-            .and(warp::query::<crate::http::handlers::premium::PremiumSubscriptionQuery>())
-            .and(with_sync(self.sync.clone()))
-            .and_then(premium_request_confirm_handler);
-
-        let premium_request_cancel_route = warp::delete()
-            .and(warp::path("premium"))
-            .and(warp::path("request"))
-            .and(warp::path::param::<Uuid>())
-            .and(warp::path::end())
-            .and(mgmt_auth.clone())
-            .and(warp::query::<crate::http::handlers::premium::PremiumSubscriptionQuery>())
-            .and(with_sync(self.sync.clone()))
-            .and_then(premium_request_cancel_handler);
-
         let premium_routes = premium_state_route
             .or(premium_child_list_route)
             .or(premium_create_child_route)
@@ -862,12 +642,7 @@ where
             .or(premium_child_connections_route)
             .or(premium_create_connection_route)
             .or(premium_delete_connection_route)
-            .or(premium_child_traffic_route)
-            .or(premium_availability_route)
-            .or(premium_request_get_route)
-            .or(premium_request_create_route)
-            .or(premium_request_confirm_route)
-            .or(premium_request_cancel_route);
+            .or(premium_child_traffic_route);
 
         let post_subscription_route = warp::post()
             .and(warp::path("subscription"))
@@ -1053,9 +828,7 @@ where
             .and(warp::header::optional::<String>("x-trace-id"))
             .and(with_sync(self.sync.clone()))
             .and(with_param_ipaddrmask(params.wireguard_network.clone()))
-            .and(with_param_ipaddrmask(
-                params.amnezia_wireguard_network.clone(),
-            ))
+            .and(with_param_ipaddrmask(params.amnezia_wireguard_network.clone()))
             .and(warp::any().map({
                 let net = params.amnezia_wireguard_mobile_network.clone();
                 move || net.clone()
@@ -1081,9 +854,7 @@ where
             .and(warp::path("v1"))
             .and(warp::path("services"))
             .and(warp::path::end())
-            .and(crypto::with_agw_decryption::<GatewayServicesRequest>(
-                agw_key.clone(),
-            ))
+            .and(crypto::with_agw_decryption::<GatewayServicesRequest>(agw_key.clone()))
             .and(with_sync(self.sync.clone()))
             .and(with_labels.clone())
             .and(with_param_bool(params.traffic_mode_enabled))
@@ -1098,14 +869,9 @@ where
                  labels: GatewayLabels,
                  traffic_mode_enabled: bool,
                  metered_conns: Vec<String>| async move {
-                    let response = gateway_services_handler(
-                        req,
-                        sync,
-                        labels,
-                        traffic_mode_enabled,
-                        metered_conns,
-                    )
-                    .await?;
+                    let response =
+                        gateway_services_handler(req, sync, labels, traffic_mode_enabled, metered_conns)
+                            .await?;
                     crypto::encrypt_gateway_reply(response, ctx).await
                 },
             );
@@ -1114,9 +880,7 @@ where
             .and(warp::path("v1"))
             .and(warp::path("account_info"))
             .and(warp::path::end())
-            .and(crypto::with_agw_decryption::<GatewayAccountInfoRequest>(
-                agw_key.clone(),
-            ))
+            .and(crypto::with_agw_decryption::<GatewayAccountInfoRequest>(agw_key.clone()))
             .and(with_sync(self.sync.clone()))
             .and(with_param_bool(params.traffic_mode_enabled))
             .and_then(
@@ -1146,9 +910,7 @@ where
             .and(warp::path("v1"))
             .and(warp::path("config"))
             .and(warp::path::end())
-            .and(crypto::with_agw_decryption::<GatewayConfigRequest>(
-                agw_key.clone(),
-            ))
+            .and(crypto::with_agw_decryption::<GatewayConfigRequest>(agw_key.clone()))
             .and(with_sync(self.sync.clone()))
             .and(with_param_bool(params.traffic_mode_enabled))
             .and(warp::any().map({
@@ -1176,7 +938,7 @@ where
                         x_forwarded_for,
                         rate_limiter,
                     )
-                    .await?;
+                            .await?;
                     crypto::encrypt_gateway_reply(response, ctx).await
                 },
             );
@@ -1185,9 +947,7 @@ where
             .and(warp::path("v1"))
             .and(warp::path("share"))
             .and(warp::path::end())
-            .and(crypto::with_agw_decryption::<ShareMintRequest>(
-                agw_key.clone(),
-            ))
+            .and(crypto::with_agw_decryption::<ShareMintRequest>(agw_key.clone()))
             .and(with_sync(self.sync.clone()))
             .and(warp::addr::remote())
             .and(warp::header::optional::<String>("x-forwarded-for"))
@@ -1232,9 +992,7 @@ where
             .and(warp::path("v1"))
             .and(warp::path("shares"))
             .and(warp::path::end())
-            .and(crypto::with_agw_decryption::<ShareListRequest>(
-                agw_key.clone(),
-            ))
+            .and(crypto::with_agw_decryption::<ShareListRequest>(agw_key.clone()))
             .and(with_sync(self.sync.clone()))
             .and(warp::addr::remote())
             .and(warp::header::optional::<String>("x-forwarded-for"))
@@ -1246,14 +1004,9 @@ where
                  remote: Option<std::net::SocketAddr>,
                  x_forwarded_for: Option<String>,
                  rate_limiter: Arc<RateLimiter>| async move {
-                    let response = gateway_shares_list_handler(
-                        req,
-                        sync,
-                        remote,
-                        x_forwarded_for,
-                        rate_limiter,
-                    )
-                    .await?;
+                    let response =
+                        gateway_shares_list_handler(req, sync, remote, x_forwarded_for, rate_limiter)
+                            .await?;
                     crypto::encrypt_gateway_reply(response, ctx).await
                 },
             );
@@ -1263,9 +1016,7 @@ where
             .and(warp::path("share"))
             .and(warp::path("revoke"))
             .and(warp::path::end())
-            .and(crypto::with_agw_decryption::<ShareRevokeRequest>(
-                agw_key.clone(),
-            ))
+            .and(crypto::with_agw_decryption::<ShareRevokeRequest>(agw_key.clone()))
             .and(with_sync(self.sync.clone()))
             .and(warp::addr::remote())
             .and(warp::header::optional::<String>("x-forwarded-for"))
@@ -1377,10 +1128,8 @@ where
 
         // App Store IAP: the client is optional — without [service.apple] the
         // route stays mounted and answers 503.
-        let apple_iap = params
-            .apple
-            .as_ref()
-            .and_then(|cfg| match AppleIapClient::new(cfg) {
+        let apple_iap = params.apple.as_ref().and_then(|cfg| {
+            match AppleIapClient::new(cfg) {
                 Ok(client) => {
                     tracing::info!(
                         "Apple IAP client initialized ({} environment)",
@@ -1394,7 +1143,8 @@ where
                     );
                     None
                 }
-            });
+            }
+        });
 
         let iap_wg_network = params.wireguard_network.clone();
         let iap_awg_network = params.amnezia_wireguard_network.clone();

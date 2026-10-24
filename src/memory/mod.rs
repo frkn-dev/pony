@@ -2,7 +2,6 @@ pub(crate) mod connection;
 pub(crate) mod env;
 pub(crate) mod key;
 pub(crate) mod node;
-pub(crate) mod premium;
 pub(crate) mod product;
 pub(crate) mod snapshot;
 pub(crate) mod stat;

@@ -4,8 +4,8 @@ pub mod http;
 pub mod memory;
 pub mod mesh;
 pub mod metrics;
-pub mod proto;
 pub mod score;
+pub mod proto;
 pub mod utils;
 pub mod zmq;
 
@@ -62,12 +62,8 @@ pub use memory::{
     node::{
         InboundStat, Node, NodeMetricInfo, NodeResponse, Status as NodeStatus, Type as NodeType,
     },
-    premium::{
-        PoolStock, PremiumRequest, PremiumSlot, PremiumStock, RequestStatus, SlotKind,
-        SlotStatus,
-    },
-    product::Product,
     snapshot::SnapshotManager,
+    product::Product,
     stat::{Kind as StatKind, StatType},
     storage::{
         connection::ApiOp as ConnectionStorageApiOperations,

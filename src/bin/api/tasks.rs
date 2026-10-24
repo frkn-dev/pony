@@ -19,7 +19,7 @@ use super::{
     subscription_audit,
     sync::tasks::{
         SyncOp, publish_conn_delete, DELETE_REASON_DEVICE_KICK, DELETE_REASON_EXPIRED,
-        DELETE_REASON_PREMIUM_EXPIRED, DELETE_REASON_TRAFFIC_EXHAUSTED,
+        DELETE_REASON_TRAFFIC_EXHAUSTED,
     },
     traffic,
 };
@@ -31,9 +31,6 @@ pub trait Tasks {
     async fn cleanup_expired_connections(&self, interval_sec: u64);
     async fn cleanup_expired_subscriptions(&self, interval_sec: u64);
     async fn restore_subscriptions(&self, interval_sec: u64);
-    /// Premium housekeeping: expire stale offers, detach expired premium, and
-    /// offer newly freed slots to the waitlist.
-    async fn expire_premium(&self, interval_sec: u64);
     async fn monitor_node_heartbeats(&self, check_interval_sec: u64, offline_threshold_sec: u64);
     async fn persist_connection_traffic(&self, interval_sec: u64);
     async fn enforce_traffic_limits(&self, interval_sec: u64);
@@ -238,121 +235,6 @@ where
                     expires_at,
                     connections_count,
                 );
-            }
-        }
-    }
-
-    /// Premium housekeeping, once per tick:
-    ///
-    /// 1. stale offers go back to the queue (or expire after N misses);
-    /// 2. premium whose term is over is detached — connections first, then the
-    ///    slot, so a hysteria token never outlives the slot it belongs to;
-    /// 3. slots held by deleted/expired subscriptions are released. This pass is
-    ///    not redundant with (2): `premium_until` is NULL (indefinite) for most
-    ///    existing premium subscriptions, so the term check alone would never
-    ///    free their slots;
-    /// 4. every free pool slot is offered to the head of the queue, so stock
-    ///    never sits idle while someone waits.
-    ///
-    /// One failing subscription never stops the pass; the next tick retries.
-    async fn expire_premium(&self, interval_sec: u64) {
-        let mut interval = tokio::time::interval(Duration::from_secs(interval_sec));
-
-        loop {
-            interval.tick().await;
-            debug!("Run premium worker");
-
-            let ttl_hours = self.settings.tasks.premium_offer_ttl_hours as i64;
-            let max_attempts = self.settings.tasks.premium_offer_max_attempts;
-
-            // 1. Missed offers.
-            match self
-                .sync
-                .db
-                .premium_requests()
-                .expire_offers(max_attempts)
-                .await
-            {
-                Ok((expired, requeued)) if expired + requeued > 0 => {
-                    info!(
-                        "Premium offers: {} requeued, {} expired",
-                        requeued, expired
-                    );
-                }
-                Ok(_) => {}
-                Err(e) => error!("Failed to expire premium offers: {:?}", e),
-            }
-
-            // 2 + 3. Expired terms and slots held by dead subscriptions.
-            let mut candidates: Vec<uuid::Uuid> = Vec::new();
-
-            match self.sync.db.premium_slots().expired_premium(100).await {
-                Ok(ids) => candidates.extend(ids),
-                Err(e) => error!("Failed to load expired premium: {:?}", e),
-            }
-
-            match self
-                .sync
-                .db
-                .premium_slots()
-                .slots_of_dead_subscriptions(100)
-                .await
-            {
-                Ok(ids) => candidates.extend(ids),
-                Err(e) => error!("Failed to load slots of dead subscriptions: {:?}", e),
-            }
-
-            candidates.sort_unstable();
-            candidates.dedup();
-
-            for sub_id in candidates {
-                match crate::premium_ops::detach_premium(
-                    &self.sync,
-                    sub_id,
-                    DELETE_REASON_PREMIUM_EXPIRED,
-                )
-                .await
-                {
-                    Ok(Some(summary)) => {
-                        info!(
-                            "Premium expired for {}: slot {:?}, {} connections deleted",
-                            sub_id, summary.slot_key, summary.connections_deleted
-                        );
-                        subscription_audit::log_premium_released(
-                            sub_id,
-                            summary.env.as_ref().map(|env| env.to_string()).as_deref(),
-                            summary.slot_key.as_deref(),
-                            summary.connections_deleted,
-                            DELETE_REASON_PREMIUM_EXPIRED,
-                        );
-                    }
-                    Ok(None) => {}
-                    Err(e) => error!("Failed to detach expired premium {}: {:?}", sub_id, e),
-                }
-            }
-
-            // 4. Hand free slots to the queue.
-            match self.sync.db.premium_requests().auto_offer(ttl_hours).await {
-                Ok(offered) if !offered.is_empty() => {
-                    for (slot_key, request_id) in offered {
-                        info!(
-                            "Premium slot {} offered to request {}",
-                            slot_key, request_id
-                        );
-                        if let Ok(Some(request)) =
-                            self.sync.db.premium_requests().get(request_id).await
-                        {
-                            subscription_audit::log_premium_offered(
-                                request_id,
-                                request.subscription_id,
-                                request.offered_env.as_deref(),
-                                request.offer_expires_at,
-                            );
-                        }
-                    }
-                }
-                Ok(_) => {}
-                Err(e) => error!("Failed to offer premium slots: {:?}", e),
             }
         }
     }

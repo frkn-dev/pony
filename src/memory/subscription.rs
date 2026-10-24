@@ -283,13 +283,10 @@ impl From<tokio_postgres::Row> for Subscription {
             updated_at,
             is_deleted: row.get::<_, bool>("is_deleted"),
             parent_id: row.get("parent_id"),
-            scope_env: row.try_get::<_, String>("scope_env").ok().and_then(|s| {
-                if s.is_empty() {
-                    None
-                } else {
-                    Some(Env::from(s.as_str()))
-                }
-            }),
+            scope_env: row
+                .try_get::<_, String>("scope_env")
+                .ok()
+                .and_then(|s| if s.is_empty() { None } else { Some(Env::from(s.as_str())) }),
             premium_token: row.get("premium_token"),
             plan_kind: row
                 .try_get::<_, String>("plan_kind")
@@ -398,9 +395,6 @@ pub trait Operations {
 
     fn scope_env(&self) -> Option<&Env>;
     fn set_scope_env(&mut self, env: Env);
-    /// Drop the premium anchor: no scope env, no premium token. Used when a
-    /// slot is detached or its term runs out.
-    fn clear_premium(&mut self);
 
     fn premium_token(&self) -> Option<&str>;
     fn set_premium_token(&mut self, token: String);
@@ -521,11 +515,7 @@ impl Operations for Subscription {
     }
 
     fn is_active(&self) -> bool {
-        !self.is_deleted
-            && self
-                .expires_at
-                .map(|expires_at| expires_at > Utc::now())
-                .unwrap_or(true)
+        !self.is_deleted && self.expires_at.map(|expires_at| expires_at > Utc::now()).unwrap_or(true)
     }
 
     fn is_deleted(&self) -> bool {
@@ -587,12 +577,6 @@ impl Operations for Subscription {
 
     fn set_scope_env(&mut self, env: Env) {
         self.scope_env = Some(env);
-        self.updated_at = Utc::now();
-    }
-
-    fn clear_premium(&mut self) {
-        self.scope_env = None;
-        self.premium_token = None;
         self.updated_at = Utc::now();
     }
 
@@ -674,8 +658,7 @@ mod tests {
     #[test]
     fn test_new_selfhosted_subscription() {
         let env = Env::personal_for(uuid::Uuid::new_v4());
-        let sub =
-            Subscription::new_selfhosted(uuid::Uuid::new_v4(), "ref".to_string(), env.clone());
+        let sub = Subscription::new_selfhosted(uuid::Uuid::new_v4(), "ref".to_string(), env.clone());
 
         assert_eq!(sub.plan_kind(), PlanKind::Selfhosted);
         assert_eq!(sub.expires_at(), None);
@@ -740,12 +723,7 @@ mod tests {
     }
 
     fn sub_with(expires_at: Option<DateTime<Utc>>, limit_bytes: Option<i64>) -> Subscription {
-        Subscription::new(
-            uuid::Uuid::new_v4(),
-            "ref".to_string(),
-            expires_at,
-            limit_bytes,
-        )
+        Subscription::new(uuid::Uuid::new_v4(), "ref".to_string(), expires_at, limit_bytes)
     }
 
     #[test]
@@ -816,7 +794,8 @@ mod tests {
         // No balance left: not in traffic mode.
         assert!(!expired_with_balance.traffic_mode(true, 1000));
         // Active paid time: not traffic mode even with a limit.
-        let active_with_limit = sub_with(Some(Utc::now() + chrono::Duration::days(1)), Some(1000));
+        let active_with_limit =
+            sub_with(Some(Utc::now() + chrono::Duration::days(1)), Some(1000));
         assert!(!active_with_limit.traffic_mode(true, 0));
         // Lite (expires_at NULL) is not "traffic mode" — it has no paid time.
         let lite = sub_with(None, Some(1000));

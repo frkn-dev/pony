@@ -97,6 +97,11 @@ pub struct ScopeInfo {
     pub kind: ScopeKind,
     pub env: Env,
     pub protos: Vec<Tag>,
+    /// Premium term of the slot (`subscriptions.premium_until`). The front
+    /// shows it next to the subscription's own expiry: the two dates move
+    /// independently, so one banner cannot describe both.
+    #[serde(default)]
+    pub premium_until: Option<DateTime<Utc>>,
 }
 
 /// Safe projection of a connection for the subscription-info endpoint:
@@ -290,6 +295,7 @@ mod tests {
             kind: ScopeKind::Premium,
             env: Env::Custom("premiumAb12Cd34".to_string()),
             protos: vec![Tag::AmneziaWg, Tag::Hysteria2],
+            premium_until: None,
         };
 
         let value = serde_json::to_value(&scope).unwrap();

@@ -64,6 +64,11 @@ pub struct Subscription {
     pub parent_id: Option<uuid::Uuid>,
     pub scope_env: Option<Env>,
     pub premium_token: Option<String>,
+    /// Premium term, independent of `expires_at`: a premium slot may run out
+    /// before the subscription does (and vice versa), so the two dates are
+    /// stored separately. NULL means "no term set".
+    #[serde(default)]
+    pub premium_until: Option<DateTime<Utc>>,
     pub plan_kind: PlanKind,
 
     /// Selfhosted caps (PG columns `server_limit` / `user_limit`): how many
@@ -133,6 +138,7 @@ impl Subscription {
             parent_id: None,
             scope_env: None,
             premium_token: None,
+            premium_until: None,
             plan_kind: PlanKind::Standard,
 
             server_limit: DEFAULT_SERVER_LIMIT,
@@ -158,6 +164,7 @@ impl Subscription {
             parent_id: None,
             scope_env: None,
             premium_token: None,
+            premium_until: None,
             plan_kind: PlanKind::Lite,
 
             server_limit: DEFAULT_SERVER_LIMIT,
@@ -184,6 +191,7 @@ impl Subscription {
             parent_id: None,
             scope_env: Some(scope_env),
             premium_token: None,
+            premium_until: None,
             plan_kind: PlanKind::Selfhosted,
 
             server_limit: DEFAULT_SERVER_LIMIT,
@@ -217,6 +225,7 @@ impl Subscription {
             // owner id, never stored, so a user can never host its own nodes.
             scope_env: None,
             premium_token: None,
+            premium_until: None,
             plan_kind: PlanKind::Selfhosted,
 
             server_limit: 0,
@@ -258,6 +267,7 @@ impl Default for Subscription {
             parent_id: None,
             scope_env: None,
             premium_token: None,
+            premium_until: None,
             plan_kind: PlanKind::Standard,
             server_limit: DEFAULT_SERVER_LIMIT,
             user_limit: DEFAULT_USER_LIMIT,
@@ -288,6 +298,7 @@ impl From<tokio_postgres::Row> for Subscription {
                 .ok()
                 .and_then(|s| if s.is_empty() { None } else { Some(Env::from(s.as_str())) }),
             premium_token: row.get("premium_token"),
+            premium_until: row.get("premium_until"),
             plan_kind: row
                 .try_get::<_, String>("plan_kind")
                 .ok()
@@ -398,6 +409,11 @@ pub trait Operations {
 
     fn premium_token(&self) -> Option<&str>;
     fn set_premium_token(&mut self, token: String);
+
+    /// Premium term (`subscriptions.premium_until`): when the slot stops being
+    /// paid for. Independent of `expires_at`.
+    fn premium_until(&self) -> Option<DateTime<Utc>>;
+    fn set_premium_until(&mut self, until: Option<DateTime<Utc>>);
 
     /// Selfhosted caps: max own nodes (servers, offline included) and max
     /// child subscriptions (users) this account may hold.
@@ -586,6 +602,15 @@ impl Operations for Subscription {
 
     fn set_premium_token(&mut self, token: String) {
         self.premium_token = Some(token);
+        self.updated_at = Utc::now();
+    }
+
+    fn premium_until(&self) -> Option<DateTime<Utc>> {
+        self.premium_until
+    }
+
+    fn set_premium_until(&mut self, until: Option<DateTime<Utc>>) {
+        self.premium_until = until;
         self.updated_at = Utc::now();
     }
 
